@@ -1,0 +1,27 @@
+# IDE
+.idea/
+*.iml
+
+# Claude
+.claude/
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+node_modules/
+backend/target/
+
+# Build
+dist/
+build/
+*.class
+
+# Env
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db

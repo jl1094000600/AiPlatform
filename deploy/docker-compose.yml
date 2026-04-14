@@ -1,0 +1,359 @@
+# AI中台管理系统 Docker Compose 一键部署
+# 适用于开发/测试环境，生产环境请参考 docs/deployment-ubuntu.md
+
+version: '3.8'
+
+services:
+  # MySQL 主从（简化版，单实例）
+  mysql:
+    image: mysql:8.0
+    container_name: aiplatform-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ai_platform
+      MYSQL_USER: ai_app
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    networks:
+      - aiplatform
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: aiplatform-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_password}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - aiplatform
+
+  # Nacos 服务注册与配置中心
+  nacos:
+    image: nacos/nacos-server:v2.3.2
+    container_name: aiplatform-nacos
+    restart: always
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: ai_platform
+      MYSQL_SERVICE_USER: ai_app
+      MYSQL_SERVICE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      NACOS_AUTH_ENABLE: true
+      NACOS_AUTH_TOKEN: VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    depends_on:
+      - mysql
+    volumes:
+      - nacos_data:/home/nacos/data
+    networks:
+      - aiplatform
+
+  # RocketMQ NameServer
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.2.0
+    container_name: aiplatform-rocketmq-namesrv
+    restart: always
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m"
+    volumes:
+      - rocketmq_namesrv_data:/home/rocketmq/namesrv/logs
+    networks:
+      - aiplatform
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:5.2.0
+    container_name: aiplatform-rocketmq-broker
+    restart: always
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c ../conf/broker.conf
+    depends_on:
+      - rocketmq-namesrv
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    environment:
+      JAVA_OPT_EXT: "-Xms1g -Xmx1g"
+    volumes:
+      - rocketmq_broker_data:/home/rocketmq/broker/logs
+      - ./rocketmq/broker.conf:/home/rocketmq/broker/conf/broker.conf:ro
+    networks:
+      - aiplatform
+
+  # XXL-JOB 调度中心
+  xxl-job-admin:
+    image: xuxueli/xxl-job-admin:2.4.1
+    container_name: aiplatform-xxljob
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_TOKEN:-xuxueli123}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+    networks:
+      - aiplatform
+
+  # Elasticsearch
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    container_name: aiplatform-elasticsearch
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - xpack.security.enabled=false
+      - "ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-elastic}"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - aiplatform
+
+  # Logstash
+  logstash:
+    image: logstash:8.12.0
+    container_name: aiplatform-logstash
+    restart: always
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - aiplatform
+
+  # Kibana
+  kibana:
+    image: kibana:8.12.0
+    container_name: aiplatform-kibana
+    restart: always
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - aiplatform
+
+  # SkyWalking OAP
+  skywalking-oap:
+    image: apache/skywalking-oap:9.7.0
+    container_name: aiplatform-skywalking-oap
+    restart: always
+    environment:
+      SW_STORAGE: elasticsearch
+      SW_STORAGE_ES_CLUSTER_NODES: elasticsearch:9200
+    ports:
+      - "11800:11800"  # gRPC
+      - "12800:12800"  # HTTP
+    volumes:
+      - skywalking_oap_data:/skywalking/oap-data
+    networks:
+      - aiplatform
+
+  # SkyWalking UI
+  skywalking-ui:
+    image: apache/skywalking-ui:9.7.0
+    container_name: aiplatform-skywalking-ui
+    restart: always
+    environment:
+      SW_OAP_ADDRESS: skywalking-oap:12800
+    ports:
+      - "18080:8080"
+    depends_on:
+      - skywalking-oap
+    networks:
+      - aiplatform
+
+  # 后端微服务 - Gateway
+  gateway:
+    build:
+      context: ../backend
+      dockerfile: deploy/Dockerfile
+    container_name: aiplatform-gateway
+    restart: always
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER-ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER-ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      SKYWALKING_COLLECTOR: skywalking-oap:11800
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+      - rocketmq-namesrv
+      - skywalking-oap
+    networks:
+      - aiplatform
+
+  # 后端微服务 - Agent 服务
+  agent-service:
+    build:
+      context: ../backend
+      dockerfile: deploy/Dockerfile
+    container_name: aiplatform-agent-service
+    restart: always
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER-ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER-ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      SKYWALKING_COLLECTOR: skywalking-oap:11800
+      SERVER_PORT: 8001
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+    networks:
+      - aiplatform
+
+  # 后端微服务 - 监控服务
+  monitor-service:
+    build:
+      context: ../backend
+      dockerfile: deploy/Dockerfile
+    container_name: aiplatform-monitor-service
+    restart: always
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER-ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER-ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      SKYWALKING_COLLECTOR: skywalking-oap:11800
+      SERVER_PORT: 8002
+    ports:
+      - "8002:8002"
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+    networks:
+      - aiplatform
+
+  # 后端微服务 - 模型服务
+  model-service:
+    build:
+      context: ../backend
+      dockerfile: deploy/Dockerfile
+    container_name: aiplatform-model-service
+    restart: always
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER-ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER-ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      SKYWALKING_COLLECTOR: skywalking-oap:11800
+      SERVER_PORT: 8003
+    ports:
+      - "8003:8003"
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+    networks:
+      - aiplatform
+
+  # 后端微服务 - 权限服务
+  permission-service:
+    build:
+      context: ../backend
+      dockerfile: deploy/Dockerfile
+    container_name: aiplatform-permission-service
+    restart: always
+    environment:
+      SPRING_CLOUD_NACOS_DISCOVERY_SERVER-ADDR: nacos:8848
+      SPRING_CLOUD_NACOS_CONFIG_SERVER-ADDR: nacos:8848
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_platform
+      SPRING_DATASOURCE_USERNAME: ai_app
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-ai_app_password}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ROCKETMQ_NAMESRV_ADDR: rocketmq-namesrv:9876
+      SKYWALKING_COLLECTOR: skywalking-oap:11800
+      SERVER_PORT: 8004
+    ports:
+      - "8004:8004"
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+    networks:
+      - aiplatform
+
+  # Nginx 反向代理 + 前端静态资源
+  nginx:
+    image: nginx:1.24-alpine
+    container_name: aiplatform-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ../frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - gateway
+    networks:
+      - aiplatform
+
+networks:
+  aiplatform:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  nacos_data:
+  rocketmq_namesrv_data:
+  rocketmq_broker_data:
+  es_data:
+  skywalking_oap_data:
