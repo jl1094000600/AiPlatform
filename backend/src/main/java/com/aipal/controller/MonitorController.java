@@ -31,6 +31,16 @@ public class MonitorController {
         return Result.success(callRecordService.listCallRecords(pageNum, pageSize, agentId, startTime, endTime));
     }
 
+    @GetMapping("/call-records")
+    public Result<Page<MonCallRecord>> listCallRecords(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
+        return Result.success(callRecordService.listCallRecords(pageNum, pageSize, agentId, startTime, endTime));
+    }
+
     @GetMapping("/traces/{traceId}")
     public Result<MonCallRecord> getTrace(@PathVariable String traceId) {
         return Result.success(callRecordService.getByTraceId(traceId));
@@ -64,6 +74,16 @@ public class MonitorController {
 
     @GetMapping("/agent-graph")
     public Result<AgentGraphResponse> getAgentGraph() {
+        return Result.success(monitorService.getAgentGraph());
+    }
+
+    @GetMapping("/execution-chain")
+    public Result<?> getExecutionChain(@RequestParam(required = false) String taskId, @RequestParam(required = false) String sessionId) {
+        return Result.success(monitorService.getExecutionChain(taskId, sessionId));
+    }
+
+    @GetMapping("/graph/export")
+    public Result<AgentGraphResponse> exportGraph() {
         return Result.success(monitorService.getAgentGraph());
     }
 }

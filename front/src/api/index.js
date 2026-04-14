@@ -61,6 +61,12 @@ export default {
   getAgentGraph() {
     return api.get('/monitor/agent-graph')
   },
+  getExecutionChain(params) {
+    return api.get('/monitor/execution-chain', { params })
+  },
+  exportGraph() {
+    return api.get('/monitor/graph/export')
+  },
   
   // Model APIs
   getModels(params) {

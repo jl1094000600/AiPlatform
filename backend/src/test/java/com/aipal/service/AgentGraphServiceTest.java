@@ -3,12 +3,12 @@ package com.aipal.service;
 import com.aipal.dto.AgentGraphEdge;
 import com.aipal.dto.AgentGraphNode;
 import com.aipal.dto.AgentGraphResponse;
+import com.aipal.entity.A2ATask;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
-import com.aipal.entity.MonCallRecord;
+import com.aipal.mapper.A2ATaskMapper;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
-import com.aipal.mapper.MonCallRecordMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,6 +26,12 @@ import static org.mockito.Mockito.when;
 
 /**
  * MonitorService 图谱数据聚合测试
+ *
+ * 测试接口: GET /api/v1/monitor/agent-graph
+ *
+ * 图谱数据来源:
+ * - 节点: ai_agent 表 + ai_agent_heartbeat 表
+ * - 边: ai_a2a_task 表 (source_agent_id -> target_agent_id)
  */
 @SpringBootTest
 @Transactional
@@ -41,14 +47,13 @@ class AgentGraphServiceTest {
     private AgentHeartbeatMapper heartbeatMapper;
 
     @MockBean
-    private MonCallRecordMapper callRecordMapper;
+    private A2ATaskMapper a2aTaskMapper;
 
     @Test
     void testGetAgentGraph_Basic() {
-        // Mock empty data
         when(agentMapper.selectList(any())).thenReturn(new ArrayList<>());
         when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
-        when(callRecordMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
         assertNotNull(graph);
@@ -58,14 +63,13 @@ class AgentGraphServiceTest {
 
     @Test
     void testGetAgentGraph_WithAgents() {
-        // Mock agent data
         AiAgent agent = new AiAgent();
         agent.setId(1L);
         agent.setAgentName("TestAgent");
         agent.setCategory("AI");
         when(agentMapper.selectList(any())).thenReturn(Collections.singletonList(agent));
         when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
-        when(callRecordMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
         assertNotNull(graph);
@@ -81,7 +85,7 @@ class AgentGraphServiceTest {
         agent.setCategory("AI");
         when(agentMapper.selectList(any())).thenReturn(Collections.singletonList(agent));
         when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
-        when(callRecordMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
         AgentGraphNode node = graph.getNodes().get(0);
@@ -94,18 +98,20 @@ class AgentGraphServiceTest {
 
     @Test
     void testGetAgentGraph_EdgeStructure() {
-        // Mock call record data
-        MonCallRecord record = new MonCallRecord();
-        record.setAgentId(1L);
-        record.setDurationMs(100);
-        record.setCreateTime(LocalDateTime.now());
+        A2ATask task = new A2ATask();
+        task.setSourceAgentId(1L);
+        task.setTargetAgentId(2L);
+        task.setStartTime(LocalDateTime.now().minusMinutes(1));
+        task.setEndTime(LocalDateTime.now());
+        task.setCreateTime(LocalDateTime.now());
 
         when(agentMapper.selectList(any())).thenReturn(new ArrayList<>());
         when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
-        when(callRecordMapper.selectList(any())).thenReturn(Collections.singletonList(record));
+        when(a2aTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
         assertNotNull(graph.getEdges());
+        assertEquals(1, graph.getEdges().size());
     }
 
     @Test
@@ -122,37 +128,89 @@ class AgentGraphServiceTest {
 
         when(agentMapper.selectList(any())).thenReturn(Collections.singletonList(agent));
         when(heartbeatMapper.selectList(any())).thenReturn(Collections.singletonList(heartbeat));
-        when(callRecordMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
         AgentGraphNode node = graph.getNodes().get(0);
 
         assertEquals(1, node.getStatus());
         assertNotNull(node.getLastHeartbeat());
+        assertEquals(1, node.getInstanceCount());
     }
 
     @Test
-    void testGetAgentGraph_Aggregation() {
-        // Test that call records are properly aggregated
-        MonCallRecord record1 = new MonCallRecord();
-        record1.setAgentId(1L);
-        record1.setDurationMs(100);
-        record1.setCreateTime(LocalDateTime.now());
+    void testGetAgentGraph_A2ATaskAggregation() {
+        // Test that A2A tasks are properly aggregated by source->target pair
+        A2ATask task1 = new A2ATask();
+        task1.setSourceAgentId(1L);
+        task1.setTargetAgentId(2L);
+        task1.setStartTime(LocalDateTime.now().minusMinutes(2));
+        task1.setEndTime(LocalDateTime.now().minusMinutes(1));
+        task1.setCreateTime(LocalDateTime.now().minusMinutes(2));
 
-        MonCallRecord record2 = new MonCallRecord();
-        record2.setAgentId(1L);
-        record2.setDurationMs(200);
-        record2.setCreateTime(LocalDateTime.now());
+        A2ATask task2 = new A2ATask();
+        task2.setSourceAgentId(1L);
+        task2.setTargetAgentId(2L);
+        task2.setStartTime(LocalDateTime.now().minusMinutes(1));
+        task2.setEndTime(LocalDateTime.now());
+        task2.setCreateTime(LocalDateTime.now().minusMinutes(1));
 
         when(agentMapper.selectList(any())).thenReturn(new ArrayList<>());
         when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
-        when(callRecordMapper.selectList(any())).thenReturn(List.of(record1, record2));
+        when(a2aTaskMapper.selectList(any())).thenReturn(List.of(task1, task2));
 
         AgentGraphResponse graph = monitorService.getAgentGraph();
-        assertNotNull(graph.getEdges());
 
-        // Both records should be aggregated into one edge
+        // Both tasks should be aggregated into one edge
         assertEquals(1, graph.getEdges().size());
         assertEquals(2L, graph.getEdges().get(0).getCallCount());
+        assertEquals(1L, graph.getEdges().get(0).getSource());
+        assertEquals(2L, graph.getEdges().get(0).getTarget());
+    }
+
+    @Test
+    void testGetAgentGraph_MultipleSourceTargetPairs() {
+        // Two different source->target pairs should create two edges
+        A2ATask task1 = new A2ATask();
+        task1.setSourceAgentId(1L);
+        task1.setTargetAgentId(2L);
+        task1.setStartTime(LocalDateTime.now());
+        task1.setEndTime(LocalDateTime.now());
+        task1.setCreateTime(LocalDateTime.now());
+
+        A2ATask task2 = new A2ATask();
+        task2.setSourceAgentId(3L);
+        task2.setTargetAgentId(4L);
+        task2.setStartTime(LocalDateTime.now());
+        task2.setEndTime(LocalDateTime.now());
+        task2.setCreateTime(LocalDateTime.now());
+
+        when(agentMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(List.of(task1, task2));
+
+        AgentGraphResponse graph = monitorService.getAgentGraph();
+        assertEquals(2, graph.getEdges().size());
+    }
+
+    @Test
+    void testGetAgentGraph_EdgeResponseTimeCalculation() {
+        A2ATask task = new A2ATask();
+        task.setSourceAgentId(1L);
+        task.setTargetAgentId(2L);
+        task.setStartTime(LocalDateTime.now().minusSeconds(10));
+        task.setEndTime(LocalDateTime.now());
+        task.setCreateTime(LocalDateTime.now());
+
+        when(agentMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(heartbeatMapper.selectList(any())).thenReturn(new ArrayList<>());
+        when(a2aTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
+
+        AgentGraphResponse graph = monitorService.getAgentGraph();
+        AgentGraphEdge edge = graph.getEdges().get(0);
+
+        assertNotNull(edge.getAvgResponseTime());
+        // Response time should be approximately 10000ms (10 seconds)
+        assertTrue(edge.getAvgResponseTime() >= 9000 && edge.getAvgResponseTime() <= 11000);
     }
 }

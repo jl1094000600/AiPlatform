@@ -3,12 +3,12 @@ package com.aipal.integration;
 import com.aipal.dto.AgentGraphEdge;
 import com.aipal.dto.AgentGraphNode;
 import com.aipal.dto.AgentGraphResponse;
+import com.aipal.entity.A2ATask;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
-import com.aipal.entity.MonCallRecord;
+import com.aipal.mapper.A2ATaskMapper;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
-import com.aipal.mapper.MonCallRecordMapper;
 import com.aipal.service.MonitorService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,9 +25,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * 测试完整数据流:
  * 1. 创建测试Agent数据
  * 2. 创建心跳记录
- * 3. 创建调用记录
+ * 3. 创建A2A任务记录
  * 4. 调用 getAgentGraph API
  * 5. 验证返回数据结构
+ *
+ * 边数据来源: ai_a2a_task 表 (source_agent_id -> target_agent_id)
  */
 @SpringBootTest
 @Transactional
@@ -43,7 +45,7 @@ class AgentGraphIntegrationTest {
     private AgentHeartbeatMapper heartbeatMapper;
 
     @Autowired
-    private MonCallRecordMapper callRecordMapper;
+    private A2ATaskMapper a2aTaskMapper;
 
     @Test
     void testEndToEndGraphGeneration() {
@@ -73,20 +75,14 @@ class AgentGraphIntegrationTest {
         heartbeat2.setLastHeartbeat(LocalDateTime.now());
         heartbeatMapper.insert(heartbeat2);
 
-        // Step 3: Create call records
-        MonCallRecord record1 = new MonCallRecord();
-        record1.setAgentId(agent1.getId());
-        record1.setDurationMs(100);
-        record1.setSuccess((byte) 1);
-        record1.setCreateTime(LocalDateTime.now());
-        callRecordMapper.insert(record1);
-
-        MonCallRecord record2 = new MonCallRecord();
-        record2.setAgentId(agent2.getId());
-        record2.setDurationMs(200);
-        record2.setSuccess((byte) 1);
-        record2.setCreateTime(LocalDateTime.now());
-        callRecordMapper.insert(record2);
+        // Step 3: Create A2A task records (边数据)
+        A2ATask task1 = new A2ATask();
+        task1.setSourceAgentId(agent1.getId());
+        task1.setTargetAgentId(agent2.getId());
+        task1.setStartTime(LocalDateTime.now().minusMinutes(1));
+        task1.setEndTime(LocalDateTime.now());
+        task1.setCreateTime(LocalDateTime.now());
+        a2aTaskMapper.insert(task1);
 
         // Step 4: Call getAgentGraph
         AgentGraphResponse response = monitorService.getAgentGraph();
@@ -132,6 +128,7 @@ class AgentGraphIntegrationTest {
         AgentGraphResponse response = monitorService.getAgentGraph();
 
         for (AgentGraphEdge edge : response.getEdges()) {
+            assertNotNull(edge.getSource(), "Edge source should not be null");
             assertNotNull(edge.getTarget(), "Edge target should not be null");
             assertNotNull(edge.getCallCount(), "Edge callCount should not be null");
         }
@@ -139,8 +136,8 @@ class AgentGraphIntegrationTest {
 
     @Test
     void testEmptyDatabaseScenario() {
-        // Clear all data
-        callRecordMapper.delete(null);
+        // Clear all A2A task data
+        a2aTaskMapper.delete(null);
         heartbeatMapper.delete(null);
         // Note: We don't delete agents as they might be needed for other tests
 
@@ -149,5 +146,36 @@ class AgentGraphIntegrationTest {
         assertNotNull(response);
         assertNotNull(response.getNodes());
         assertNotNull(response.getEdges());
+    }
+
+    @Test
+    void testA2ATaskEdgeGeneration() {
+        // Create agents first
+        AiAgent agent1 = new AiAgent();
+        agent1.setAgentName("SourceAgent");
+        agent1.setCategory("AI");
+        agentMapper.insert(agent1);
+
+        AiAgent agent2 = new AiAgent();
+        agent2.setAgentName("TargetAgent");
+        agent2.setCategory("AI");
+        agentMapper.insert(agent2);
+
+        // Create A2A task
+        A2ATask task = new A2ATask();
+        task.setSourceAgentId(agent1.getId());
+        task.setTargetAgentId(agent2.getId());
+        task.setStartTime(LocalDateTime.now().minusSeconds(5));
+        task.setEndTime(LocalDateTime.now());
+        task.setCreateTime(LocalDateTime.now());
+        a2aTaskMapper.insert(task);
+
+        AgentGraphResponse response = monitorService.getAgentGraph();
+
+        // Find the edge between our agents
+        boolean foundEdge = response.getEdges().stream()
+                .anyMatch(e -> e.getSource().equals(agent1.getId()) &&
+                               e.getTarget().equals(agent2.getId()));
+        assertTrue(foundEdge, "Should find edge from source to target agent");
     }
 }

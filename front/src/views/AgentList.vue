@@ -58,9 +58,18 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" align="center" fixed="right">
+        <el-table-column label="操作" width="320" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
+              <el-button size="small" @click="openDetail(row)" class="action-btn view">
+                <View /> 详情
+              </el-button>
+              <el-button size="small" @click="openCallRecords(row)" class="action-btn records">
+                <Document /> 调用记录
+              </el-button>
+              <el-button size="small" @click="openExecutionChain(row)" class="action-btn chain">
+                <Link /> 执行链路
+              </el-button>
               <el-button size="small" @click="openDialog(row)" class="action-btn edit">
                 <Edit /> 编辑
               </el-button>
@@ -79,14 +88,6 @@
                 class="action-btn offline"
               >
                 <VideoPause /> 下线
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                @click="handleDelete(row)"
-                class="action-btn delete"
-              >
-                <Delete /> 删除
               </el-button>
             </div>
           </template>
@@ -155,13 +156,145 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- Agent Detail Dialog -->
+    <el-dialog v-model="showDetailDialog" title="Agent详情" width="600px" class="detail-dialog">
+      <div v-if="detailData" class="detail-content">
+        <div class="detail-row">
+          <span class="detail-label">Agent ID</span>
+          <span class="detail-value mono">#{{ detailData.id }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">编码</span>
+          <span class="detail-value mono">{{ detailData.agentCode }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">名称</span>
+          <span class="detail-value">{{ detailData.agentName }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">分类</span>
+          <span class="detail-value">{{ detailData.category || '-' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">接口地址</span>
+          <span class="detail-value mono">{{ detailData.apiUrl || '-' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">调用方式</span>
+          <span class="detail-value">{{ detailData.httpMethod || 'POST' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">状态</span>
+          <span class="status-badge" :class="getStatusClass(detailData.status)">
+            {{ getStatusText(detailData.status) }}
+          </span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">描述</span>
+          <span class="detail-value">{{ detailData.description || '-' }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">创建时间</span>
+          <span class="detail-value mono">{{ formatTime(detailData.createTime) }}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">更新时间</span>
+          <span class="detail-value mono">{{ formatTime(detailData.updateTime) }}</span>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- Call Records Dialog -->
+    <el-dialog v-model="showCallRecordsDialog" title="调用记录" width="900px" class="records-dialog">
+      <div v-if="callRecordsAgent" class="dialog-header-info">
+        <span>Agent: <strong>{{ callRecordsAgent.agentName }}</strong></span>
+        <span class="mono">#{{ callRecordsAgent.id }}</span>
+      </div>
+      <el-table :data="callRecords" v-loading="callRecordsLoading" stripe max-height="400">
+        <el-table-column prop="traceId" label="TraceID" width="180">
+          <template #default="{ row }">
+            <span class="mono trace-id">{{ row.traceId || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="durationMs" label="响应时间" width="100" align="center">
+          <template #default="{ row }">
+            <span class="mono">{{ row.durationMs ? row.durationMs + 'ms' : '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="statusCode" label="状态码" width="80" align="center">
+          <template #default="{ row }">
+            <span class="mono" :class="getStatusCodeClass(row.statusCode)">{{ row.statusCode || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="success" label="结果" width="80" align="center">
+          <template #default="{ row }">
+            <span class="result-badge" :class="row.success === 1 ? 'success' : 'failed'">
+              {{ row.success === 1 ? '成功' : '失败' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createTime" label="调用时间" min-width="160">
+          <template #default="{ row }">
+            <span class="mono">{{ formatTime(row.createTime) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="pagination-wrapper" v-if="callRecordsTotal > 0">
+        <el-pagination
+          v-model:current-page="callRecordsPage"
+          v-model:page-size="callRecordsPageSize"
+          :total="callRecordsTotal"
+          @current-change="loadCallRecords"
+          layout="total, prev, pager, next"
+        />
+      </div>
+    </el-dialog>
+
+    <!-- Execution Chain Dialog -->
+    <el-dialog v-model="showExecutionChainDialog" title="执行链路" width="800px" class="chain-dialog">
+      <div v-if="chainAgent" class="dialog-header-info">
+        <span>Agent: <strong>{{ chainAgent.agentName }}</strong></span>
+        <span class="mono">#{{ chainAgent.id }}</span>
+      </div>
+      <div class="chain-search">
+        <el-input v-model="chainSearchKey" placeholder="输入 TaskID 或 SessionID" style="width: 300px">
+          <template #append>
+            <el-button @click="loadExecutionChain">查询</el-button>
+          </template>
+        </el-input>
+      </div>
+      <div v-if="executionChain.length > 0" class="chain-timeline">
+        <div v-for="(node, index) in executionChain" :key="index" class="chain-node">
+          <div class="chain-node-icon" :class="getChainNodeClass(node.status)">
+            <span>{{ index + 1 }}</span>
+          </div>
+          <div class="chain-node-content">
+            <div class="chain-node-header">
+              <span class="chain-agent-name">{{ node.sourceAgentName }}</span>
+              <span class="chain-arrow">-></span>
+              <span class="chain-agent-name">{{ node.targetAgentName }}</span>
+            </div>
+            <div class="chain-node-meta">
+              <span class="mono">Task: {{ node.taskId }}</span>
+              <span>{{ node.taskType }}</span>
+              <span>{{ node.durationMs }}ms</span>
+            </div>
+            <div class="chain-node-time mono">
+              {{ formatTime(node.startTime) }} - {{ formatTime(node.endTime) }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else-if="!chainLoading" description="暂无执行链路数据" />
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, VideoPlay, VideoPause } from '@element-plus/icons-vue'
+import { Plus, Edit, Delete, VideoPlay, VideoPause, View, Document, Link } from '@element-plus/icons-vue'
 import api from '../api'
 
 const agents = ref([])
@@ -170,6 +303,21 @@ const pageNum = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const showDialog = ref(false)
+const showDetailDialog = ref(false)
+const showCallRecordsDialog = ref(false)
+const showExecutionChainDialog = ref(false)
+const detailData = ref(null)
+const callRecordsAgent = ref(null)
+const callRecords = ref([])
+const callRecordsLoading = ref(false)
+const callRecordsPage = ref(1)
+const callRecordsPageSize = ref(10)
+const callRecordsTotal = ref(0)
+const chainAgent = ref(null)
+const chainSearchKey = ref('')
+const executionChain = ref([])
+const chainLoading = ref(false)
+
 const form = reactive({
   id: null,
   agentCode: '',
@@ -275,6 +423,96 @@ const handleDelete = async (row) => {
   } catch (e) {
     if (e !== 'cancel') ElMessage.error('删除失败')
   }
+}
+
+const openDetail = (row) => {
+  detailData.value = row
+  showDetailDialog.value = true
+}
+
+const openCallRecords = async (row) => {
+  callRecordsAgent.value = row
+  callRecordsPage.value = 1
+  showCallRecordsDialog.value = true
+  await loadCallRecords()
+}
+
+const loadCallRecords = async () => {
+  callRecordsLoading.value = true
+  try {
+    const res = await api.getCallRecords({
+      pageNum: callRecordsPage.value,
+      pageSize: callRecordsPageSize.value,
+      agentId: callRecordsAgent.value?.id
+    })
+    if (res.data.code === 200) {
+      callRecords.value = res.data.data.records || []
+      callRecordsTotal.value = res.data.data.total || 0
+    }
+  } catch (e) {
+    ElMessage.error('加载调用记录失败')
+  } finally {
+    callRecordsLoading.value = false
+  }
+}
+
+const openExecutionChain = (row) => {
+  chainAgent.value = row
+  chainSearchKey.value = ''
+  executionChain.value = []
+  showExecutionChainDialog.value = true
+}
+
+const loadExecutionChain = async () => {
+  if (!chainSearchKey.value) {
+    ElMessage.warning('请输入 TaskID 或 SessionID')
+    return
+  }
+  chainLoading.value = true
+  try {
+    const params = chainSearchKey.value.includes('-') || chainSearchKey.value.length > 20
+      ? { sessionId: chainSearchKey.value }
+      : { taskId: chainSearchKey.value }
+    const res = await api.getExecutionChain(params)
+    if (res.data.code === 200) {
+      const data = res.data.data
+      executionChain.value = data?.chain || []
+    } else {
+      executionChain.value = []
+    }
+  } catch (e) {
+    ElMessage.error('加载执行链路失败')
+    executionChain.value = []
+  } finally {
+    chainLoading.value = false
+  }
+}
+
+const formatTime = (time) => {
+  if (!time) return '-'
+  const date = new Date(time)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+}
+
+const getStatusCodeClass = (code) => {
+  if (!code) return ''
+  if (code >= 200 && code < 300) return 'success'
+  if (code >= 400 && code < 500) return 'client-error'
+  if (code >= 500) return 'server-error'
+  return ''
+}
+
+const getChainNodeClass = (status) => {
+  const map = { 'COMPLETED': 'success', 'RUNNING': 'running', 'FAILED': 'failed', 'PENDING': 'pending' }
+  return map[status] || 'pending'
 }
 
 onMounted(loadAgents)
@@ -497,5 +735,204 @@ onMounted(loadAgents)
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
   border: none;
   font-weight: 600;
+}
+
+/* Detail Dialog */
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.detail-label {
+  width: 100px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.detail-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* Call Records Dialog */
+.dialog-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: rgba(0, 240, 255, 0.05);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.dialog-header-info strong {
+  color: var(--accent-cyan);
+}
+
+.records-dialog .pagination-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 0;
+}
+
+.trace-id {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.result-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.result-badge.success {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-green);
+}
+
+.result-badge.failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
+/* Execution Chain Dialog */
+.chain-search {
+  margin-bottom: 20px;
+}
+
+.chain-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.chain-node {
+  display: flex;
+  gap: 16px;
+  padding: 16px 0;
+  position: relative;
+}
+
+.chain-node:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 19px;
+  top: 48px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-color);
+}
+
+.chain-node-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.chain-node-icon.success {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-green);
+  border: 2px solid var(--accent-green);
+}
+
+.chain-node-icon.running {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  border: 2px solid #3b82f6;
+}
+
+.chain-node-icon.failed {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--accent-red);
+  border: 2px solid var(--accent-red);
+}
+
+.chain-node-icon.pending {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 2px solid #9ca3af;
+}
+
+.chain-node-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.chain-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.chain-agent-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chain-arrow {
+  color: var(--text-muted);
+}
+
+.chain-node-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.chain-node-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Action buttons - view, records, chain */
+.action-btn.view:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.action-btn.records {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: var(--accent-purple);
+}
+
+.action-btn.records:hover {
+  background: rgba(139, 92, 246, 0.2);
+}
+
+.action-btn.chain {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--accent-orange);
+}
+
+.action-btn.chain:hover {
+  background: rgba(245, 158, 11, 0.2);
 }
 </style>

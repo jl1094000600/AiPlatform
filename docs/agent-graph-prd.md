@@ -2,6 +2,7 @@
 
 | 版本 | 日期       | 作者 | 备注 |
 |------|------------|------|------|
+| 1.1  | 2026-04-14 | PM  | 补全4个API详细设计（Agent详情/调用记录/执行链路/导出） |
 | 1.0  | 2026-04-14 | PM  | Agent调用关系图谱PRD |
 
 ---
@@ -457,7 +458,7 @@ GET /api/v1/a2a/graph?status=ONLINE&callType=SYNC,ASYNC&timeRange=1h&keyword=age
 
 ### 6.2 获取Agent详情
 
-**接口用途：** 获取单个Agent的详细信息
+**接口用途：** 获取单个Agent的详细信息，包含实例、上下游依赖、统计数据
 
 ```
 GET /api/v1/a2a/graph/agents/{agentId}
@@ -473,7 +474,7 @@ GET /api/v1/a2a/graph/agents/{agentId}
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| code | int | 状态码 |
+| code | int | 状态码：0=成功，10001=Agent不存在 |
 | message | string | 响应消息 |
 | data | AgentDetail | Agent详情 |
 
@@ -484,14 +485,14 @@ GET /api/v1/a2a/graph/agents/{agentId}
 | agentId | string | Agent ID |
 | agentName | string | Agent名称 |
 | description | string | Agent描述 |
-| status | string | 状态 |
-| agentType | string | 类型 |
-| modelName | string | 绑定的模型 |
+| status | string | 状态：ONLINE/OFFLINE/ALERT |
+| agentType | string | 类型：DIALOGUE/GENERATION/FUNCTION |
+| modelName | string | 绑定的模型名称 |
 | version | string | 版本号 |
-| capabilities | string[] | 能力列表 |
+| capabilities | string[] | 能力列表，如["text-generation", "image-understanding"] |
 | instances | Instance[] | 实例列表 |
-| upstreamAgents | AgentRef[] | 上游调用Agent |
-| downstreamAgents | AgentRef[] | 下游依赖Agent |
+| upstreamAgents | AgentRef[] | 上游调用Agent列表 |
+| downstreamAgents | AgentRef[] | 下游依赖Agent列表 |
 | todayStats | AgentStats | 今日统计 |
 
 **Instance结构：**
@@ -499,11 +500,11 @@ GET /api/v1/a2a/graph/agents/{agentId}
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
 | instanceId | string | 实例ID |
-| status | string | 状态 |
-| load | decimal | 负载 |
+| status | string | 状态：ONLINE/OFFLINE/ALERT |
+| load | decimal | 当前负载（0-1） |
 | queueSize | int | 队列长度 |
-| lastHeartbeat | datetime | 最后心跳时间 |
-| version | string | 实例版本 |
+| lastHeartbeat | datetime | 最后心跳时间，格式：2026-04-14T10:00:00Z |
+| version | string | 实例版本号 |
 
 **AgentRef结构：**
 
@@ -511,22 +512,108 @@ GET /api/v1/a2a/graph/agents/{agentId}
 |--------|------|------|
 | agentId | string | Agent ID |
 | agentName | string | Agent名称 |
-| callType | string | 调用类型 |
+| callType | string | 调用类型：SYNC/ASYNC/WORKFLOW |
 | callCountPerHour | int | 每小时调用次数 |
 
 **AgentStats结构：**
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| totalCalls | int | 今日总调用 |
-| successCalls | int | 成功调用 |
-| failedCalls | int | 失败调用 |
-| avgDuration | int | 平均耗时 |
+| totalCalls | int | 今日总调用次数 |
+| successCalls | int | 成功调用次数 |
+| failedCalls | int | 失败调用次数 |
+| avgDuration | int | 平均耗时（毫秒） |
 | peakQps | decimal | 峰值QPS |
+
+**响应示例：**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "agentId": "agent-001",
+    "agentName": "Agent-A",
+    "description": "会议助手Agent，负责会议安排和提醒",
+    "status": "ONLINE",
+    "agentType": "DIALOGUE",
+    "modelName": "GPT-4o",
+    "version": "v1.2.0",
+    "capabilities": ["text-generation", "calendar-query", "mail-send"],
+    "instances": [
+      {
+        "instanceId": "ins-001",
+        "status": "ONLINE",
+        "load": 0.45,
+        "queueSize": 12,
+        "lastHeartbeat": "2026-04-14T10:00:00Z",
+        "version": "v1.2.0"
+      },
+      {
+        "instanceId": "ins-002",
+        "status": "ONLINE",
+        "load": 0.30,
+        "queueSize": 5,
+        "lastHeartbeat": "2026-04-14T10:00:05Z",
+        "version": "v1.2.0"
+      }
+    ],
+    "upstreamAgents": [
+      {
+        "agentId": "agent-x",
+        "agentName": "Agent-X",
+        "callType": "SYNC",
+        "callCountPerHour": 200
+      },
+      {
+        "agentId": "agent-y",
+        "agentName": "Agent-Y",
+        "callType": "ASYNC",
+        "callCountPerHour": 80
+      }
+    ],
+    "downstreamAgents": [
+      {
+        "agentId": "agent-002",
+        "agentName": "Agent-B",
+        "callType": "SYNC",
+        "callCountPerHour": 89
+      },
+      {
+        "agentId": "agent-003",
+        "agentName": "Agent-C",
+        "callType": "ASYNC",
+        "callCountPerHour": 45
+      },
+      {
+        "agentId": "agent-004",
+        "agentName": "Agent-D",
+        "callType": "WORKFLOW",
+        "callCountPerHour": 12
+      }
+    ],
+    "todayStats": {
+      "totalCalls": 1234,
+      "successCalls": 1225,
+      "failedCalls": 9,
+      "avgDuration": 230,
+      "peakQps": 15.5
+    }
+  }
+}
+```
+
+**错误响应示例：**
+```json
+{
+  "code": 10001,
+  "message": "Agent不存在: agent-999",
+  "data": null
+}
+```
 
 ### 6.3 获取调用记录
 
-**接口用途：** 获取Agent的A2A调用历史记录
+**接口用途：** 获取Agent的A2A调用历史记录，支持分页、筛选
 
 ```
 GET /api/v1/a2a/graph/agents/{agentId}/calls
@@ -540,20 +627,25 @@ GET /api/v1/a2a/graph/agents/{agentId}/calls
 
 **请求参数：**
 
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| page | int | 否 | 页码，默认1 |
-| pageSize | int | 否 | 每页条数，默认20 |
-| callType | string | 否 | 调用类型：SYNC/ASYNC/WORKFLOW |
-| status | string | 否 | 状态：SUCCESS/FAILED/TIMEOUT/CANCELLED |
-| startTime | datetime | 否 | 开始时间 |
-| endTime | datetime | 否 | 结束时间 |
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| page | int | 否 | 1 | 页码，从1开始 |
+| pageSize | int | 否 | 20 | 每页条数，最大100 |
+| callType | string | 否 | - | 调用类型：SYNC/ASYNC/WORKFLOW |
+| status | string | 否 | - | 状态：SUCCESS/FAILED/TIMEOUT/CANCELLED |
+| startTime | datetime | 否 | - | 开始时间，ISO 8601格式 |
+| endTime | datetime | 否 | - | 结束时间，ISO 8601格式 |
+
+**请求示例：**
+```
+GET /api/v1/a2a/graph/agents/agent-001/calls?page=1&pageSize=20&callType=SYNC&status=SUCCESS&startTime=2026-04-14T00:00:00Z
+```
 
 **响应参数：**
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| code | int | 状态码 |
+| code | int | 状态码：0=成功，10001=Agent不存在 |
 | message | string | 响应消息 |
 | data | PageResult | 分页结果 |
 
@@ -565,27 +657,95 @@ GET /api/v1/a2a/graph/agents/{agentId}/calls
 | total | int | 总条数 |
 | page | int | 当前页 |
 | pageSize | int | 每页条数 |
+| totalPages | int | 总页数 |
 
 **CallRecord结构：**
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| taskId | string | 任务ID |
+| taskId | string | 任务唯一ID |
 | sourceAgentId | string | 源Agent ID |
 | sourceAgentName | string | 源Agent名称 |
 | targetAgentId | string | 目标Agent ID |
 | targetAgentName | string | 目标Agent名称 |
-| callType | string | 调用类型 |
-| taskType | string | 任务类型 |
+| callType | string | 调用类型：SYNC（同步）/ ASYNC（异步）/ WORKFLOW（工作流） |
+| taskType | string | 任务类型，如query_available_time |
 | taskDescription | string | 任务描述 |
-| status | string | 状态 |
-| duration | int | 耗时（毫秒） |
-| errorMessage | string | 错误信息 |
-| createTime | datetime | 创建时间 |
+| status | string | 状态：SUCCESS/FAILED/TIMEOUT/CANCELLED |
+| duration | int | 耗时（毫秒），异步调用返回-1 |
+| errorMessage | string | 错误信息，仅status=FAILED时有值 |
+| createTime | datetime | 创建时间，ISO 8601格式 |
+
+**响应示例：**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "records": [
+      {
+        "taskId": "task-001",
+        "sourceAgentId": "agent-001",
+        "sourceAgentName": "Agent-A",
+        "targetAgentId": "agent-002",
+        "targetAgentName": "Agent-B",
+        "callType": "SYNC",
+        "taskType": "query_available_time",
+        "taskDescription": "查询明天下午2-4点是否有空",
+        "status": "SUCCESS",
+        "duration": 230,
+        "errorMessage": null,
+        "createTime": "2026-04-14T10:00:23Z"
+      },
+      {
+        "taskId": "task-002",
+        "sourceAgentId": "agent-001",
+        "sourceAgentName": "Agent-A",
+        "targetAgentId": "agent-003",
+        "targetAgentName": "Agent-C",
+        "callType": "ASYNC",
+        "taskType": "send_mail",
+        "taskDescription": "发送邮件通知",
+        "status": "SUCCESS",
+        "duration": -1,
+        "errorMessage": null,
+        "createTime": "2026-04-14T10:00:15Z"
+      },
+      {
+        "taskId": "task-003",
+        "sourceAgentId": "agent-001",
+        "sourceAgentName": "Agent-A",
+        "targetAgentId": "agent-002",
+        "targetAgentName": "Agent-B",
+        "callType": "SYNC",
+        "taskType": "query_meeting_room",
+        "taskDescription": "查询会议室",
+        "status": "FAILED",
+        "duration": 5000,
+        "errorMessage": "调用超时：目标Agent响应超时",
+        "createTime": "2026-04-14T10:00:01Z"
+      }
+    ],
+    "total": 156,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 8
+  }
+}
+```
+
+**错误响应示例：**
+```json
+{
+  "code": 10001,
+  "message": "Agent不存在: agent-999",
+  "data": null
+}
+```
 
 ### 6.4 获取执行链路
 
-**接口用途：** 获取工作流/任务的完整执行链路
+**接口用途：** 获取工作流/任务的完整执行链路，展示每个节点的输入输出和执行状态
 
 ```
 GET /api/v1/a2a/graph/executions/{executionId}
@@ -595,13 +755,13 @@ GET /api/v1/a2a/graph/executions/{executionId}
 
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| executionId | string | 是 | 执行ID |
+| executionId | string | 是 | 工作流执行ID |
 
 **响应参数：**
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| code | int | 状态码 |
+| code | int | 状态码：0=成功，10004=执行记录不存在 |
 | message | string | 响应消息 |
 | data | ExecutionDetail | 执行详情 |
 
@@ -609,13 +769,14 @@ GET /api/v1/a2a/graph/executions/{executionId}
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| executionId | string | 执行ID |
+| executionId | string | 执行唯一ID |
 | workflowId | string | 工作流ID |
 | workflowName | string | 工作流名称 |
-| triggerType | string | 触发类型 |
-| status | string | 执行状态 |
-| startTime | datetime | 开始时间 |
-| endTime | datetime | 结束时间 |
+| workflowCode | string | 工作流编码 |
+| triggerType | string | 触发类型：MANUAL（手动）/ API / SCHEDULE（定时） |
+| status | string | 执行状态：PENDING/RUNNING/SUCCESS/FAILED/TIMEOUT/CANCELLED |
+| startTime | datetime | 开始时间，ISO 8601格式 |
+| endTime | datetime | 结束时间，ISO 8601格式 |
 | totalDuration | int | 总耗时（毫秒） |
 | nodes | NodeExecution[] | 节点执行列表 |
 
@@ -625,15 +786,112 @@ GET /api/v1/a2a/graph/executions/{executionId}
 |--------|------|------|
 | nodeId | string | 节点ID |
 | nodeName | string | 节点名称 |
-| nodeType | string | 节点类型 |
-| agentId | string | Agent ID |
-| agentName | string | Agent名称 |
-| status | string | 状态 |
-| duration | int | 耗时 |
+| nodeType | string | 节点类型：AGENT（Agent节点）/ CONDITION（条件节点）/ PARALLEL（并行节点）/ AGGREGATE（聚合节点）/ LLM_ROUTER（LLM路由节点） |
+| agentId | string | Agent ID（仅AGENT类型有值） |
+| agentName | string | Agent名称（仅AGENT类型有值） |
+| status | string | 节点执行状态：PENDING/RUNNING/SUCCESS/FAILED/SKIPPED |
+| duration | int | 节点耗时（毫秒） |
 | input | object | 输入参数 |
 | output | object | 输出结果 |
-| errorMessage | string | 错误信息 |
-| parallelIndex | int | 并行节点索引 |
+| errorMessage | string | 错误信息，仅status=FAILED时有值 |
+| parallelIndex | int | 并行节点索引，非并行节点为0 |
+| startTime | datetime | 节点开始时间 |
+| endTime | datetime | 节点结束时间 |
+
+**响应示例：**
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "executionId": "wf-exec-001",
+    "workflowId": "wf-001",
+    "workflowName": "会议助手流程",
+    "workflowCode": "meeting_assistant",
+    "triggerType": "MANUAL",
+    "status": "SUCCESS",
+    "startTime": "2026-04-14T10:00:00Z",
+    "endTime": "2026-04-14T10:00:05Z",
+    "totalDuration": 5200,
+    "nodes": [
+      {
+        "nodeId": "node-001",
+        "nodeName": "会议信息整理",
+        "nodeType": "AGENT",
+        "agentId": "agent-meeting",
+        "agentName": "Agent-Meeting",
+        "status": "SUCCESS",
+        "duration": 1200,
+        "input": {
+          "meetingTopic": "Q2规划会议",
+          "participants": ["user-001", "user-002", "user-003"]
+        },
+        "output": {
+          "agenda": "1. Q2目标回顾 2. 资源分配 3. 风险评估",
+          "estimatedDuration": 90
+        },
+        "errorMessage": null,
+        "parallelIndex": 0,
+        "startTime": "2026-04-14T10:00:00Z",
+        "endTime": "2026-04-14T10:00:01Z"
+      },
+      {
+        "nodeId": "node-002",
+        "nodeName": "日历查询",
+        "nodeType": "AGENT",
+        "agentId": "agent-calendar",
+        "agentName": "Agent-Calendar",
+        "status": "SUCCESS",
+        "duration": 800,
+        "input": {
+          "date": "2026-04-15",
+          "startHour": 14,
+          "endHour": 16,
+          "participants": ["user-001", "user-002", "user-003"]
+        },
+        "output": {
+          "availableSlots": ["14:00-16:00"],
+          "conflictCount": 0
+        },
+        "errorMessage": null,
+        "parallelIndex": 0,
+        "startTime": "2026-04-14T10:00:01Z",
+        "endTime": "2026-04-14T10:00:02Z"
+      },
+      {
+        "nodeId": "node-003",
+        "nodeName": "发送邀请邮件",
+        "nodeType": "PARALLEL",
+        "agentId": null,
+        "agentName": null,
+        "status": "SUCCESS",
+        "duration": 3200,
+        "input": {
+          "meetingDetails": "Q2规划会议 14:00-16:00",
+          "recipientCount": 3
+        },
+        "output": {
+          "sentCount": 3,
+          "failedCount": 0
+        },
+        "errorMessage": null,
+        "parallelIndex": 1,
+        "startTime": "2026-04-14T10:00:02Z",
+        "endTime": "2026-04-14T10:00:05Z"
+      }
+    ]
+  }
+}
+```
+
+**错误响应示例：**
+```json
+{
+  "code": 10004,
+  "message": "执行记录不存在: wf-exec-999",
+  "data": null
+}
+```
 
 ### 6.5 WebSocket实时推送
 
@@ -700,7 +958,7 @@ socket.onmessage = (event) => {
 
 ### 6.6 导出图谱数据
 
-**接口用途：** 导出图谱数据为JSON/Excel
+**接口用途：** 导出图谱数据为JSON或Excel格式，包含节点、边、统计信息，可选包含历史调用记录
 
 ```
 GET /api/v1/a2a/graph/export
@@ -708,14 +966,93 @@ GET /api/v1/a2a/graph/export
 
 **请求参数：**
 
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| format | string | 否 | 导出格式：json/excel，默认json |
-| includeHistory | boolean | 否 | 是否包含历史调用记录 |
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| format | string | 否 | json | 导出格式：json / excel |
+| includeHistory | boolean | 否 | false | 是否包含历史调用记录（仅excel格式支持） |
+| timeRange | string | 否 | 7d | 时间范围：15m / 1h / 24h / 7d / 30d |
+| status | string | 否 | - | Agent状态筛选：ONLINE / OFFLINE / ALERT |
+| callType | string | 否 | - | 调用类型筛选：SYNC / ASYNC / WORKFLOW |
+
+**请求示例：**
+```
+GET /api/v1/a2a/graph/export?format=excel&includeHistory=true&timeRange=7d
+```
 
 **响应：**
-- Content-Type: application/octet-stream
-- 文件名: a2a-graph-{timestamp}.{format}
+
+| 字段 | 说明 |
+|------|------|
+| Content-Type | application/octet-stream（json）或 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet（excel） |
+| Content-Disposition | attachment; filename="a2a-graph-{timestamp}.{format}" |
+| body | 文件内容 |
+
+**JSON格式响应体：**
+```json
+{
+  "exportTime": "2026-04-14T10:00:00Z",
+  "timeRange": "7d",
+  "stats": {
+    "totalAgents": 12,
+    "onlineAgents": 10,
+    "offlineAgents": 1,
+    "alertAgents": 1,
+    "totalCalls": 5678,
+    "successRate": 0.985,
+    "avgDuration": 350
+  },
+  "nodes": [
+    {
+      "agentId": "agent-001",
+      "agentName": "Agent-A",
+      "status": "ONLINE",
+      "agentType": "DIALOGUE",
+      "modelName": "GPT-4o",
+      "load": 0.45,
+      "instanceCount": 2,
+      "todayCallCount": 1234,
+      "todaySuccessRate": 0.992
+    }
+  ],
+  "edges": [
+    {
+      "sourceAgentId": "agent-001",
+      "sourceAgentName": "Agent-A",
+      "targetAgentId": "agent-002",
+      "targetAgentName": "Agent-B",
+      "callType": "SYNC",
+      "callCount": 567,
+      "successRate": 0.998,
+      "avgDuration": 230
+    }
+  ],
+  "callRecords": [
+    {
+      "taskId": "task-001",
+      "sourceAgentName": "Agent-A",
+      "targetAgentName": "Agent-B",
+      "callType": "SYNC",
+      "status": "SUCCESS",
+      "duration": 230,
+      "createTime": "2026-04-14T10:00:23Z"
+    }
+  ]
+}
+```
+
+**Excel格式说明：**
+- Sheet1 "图谱概览"：统计信息和节点列表
+- Sheet2 "调用关系"：边列表
+- Sheet3 "调用记录"：历史调用记录（仅includeHistory=true时包含）
+
+**错误响应示例：**
+```json
+{
+  "code": 20001,
+  "message": "图谱数据导出失败，数据量超过限制",
+  "data": null
+}
+```
 
 ---
 

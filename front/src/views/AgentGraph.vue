@@ -15,6 +15,9 @@
         <el-button type="primary" @click="loadGraphData" class="refresh-btn">
           <Refresh class="btn-icon" /> 刷新
         </el-button>
+        <el-button @click="handleExport" class="export-btn">
+          <Download class="btn-icon" /> 导出
+        </el-button>
       </div>
     </div>
 
@@ -78,7 +81,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import * as echarts from 'echarts'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, Download } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const chartRef = ref(null)
@@ -138,6 +142,26 @@ const loadGraphData = async () => {
     }
   } catch (e) {
     console.error('加载图谱数据失败', e)
+  }
+}
+
+const handleExport = async () => {
+  try {
+    const res = await api.exportGraph()
+    if (res.data.code === 200) {
+      const data = res.data.data
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `agent-graph-${new Date().toISOString().slice(0, 10)}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      ElMessage.success('导出成功')
+    }
+  } catch (e) {
+    ElMessage.error('导出失败')
   }
 }
 
@@ -314,6 +338,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 10px 20px;
+}
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--accent-green);
+}
+
+.export-btn:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--accent-green);
 }
 
 .btn-icon {
