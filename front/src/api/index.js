@@ -53,7 +53,7 @@ export default {
   
   // Monitor APIs
   getCallRecords(params) {
-    return api.get('/monitor/records', { params })
+    return api.get('/a2a/graph/agents/' + params.agentId + '/calls', { params })
   },
   getTrace(traceId) {
     return api.get('/monitor/traces/' + traceId)
@@ -62,10 +62,10 @@ export default {
     return api.get('/monitor/agent-graph')
   },
   getExecutionChain(params) {
-    return api.get('/monitor/execution-chain', { params })
+    return api.get('/a2a/graph/executions/' + params.taskId)
   },
   exportGraph() {
-    return api.get('/monitor/graph/export')
+    return api.post('/a2a/graph/export')
   },
   
   // Model APIs

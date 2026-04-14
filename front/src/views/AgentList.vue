@@ -441,13 +441,13 @@ const loadCallRecords = async () => {
   callRecordsLoading.value = true
   try {
     const res = await api.getCallRecords({
-      pageNum: callRecordsPage.value,
-      pageSize: callRecordsPageSize.value,
-      agentId: callRecordsAgent.value?.id
+      agentId: callRecordsAgent.value?.id,
+      page: callRecordsPage.value,
+      pageSize: callRecordsPageSize.value
     })
     if (res.data.code === 200) {
-      callRecords.value = res.data.data.records || []
-      callRecordsTotal.value = res.data.data.total || 0
+      callRecords.value = res.data.data.records || res.data.data || []
+      callRecordsTotal.value = res.data.data.total || res.data.data.length || 0
     }
   } catch (e) {
     ElMessage.error('加载调用记录失败')
