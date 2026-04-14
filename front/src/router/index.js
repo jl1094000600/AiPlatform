@@ -13,6 +13,7 @@ const routes = [
     children: [
       { path: 'agents', name: 'Agents', component: () => import('../views/AgentList.vue') },
       { path: 'monitor', name: 'Monitor', component: () => import('../views/Monitor.vue') },
+      { path: 'graph', name: 'AgentGraph', component: () => import('../views/AgentGraph.vue') },
       { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') }
     ]
   }

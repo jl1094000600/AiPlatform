@@ -68,7 +68,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Cpu, Monitor, Box, SwitchButton } from '@element-plus/icons-vue'
+import { Cpu, Monitor, Box, SwitchButton, Connection } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -76,6 +76,7 @@ const route = useRoute()
 const navItems = [
   { path: '/agents', label: 'Agent管理', icon: Cpu },
   { path: '/monitor', label: '接口监控', icon: Monitor },
+  { path: '/graph', label: '调用图谱', icon: Connection },
   { path: '/models', label: '模型管理', icon: Box }
 ]
 

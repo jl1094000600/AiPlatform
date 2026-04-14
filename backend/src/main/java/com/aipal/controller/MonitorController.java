@@ -1,8 +1,10 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.dto.AgentGraphResponse;
 import com.aipal.entity.MonCallRecord;
 import com.aipal.service.CallRecordService;
+import com.aipal.service.MonitorService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -17,6 +19,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class MonitorController {
     private final CallRecordService callRecordService;
+    private final MonitorService monitorService;
 
     @GetMapping("/records")
     public Result<Page<MonCallRecord>> listRecords(
@@ -57,5 +60,10 @@ public class MonitorController {
         realtime.put("currentQps", callRecordService.getCurrentQps());
         realtime.put("avgResponseTime", callRecordService.getAvgResponseTime());
         return Result.success(realtime);
+    }
+
+    @GetMapping("/agent-graph")
+    public Result<AgentGraphResponse> getAgentGraph() {
+        return Result.success(monitorService.getAgentGraph());
     }
 }

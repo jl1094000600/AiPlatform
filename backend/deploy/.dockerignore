@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
+# Build output (don't include target in build context)
+target/
+
+# IDE project files
+.claude/
+.idea/
+*.log
+
+# Docker files (avoid recursive copying)
+deploy/
+
+# Test files
+src/test/
+
+# Documentation
+README.md
+docs/

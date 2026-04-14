@@ -58,6 +58,9 @@ export default {
   getTrace(traceId) {
     return api.get('/monitor/traces/' + traceId)
   },
+  getAgentGraph() {
+    return api.get('/monitor/agent-graph')
+  },
   
   // Model APIs
   getModels(params) {
