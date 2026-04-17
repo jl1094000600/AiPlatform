@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: image-agent
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: Jl19951106
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+server:
+  port: 8082
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+agent:
+  code: image-agent
+  name: 图像识别Agent
+  instance-id: ${AGENT_INSTANCE_ID:image-001}
+  platform:
+    heartbeat-url: http://localhost:8080/api/v1/heartbeat/report
+    a2a-url: http://localhost:8080/api/v1/a2a/message
+
+logging:
+  level:
+    com.aipal.imageagent: DEBUG
+    com.aipal.agent.image: DEBUG

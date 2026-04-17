@@ -1,0 +1,44 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: marketing-agent
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: Jl19951106
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    com.aipal: debug
+
+agent:
+  code: marketing-agent
+  name: 市场营销Agent
+  instance-id: ${AGENT_INSTANCE_ID:marketing-001}
+  endpoint: http://localhost:8081
+  platform:
+    heartbeat-url: http://localhost:8080/api/v1/heartbeat/report
+    a2a-url: http://localhost:8080/api/v1/a2a/message
