@@ -359,8 +359,6 @@ const updateChart = () => {
         opacity: 0.7,
         curveness: 0.2
       },
-      // Flow animation for active edges
-      lineStyle2: isActive ? { shadowBlur: 15, shadowColor: '#00f0ff' } : {},
       callCount: edge.callCount,
       frequency: edge.frequency
     }
@@ -421,14 +419,6 @@ const updateChart = () => {
         focus: 'adjacency',
         lineStyle: { width: 4, color: '#00f0ff' },
         itemStyle: { borderWidth: 4, borderColor: '#fff', shadowBlur: 30 }
-      },
-      // Edge flow animation for active call chains
-      edgeEffect: {
-        show: true,
-        period: 2,
-        scale: 2,
-        shake: true,
-        effectType: 'ripple'
       },
       animationDuration: 1500,
       animationEasing: 'cubicOut'
@@ -505,20 +495,21 @@ const initMinimap = () => {
       lineStyle: { opacity: 0.3 }
     }]
   })
-
-  // Link minimap with main chart
-  chart?.on('updateAxis', () => {
-    if (minimap && chart) {
-      minimap.setOption({
-        tooltip: { show: false },
-        series: [{
-          data: chart.getOption().series[0].data,
-          edges: chart.getOption().series[0].edges
-        }]
-      })
-    }
-  })
 }
+
+watch(graphData, () => {
+  // Update minimap when graph data changes
+  if (minimap && chart) {
+    const option = chart.getOption()
+    minimap.setOption({
+      tooltip: { show: false },
+      series: [{
+        data: option.series[0].data,
+        edges: option.series[0].edges
+      }]
+    })
+  }
+}, { deep: true })
 
 watch(statusFilter, () => {
   updateChart()
