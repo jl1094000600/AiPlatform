@@ -69,38 +69,64 @@
 
     <!-- History Dialog -->
     <el-dialog v-model="showHistoryDialog" title="测评历史记录" width="900px" class="history-dialog">
-      <el-table :data="historyList" stripe v-loading="historyLoading">
-        <el-table-column prop="id" label="ID" width="80" align="center">
-          <template #default="{ row }">
-            <span class="mono">#{{ row.id }}</span>
+      <div v-if="!historyError" class="history-content">
+        <el-table :data="historyList" stripe v-loading="historyLoading">
+          <el-table-column prop="id" label="ID" width="80" align="center">
+            <template #default="{ row }">
+              <span class="mono">#{{ row.id }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="benchmarkName" label="测评名称" min-width="160" />
+          <el-table-column prop="datasetName" label="数据集" min-width="120" />
+          <el-table-column prop="agentName" label="Agent" min-width="120" />
+          <el-table-column prop="status" label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <span class="status-badge" :class="getStatusClass(row.status)">
+                {{ getStatusText(row.status) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="score" label="总分" width="80" align="center">
+            <template #default="{ row }">
+              <span class="score-value mono">{{ row.score || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="createTime" label="创建时间" min-width="160">
+            <template #default="{ row }">
+              <span class="mono">{{ formatTime(row.createTime) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" align="center">
+            <template #default="{ row }">
+              <el-button size="small" @click="viewHistoryResult(row)">查看</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <div class="empty-history">
+              <div class="empty-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="16" y1="2" x2="16" y2="6"/>
+                  <line x1="8" y1="2" x2="8" y2="6"/>
+                  <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+              </div>
+              <div class="empty-text">暂无测评记录</div>
+              <div class="empty-hint">开始一个新的测评任务来查看结果</div>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="benchmarkName" label="测评名称" min-width="160" />
-        <el-table-column prop="datasetName" label="数据集" min-width="120" />
-        <el-table-column prop="agentName" label="Agent" min-width="120" />
-        <el-table-column prop="status" label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <span class="status-badge" :class="getStatusClass(row.status)">
-              {{ getStatusText(row.status) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="score" label="总分" width="80" align="center">
-          <template #default="{ row }">
-            <span class="score-value mono">{{ row.score || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" min-width="160">
-          <template #default="{ row }">
-            <span class="mono">{{ formatTime(row.createTime) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" align="center">
-          <template #default="{ row }">
-            <el-button size="small" @click="viewHistoryResult(row)">查看</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        </el-table>
+      </div>
+      <div v-else class="history-error">
+        <div class="error-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M15 9l-6 6M9 9l6 6"/>
+          </svg>
+        </div>
+        <div class="error-text">{{ historyError }}</div>
+        <el-button type="primary" size="small" @click="loadHistory">重试</el-button>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -130,6 +156,7 @@ const tabs = [
 const showHistoryDialog = ref(false)
 const historyList = ref([])
 const historyLoading = ref(false)
+const historyError = ref(null)
 
 const goToStep = (step) => {
   activeTab.value = step
@@ -137,13 +164,17 @@ const goToStep = (step) => {
 
 const loadHistory = async () => {
   historyLoading.value = true
+  historyError.value = null
   try {
     const res = await api.getBenchmarkHistory()
     if (res.data.code === 200) {
       historyList.value = res.data.data || []
+    } else {
+      historyError.value = res.data.message || '加载历史记录失败'
     }
   } catch (e) {
     console.error('加载历史记录失败', e)
+    historyError.value = e.message || '网络错误，请检查连接'
   } finally {
     historyLoading.value = false
   }
@@ -293,5 +324,46 @@ onMounted(() => {
 .score-value {
   font-weight: 700;
   color: var(--neon-cyan);
+}
+
+.history-content {
+  min-height: 200px;
+}
+
+.empty-history {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.empty-history .empty-icon {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.empty-history .empty-text {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.empty-history .empty-hint {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.history-error {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.history-error .error-icon {
+  color: var(--neon-pink);
+  margin-bottom: 16px;
+}
+
+.history-error .error-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
 }
 </style>

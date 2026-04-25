@@ -49,6 +49,37 @@
 
       <div ref="chartRef" class="chart-container"></div>
 
+      <!-- Empty State -->
+      <div v-if="!graphLoading && graphData.nodes.length === 0" class="empty-state">
+        <div class="empty-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M8 12h8M12 8v4"/>
+          </svg>
+        </div>
+        <div class="empty-title">暂无Agent数据</div>
+        <div class="empty-desc">当前没有在线的Agent节点，请检查Agent服务状态</div>
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="graphLoading" class="loading-state">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">加载图谱数据中...</div>
+      </div>
+
+      <!-- Error State -->
+      <div v-if="graphError" class="error-state">
+        <div class="error-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M15 9l-6 6M9 9l6 6"/>
+          </svg>
+        </div>
+        <div class="error-title">加载失败</div>
+        <div class="error-desc">{{ graphError }}</div>
+        <el-button type="primary" size="small" @click="loadGraphData" class="retry-btn">重试</el-button>
+      </div>
+
       <!-- Minimap -->
       <div ref="minimapRef" class="minimap-container"></div>
     </div>
@@ -129,6 +160,8 @@ const selectedEdge = ref(null)
 const isFullscreen = ref(false)
 const zoomLevel = ref(100)
 const activeCallChains = ref([])
+const graphLoading = ref(false)
+const graphError = ref(null)
 
 const nodeCount = computed(() => {
   return statusFilter.value === 'all'
@@ -168,14 +201,21 @@ const getNodeColor = (status) => {
 }
 
 const loadGraphData = async () => {
+  graphLoading.value = true
+  graphError.value = null
   try {
     const res = await api.getAgentGraph()
     if (res.data.code === 200) {
       graphData.value = res.data.data || { nodes: [], edges: [] }
       updateChart()
+    } else {
+      graphError.value = res.data.message || '加载图谱数据失败'
     }
   } catch (e) {
     console.error('加载图谱数据失败', e)
+    graphError.value = e.message || '网络错误，请检查连接'
+  } finally {
+    graphLoading.value = false
   }
 }
 
@@ -744,5 +784,96 @@ onUnmounted(() => {
 .status-badge.error {
   background: rgba(255, 107, 157, 0.15);
   color: var(--neon-pink);
+}
+
+/* Empty State */
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 5;
+}
+
+.empty-icon {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.empty-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 280px;
+}
+
+/* Loading State */
+.loading-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 5;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(0, 212, 255, 0.2);
+  border-top-color: var(--neon-cyan);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* Error State */
+.error-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 5;
+}
+
+.error-icon {
+  color: var(--neon-pink);
+  margin-bottom: 16px;
+}
+
+.error-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.error-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.retry-btn {
+  --el-button-bg-color: rgba(0, 212, 255, 0.1);
+  --el-button-border-color: rgba(0, 212, 255, 0.3);
+  --el-button-text-color: var(--neon-cyan);
 }
 </style>
