@@ -61,6 +61,9 @@ export default {
   getAgentGraph() {
     return api.get('/monitor/agent-graph')
   },
+  getRealtimeData() {
+    return api.get('/monitor/realtime')
+  },
   getExecutionChain(params) {
     return api.get('/a2a/graph/executions/' + params.taskId)
   },
@@ -91,5 +94,59 @@ export default {
   },
   register(data) {
     return api.post('/auth/register', data)
+  },
+
+  // Benchmark APIs
+  getBenchmarkHistory() {
+    return api.get('/benchmark/history')
+  },
+  uploadDataset(formData) {
+    return api.post('/benchmark/dataset/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  generateSimData(data) {
+    return api.post('/benchmark/simdata/generate', data)
+  },
+  startBenchmark(data) {
+    return api.post('/benchmark/start', data)
+  },
+  getBenchmarkProgress(benchmarkId) {
+    return api.get('/benchmark/progress/' + benchmarkId)
+  },
+  saveBenchmarkStandards(data) {
+    return api.post('/benchmark/standards', data)
+  },
+  getBenchmarkResult(benchmarkId) {
+    return api.get('/benchmark/result/' + benchmarkId)
+  },
+  exportBenchmarkReport(benchmarkId) {
+    return api.get('/benchmark/export/' + benchmarkId, { responseType: 'blob' })
+  },
+
+  // Workflow APIs
+  getWorkflows(params) {
+    return api.get('/workflows', { params })
+  },
+  getWorkflow(id) {
+    return api.get('/workflows/' + id)
+  },
+  createWorkflow(data) {
+    return api.post('/workflows', data)
+  },
+  updateWorkflow(id, data) {
+    return api.put('/workflows/' + id, data)
+  },
+  deleteWorkflow(id) {
+    return api.delete('/workflows/' + id)
+  },
+  triggerWorkflow(id) {
+    return api.post('/workflows/' + id + '/trigger')
+  },
+  getWorkflowExecutions(workflowId) {
+    return api.get('/workflows/' + workflowId + '/executions')
+  },
+  getAllWorkflowExecutions() {
+    return api.get('/workflows/executions')
   }
 }

@@ -10,6 +10,7 @@ public class AgentHeartbeat {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long agentId;
+    private String agentCode;
     private String instanceId;
     private LocalDateTime lastHeartbeat;
     private Integer healthScore;

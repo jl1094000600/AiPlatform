@@ -5,15 +5,13 @@ import com.aipal.mapper.AiModelMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
-import org.springframework.ai.chat.client.ChatMemoryPromptAdvisor;
-import org.springframework.ai.chat.memory.InMemoryChatMemory;
-import org.springframework.ai.model.MediaModel;
+// import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
+// import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.anthropic.AnthropicChatModel;
-import org.springframework.ai.anthropic.api.AnthropicApi;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +26,8 @@ public class ChatModelService {
 
     private final AiModelMapper modelMapper;
     private final Map<String, ChatClient> chatClients = new ConcurrentHashMap<>();
-    private final Map<String, MediaModel> mediaModels = new ConcurrentHashMap<>();
-    private final InMemoryChatMemory chatMemory = new InMemoryChatMemory();
+    // TODO: Spring AI 2.x memory API 变更，需要适配 InMemoryChatMemoryRepository -> ChatMemory
+    // private final ChatMemory chatMemory = new InMemoryChatMemory();
 
     @Value("${spring-ai.openai.api-key:}")
     private String openaiApiKey;
@@ -99,26 +97,24 @@ public class ChatModelService {
             .build();
 
         return ChatClient.builder(chatModel)
-            .defaultAdvisors(new PromptChatMemoryAdvisor(chatMemory))
+            // .defaultAdvisors(PromptChatMemoryAdvisor.builder(chatMemory).build())
             .build();
     }
 
     private ChatClient createAnthropicClient(AiModel model) {
-        AnthropicApi anthropicApi = AnthropicApi.builder()
+        AnthropicChatOptions options = AnthropicChatOptions.builder()
             .apiKey(anthropicApiKey)
             .baseUrl(model.getEndpoint())
+            .model(model.getModelVersion())
+            .temperature(0.7)
             .build();
 
         AnthropicChatModel chatModel = AnthropicChatModel.builder()
-            .anthropicApi(anthropicApi)
-            .defaultOptions(AnthropicApi.AnthropicOptions.builder()
-                .model(model.getModelVersion())
-                .temperature(0.7)
-                .build())
+            .options(options)
             .build();
 
         return ChatClient.builder(chatModel)
-            .defaultAdvisors(new PromptChatMemoryAdvisor(chatMemory))
+            // .defaultAdvisors(PromptChatMemoryAdvisor.builder(chatMemory).build())
             .build();
     }
 
@@ -159,10 +155,6 @@ public class ChatModelService {
             .user(userMessage)
             .call()
             .content();
-    }
-
-    public MediaModel getMediaModel(String modelCode) {
-        return mediaModels.get(modelCode);
     }
 
     public void unregisterModel(String modelCode) {

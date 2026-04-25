@@ -136,15 +136,13 @@ public class AgentRegistry {
     }
 
     private Object processAgentIntent(AiAgent agent, String intent, Map<String, Object> params) {
-        if (registeredAgents.containsKey(agent.getAgentCode())) {
-            AgentContext ctx = registeredAgents.get(agent.getAgentCode());
-            if (ctx.getChatClient() != null) {
-                String result = ctx.getChatClient().prompt()
-                    .user(intent)
-                    .call()
-                    .content();
-                return Map.of("response", result);
-            }
+        AgentContext ctx = registeredAgents.get(agent.getAgentCode());
+        if (ctx != null && ctx.getChatClient() != null) {
+            String result = ctx.getChatClient().prompt()
+                .user(intent)
+                .call()
+                .content();
+            return Map.of("response", result);
         }
         return Map.of("response", "Agent " + agent.getAgentName() + " processed: " + intent);
     }

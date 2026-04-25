@@ -14,7 +14,10 @@ const routes = [
       { path: 'agents', name: 'Agents', component: () => import('../views/AgentList.vue') },
       { path: 'monitor', name: 'Monitor', component: () => import('../views/Monitor.vue') },
       { path: 'graph', name: 'AgentGraph', component: () => import('../views/AgentGraph.vue') },
-      { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') }
+      { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') },
+      { path: 'benchmark', name: 'Benchmark', component: () => import('../views/DatasetBenchmark.vue') },
+      { path: 'workflows', name: 'Workflows', component: () => import('../views/WorkflowEditor.vue') },
+      { path: 'workflows/list', name: 'WorkflowList', component: () => import('../views/WorkflowList.vue') }
     ]
   }
 ]

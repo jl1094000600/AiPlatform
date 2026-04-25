@@ -20,6 +20,7 @@ public class A2AMessage {
     private Map<String, Object> payload;
     private LocalDateTime timestamp;
     private String correlationId;
+    private String traceId;
 
     public enum Action {
         invoke,

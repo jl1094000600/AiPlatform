@@ -53,7 +53,7 @@ public class CallRecordService {
     public List<MonCallRecord> getRecentRecords(int limit) {
         LambdaQueryWrapper<MonCallRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(MonCallRecord::getCreateTime);
-        wrapper.last("LIMIT ?", limit);
+        wrapper.last("LIMIT " + limit);
         return callRecordMapper.selectList(wrapper);
     }
 

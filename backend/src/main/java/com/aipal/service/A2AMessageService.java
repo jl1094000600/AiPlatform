@@ -122,7 +122,7 @@ public class A2AMessageService {
             records = redisTemplate.opsForStream().read(
                 Consumer.from(CONSUMER_GROUP, "consumer-" + Thread.currentThread().getId()),
                 StreamReadOptions.empty().count(10).block(Duration.ofMillis(500)),
-                StreamOffset.create(streamKey, ReadOffset.last())
+                StreamOffset.create(streamKey, ReadOffset.lastConsumed())
             );
         } catch (RedisSystemException e) {
             log.debug("Stream {} does not exist yet", streamKey);

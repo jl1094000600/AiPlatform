@@ -638,28 +638,28 @@ onMounted(loadAgents)
 }
 
 .status-badge.online {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.15);
+  color: var(--neon-green);
 }
 .status-badge.online .status-dot {
-  background: var(--accent-green);
-  box-shadow: 0 0 8px var(--accent-green);
+  background: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green);
 }
 
 .status-badge.offline {
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--accent-orange);
+  background: rgba(255, 170, 0, 0.15);
+  color: var(--neon-orange);
 }
 .status-badge.offline .status-dot {
-  background: var(--accent-orange);
+  background: var(--neon-orange);
 }
 
 .status-badge.draft {
-  background: rgba(139, 92, 246, 0.15);
-  color: var(--accent-purple);
+  background: rgba(155, 89, 255, 0.15);
+  color: var(--neon-purple);
 }
 .status-badge.draft .status-dot {
-  background: var(--accent-purple);
+  background: var(--neon-purple);
 }
 
 .action-buttons {
@@ -682,30 +682,30 @@ onMounted(loadAgents)
 }
 
 .action-btn:hover {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
 }
 
 .action-btn.publish {
-  background: rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.1);
+  border-color: rgba(0, 255, 136, 0.3);
+  color: var(--neon-green);
 }
 
 .action-btn.publish:hover {
-  background: rgba(16, 185, 129, 0.2);
+  background: rgba(0, 255, 136, 0.2);
 }
 
 .action-btn.offline {
-  background: rgba(245, 158, 11, 0.1);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: var(--accent-orange);
+  background: rgba(255, 170, 0, 0.1);
+  border-color: rgba(255, 170, 0, 0.3);
+  color: var(--neon-orange);
 }
 
 .action-btn.delete:hover {
-  border-color: var(--accent-red);
-  color: var(--accent-red);
-  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--neon-pink);
+  color: var(--neon-pink);
+  background: rgba(255, 107, 157, 0.1);
 }
 
 .pagination-wrapper {
