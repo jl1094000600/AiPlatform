@@ -37,7 +37,7 @@
       <div v-show="activeTab === 1" class="tab-content">
         <SimDataGenerator
           @back="goToStep(0)"
-          @next="goToStep(2)"
+          @next="(data) => goToStep(2, data)"
         />
       </div>
 
@@ -46,7 +46,7 @@
         <AgentSelector
           :dataset-id="datasetId"
           @back="goToStep(1)"
-          @next="goToStep(3)"
+          @next="(data) => goToStep(3, data)"
         />
       </div>
 
@@ -133,6 +133,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Clock } from '@element-plus/icons-vue'
 import api from '../api'
 import DatasetImport from '../components/benchmark/DatasetImport.vue'
@@ -158,7 +159,30 @@ const historyList = ref([])
 const historyLoading = ref(false)
 const historyError = ref(null)
 
-const goToStep = (step) => {
+const goToStep = (step, data) => {
+  // Validate step access - can only go forward if previous steps are complete
+  if (step > activeTab.value) {
+    // Check required data for jumping ahead
+    if (step >= 1 && !datasetId.value) {
+      ElMessage.warning('请先完成数据集导入')
+      return
+    }
+    if (step >= 3 && !benchmarkId.value) {
+      ElMessage.warning('请先完成Agent选择和执行')
+      return
+    }
+  }
+
+  // Handle data from child components
+  if (data) {
+    if (data.datasetId) {
+      datasetId.value = data.datasetId
+    }
+    if (data.benchmarkId) {
+      benchmarkId.value = data.benchmarkId
+    }
+  }
+
   activeTab.value = step
 }
 
