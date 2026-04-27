@@ -147,7 +147,7 @@ public class TrendAnalysisTool {
         return results;
     }
 
-    private String getPreviousPeriod(String currentPeriod) {
+    String getPreviousPeriod(String currentPeriod) {
         if (currentPeriod == null || currentPeriod.isEmpty()) return "";
         if (currentPeriod.contains("-W")) {
             String[] parts = currentPeriod.split("-W");

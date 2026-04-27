@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: marketing-agent
+  ai:
+    openai:
+      api-key: dummy-key-for-init
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false

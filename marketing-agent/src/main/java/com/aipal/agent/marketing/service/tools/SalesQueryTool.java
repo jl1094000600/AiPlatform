@@ -96,7 +96,7 @@ public class SalesQueryTool {
         );
     }
 
-    private String formatPeriod(LocalDate date, String timeType) {
+    String formatPeriod(LocalDate date, String timeType) {
         if (date == null) return "";
         return switch (timeType.toLowerCase()) {
             case "日" -> date.toString();

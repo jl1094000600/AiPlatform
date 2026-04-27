@@ -49,6 +49,10 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()
+                .requestMatchers("/api/v1/agents/**").permitAll()
+                .requestMatchers("/api/v1/registry/agents/**").permitAll()
+                .requestMatchers("/api/v1/monitor/**").permitAll()
+                .requestMatchers("/api/v1/heartbeat/**").permitAll()
                 .requestMatchers("/doc.html", "/webjars/**", "/swagger-resources/**", "/v3/api-docs/**").permitAll()
                 .anyRequest().authenticated()
             );

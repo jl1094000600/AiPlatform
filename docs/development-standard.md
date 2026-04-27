@@ -6,6 +6,7 @@
 |------|------------|------|------|
 | 1.0  | 2026-04-14 | PM   | 初稿 |
 | 1.1  | 2026-04-14 | PM   | 增加代码审查规范 |
+| 1.2  | 2026-04-27 | Dev  | 增加认证与权限规范，解决Agent心跳401问题 |
 
 ---
 
@@ -301,3 +302,57 @@ Closes #123
 - **禁止提交存在编译错误的代码**
 - **禁止提交引用了不存在类的代码**
 - **所有代码变更必须经过自检后才能提交**
+
+---
+
+## 8. 认证与权限规范
+
+### 8.1 认证白名单配置
+
+**规则：所有新增的公开API端点必须同时添加到以下两处白名单**
+
+1. **Spring Security配置** (`SecurityConfig.java`)
+2. **JWT拦截器配置** (`InterceptorConfig.java`)
+
+**原因**：SecurityConfig控制Spring Security层面的过滤器，InterceptorConfig控制应用层JWT验证。两者必须同时配置才能确保认证绕过生效。
+
+**必须放行的路径**：
+
+| 路径模式 | 用途 | 添加位置 |
+|---------|------|----------|
+| `/api/v1/auth/**` | 认证相关 | 两处都需要 |
+| `/api/v1/heartbeat/**` | Agent心跳 | 两处都需要 |
+| `/api/v1/agents/**` | Agent查询 | 两处都需要 |
+| `/api/v1/registry/agents/**` | Agent注册 | 两处都需要 |
+| `/api/v1/monitor/**` | 监控相关 | 两处都需要 |
+| `/doc.html`, `/webjars/**`, `/swagger-resources/**`, `/v3/api-docs/**` | Swagger文档 | 两处都需要 |
+
+**示例**：
+```java
+// SecurityConfig.java
+.authorizeHttpRequests(auth -> auth
+    .requestMatchers("/api/v1/auth/**").permitAll()
+    .requestMatchers("/api/v1/heartbeat/**").permitAll()
+    // ... 其他路径
+)
+
+// InterceptorConfig.java
+if (path.startsWith("/api/v1/auth/") ||
+    path.startsWith("/api/v1/heartbeat/") ||
+    // ... 其他路径
+) {
+    return true;
+}
+```
+
+### 8.2 模块间通信认证
+
+**规则：Agent模块与后端平台通信时，使用以下认证机制**
+
+1. **心跳上报**：无需JWT，通过heartbeat接口上报（已在白名单）
+2. **A2A消息**：通过Redis消息队列，无需HTTP认证
+3. **注册请求**：Agent启动时自动注册，使用配置的统一认证
+
+**常见错误**：
+- 只在SecurityConfig中配置白名单，但InterceptorConfig未配置 → 仍然返回401
+- 只在InterceptorConfig中配置白名单，但SecurityConfig未配置 → 仍然返回403

@@ -48,7 +48,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
         // 获取Agent的heartbeatTimeout配置
         AgentRegistration registration = getRegistration(agentCode, instanceId);
-        int timeoutSeconds = DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
+        int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
         if (registration != null && registration.getHeartbeatTimeout() != null) {
             timeoutSeconds = registration.getHeartbeatTimeout();
         }
@@ -132,7 +132,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
                     String instanceId = parts.length > 1 ? parts[1] : "default";
 
                     AgentRegistration registration = getRegistration(agentCode, instanceId);
-                    int timeoutSeconds = DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
+                    int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
                     if (registration != null && registration.getHeartbeatTimeout() != null) {
                         timeoutSeconds = registration.getHeartbeatTimeout();
                     }
@@ -165,7 +165,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
             // 获取该Agent的超时配置
             AgentRegistration registration = getRegistration(agentCode, instanceId);
-            int timeoutSeconds = DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
+            int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
             if (registration != null && registration.getHeartbeatTimeout() != null) {
                 timeoutSeconds = registration.getHeartbeatTimeout();
             }

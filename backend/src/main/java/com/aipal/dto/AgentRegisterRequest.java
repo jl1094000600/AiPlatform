@@ -36,5 +36,13 @@ public class AgentRegisterRequest {
     @Size(max = 64, message = "instanceId 长度不能超过64")
     private String instanceId;
 
-    /** 心跳间隔（秒），默认30 */
+    /**
+     * 心跳间隔（秒），默认30
+     */
     private Integer heartbeatInterval;
+
+    /**
+     * 心跳超时（秒），默认90
+     */
+    private Integer heartbeatTimeout;
+}

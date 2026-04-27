@@ -2,6 +2,8 @@ package com.aipal.service;
 
 import cn.hutool.core.util.IdUtil;
 import com.aipal.dto.A2AMessage;
+import com.aipal.entity.A2ATask;
+import com.aipal.mapper.A2ATaskMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -31,6 +33,7 @@ public class A2AMessageService {
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
+    private final A2ATaskMapper a2aTaskMapper;
     private final Map<String, CompletableFuture<A2AMessage>> pendingResponses = new ConcurrentHashMap<>();
     private final Map<String, Function<A2AMessage, A2AMessage>> agentHandlers = new ConcurrentHashMap<>();
 
@@ -67,6 +70,9 @@ public class A2AMessageService {
         String streamKey = STREAM_KEY_PREFIX + message.getSessionId();
 
         try {
+            // Persist task to database for graph data
+            persistA2ATask(message);
+
             String json = objectMapper.writeValueAsString(message);
             HashMap<String, Object> map = new HashMap<>();
             map.put("message", json);
@@ -87,6 +93,32 @@ public class A2AMessageService {
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize A2A message", e);
             throw new RuntimeException("Failed to send A2A message", e);
+        }
+    }
+
+    private void persistA2ATask(A2AMessage message) {
+        try {
+            A2ATask task = new A2ATask();
+            task.setTaskId(message.getMessageId());
+            task.setSessionId(message.getSessionId());
+            task.setTaskType(message.getAction() != null ? message.getAction().name() : null);
+            task.setTaskDescription(message.getPayload() != null ? message.getPayload().toString() : null);
+            task.setSourceAgentId(parseAgentId(message.getSourceAgent()));
+            task.setTargetAgentId(parseAgentId(message.getTargetAgent()));
+            task.setStatus("PENDING");
+            task.setCreateTime(LocalDateTime.now());
+            a2aTaskMapper.insert(task);
+        } catch (Exception e) {
+            log.warn("Failed to persist A2A task: {}", e.getMessage());
+        }
+    }
+
+    private Long parseAgentId(String agentIdentifier) {
+        if (agentIdentifier == null) return null;
+        try {
+            return Long.parseLong(agentIdentifier);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -154,16 +186,41 @@ public class A2AMessageService {
         CompletableFuture<A2AMessage> waitingFuture = pendingResponses.get(message.getCorrelationId());
         if (waitingFuture != null) {
             waitingFuture.complete(message);
+            updateA2ATaskStatus(message.getCorrelationId(), "COMPLETED", null);
             return;
         }
 
         Function<A2AMessage, A2AMessage> handler = agentHandlers.get(message.getTargetAgent());
         if (handler != null) {
+            updateA2ATaskStatus(message.getMessageId(), "RUNNING", null);
             A2AMessage response = handler.apply(message);
             if (response != null && message.getCorrelationId() != null) {
                 response.setCorrelationId(message.getMessageId());
                 sendMessage(response);
             }
+        }
+    }
+
+    private void updateA2ATaskStatus(String taskId, String status, String errorMessage) {
+        try {
+            com.aipal.entity.A2ATask task = a2aTaskMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.aipal.entity.A2ATask>()
+                    .eq(com.aipal.entity.A2ATask::getTaskId, taskId)
+            );
+            if (task != null) {
+                task.setStatus(status);
+                if ("RUNNING".equals(status)) {
+                    task.setStartTime(LocalDateTime.now());
+                } else if ("COMPLETED".equals(status) || "FAILED".equals(status)) {
+                    task.setEndTime(LocalDateTime.now());
+                }
+                if (errorMessage != null) {
+                    task.setErrorMessage(errorMessage);
+                }
+                a2aTaskMapper.updateById(task);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to update A2A task status: {}", e.getMessage());
         }
     }
 

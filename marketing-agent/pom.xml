@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
-        <spring-ai.version>2.0.0-M4</spring-ai.version>
+        <spring-ai.version>1.0.5</spring-ai.version>
     </properties>
 
     <dependencies>
@@ -80,6 +80,16 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Spring Retry (required by Spring AI) -->
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aspects</artifactId>
+        </dependency>
+
         <!-- Spring AI -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -94,6 +104,14 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>

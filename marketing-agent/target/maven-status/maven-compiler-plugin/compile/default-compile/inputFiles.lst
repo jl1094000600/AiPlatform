@@ -1,0 +1,15 @@
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\config\AgentConfig.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\controller\MarketingAgentController.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\tools\StatisticsTool.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\tools\SalesQueryTool.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\config\DataInitializer.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\HeartbeatService.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\MarketingAgentApplication.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\tools\TrendAnalysisTool.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\entity\MarketingSalesData.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\mapper\MarketingSalesDataMapper.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\A2AService.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\controller\A2AController.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\config\RedisConfig.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\config\WebConfig.java
+F:\Projects\AIPlatform\marketing-agent\src\main\java\com\aipal\agent\marketing\service\MarketingAgentService.java

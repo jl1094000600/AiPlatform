@@ -22,7 +22,16 @@ public class InterceptorConfig implements HandlerInterceptor {
         TraceContext.setTraceId(traceId);
 
         String path = request.getRequestURI();
-        if (path.startsWith("/api/v1/auth/")) {
+        // Allow public endpoints without authentication
+        if (path.startsWith("/api/v1/auth/") ||
+            path.startsWith("/api/v1/heartbeat/") ||
+            path.startsWith("/api/v1/agents/") ||
+            path.startsWith("/api/v1/registry/agents/") ||
+            path.startsWith("/api/v1/monitor/") ||
+            path.startsWith("/doc.html") ||
+            path.startsWith("/webjars/") ||
+            path.startsWith("/swagger-resources/") ||
+            path.startsWith("/v3/api-docs/")) {
             return true;
         }
 

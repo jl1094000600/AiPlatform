@@ -20,7 +20,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/agents")
+@RequestMapping("/api/v1/registry/agents")
 @RequiredArgsConstructor
 public class AgentRegistryController {
 

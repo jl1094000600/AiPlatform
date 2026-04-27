@@ -102,15 +102,21 @@ public class ChatModelService {
     }
 
     private ChatClient createAnthropicClient(AiModel model) {
+        // Spring AI 1.0.5 使用 AnthropicApi 设置认证信息
+        org.springframework.ai.anthropic.api.AnthropicApi anthropicApi =
+            org.springframework.ai.anthropic.api.AnthropicApi.builder()
+                .apiKey(anthropicApiKey)
+                .baseUrl(model.getEndpoint())
+                .build();
+
         AnthropicChatOptions options = AnthropicChatOptions.builder()
-            .apiKey(anthropicApiKey)
-            .baseUrl(model.getEndpoint())
             .model(model.getModelVersion())
             .temperature(0.7)
             .build();
 
         AnthropicChatModel chatModel = AnthropicChatModel.builder()
-            .options(options)
+            .anthropicApi(anthropicApi)
+            .defaultOptions(options)
             .build();
 
         return ChatClient.builder(chatModel)
