@@ -71,7 +71,7 @@ class AgentGraphControllerTest {
         node.setId(1L);
         node.setName("TestAgent");
         node.setType("AI");
-        node.setStatus(1); // online
+        node.setStatus("online");
         node.setLastHeartbeat(LocalDateTime.now());
         node.setInstanceCount(2);
         nodes.add(node);
@@ -112,7 +112,7 @@ class AgentGraphControllerTest {
         node1.setId(1L);
         node1.setName("Agent-A");
         node1.setType("AI");
-        node1.setStatus(1);
+        node1.setStatus("online");
         node1.setLastHeartbeat(LocalDateTime.now());
         node1.setInstanceCount(1);
         nodes.add(node1);
@@ -121,7 +121,7 @@ class AgentGraphControllerTest {
         node2.setId(2L);
         node2.setName("Agent-B");
         node2.setType("AI");
-        node2.setStatus(1);
+        node2.setStatus("online");
         node2.setLastHeartbeat(LocalDateTime.now());
         node2.setInstanceCount(2);
         nodes.add(node2);

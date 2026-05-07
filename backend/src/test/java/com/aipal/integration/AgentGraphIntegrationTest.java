@@ -51,12 +51,14 @@ class AgentGraphIntegrationTest {
     void testEndToEndGraphGeneration() {
         // Step 1: Create test agents
         AiAgent agent1 = new AiAgent();
+        agent1.setAgentCode("test-agent-1");
         agent1.setAgentName("TestAgent-1");
         agent1.setCategory("AI");
         agent1.setStatus(1);
         agentMapper.insert(agent1);
 
         AiAgent agent2 = new AiAgent();
+        agent2.setAgentCode("test-agent-2");
         agent2.setAgentName("TestAgent-2");
         agent2.setCategory("AI");
         agent2.setStatus(1);

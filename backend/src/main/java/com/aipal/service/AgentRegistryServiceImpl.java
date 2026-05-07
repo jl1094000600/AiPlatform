@@ -3,7 +3,9 @@ package com.aipal.service;
 import com.aipal.dto.AgentRegisterRequest;
 import com.aipal.dto.AgentRegisterResponse;
 import com.aipal.entity.AgentRegistration;
+import com.aipal.entity.AiAgent;
 import com.aipal.exception.AgentRegistrationException;
+import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AgentRegistrationMapper;
 import com.aipal.service.A2AMessageService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -41,6 +43,7 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
     private int defaultHeartbeatTimeout;
 
     private final AgentRegistrationMapper registrationMapper;
+    private final AiAgentMapper agentMapper;
     private final AgentEventService agentEventService;
     private final A2AMessageService a2aMessageService;
     private final RedisTemplate<String, Object> redisTemplate;
@@ -122,6 +125,9 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
             // 注册A2A Handler
             registerA2AHandler(request.getAgentCode());
 
+            // Keep ai_agent as the single platform-visible Agent catalog.
+            upsertAgentMaster(request, instanceId, 1);
+
             // 初始化Redis心跳
             initializeHeartbeat(request.getAgentCode(), instanceId,
                     request.getHeartbeatInterval() != null ?
@@ -146,6 +152,41 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
             throw new AgentRegistrationException(
                     request.getAgentCode(), "REGISTRATION_FAILED", e.getMessage());
         }
+    }
+
+    private void upsertAgentMaster(AgentRegisterRequest request, String instanceId, Integer status) {
+        AiAgent agent = agentMapper.selectOne(
+                new LambdaQueryWrapper<AiAgent>()
+                        .eq(AiAgent::getAgentCode, request.getAgentCode())
+        );
+
+        if (agent == null) {
+            agent = new AiAgent();
+            agent.setAgentCode(request.getAgentCode());
+            agent.setCreateTime(LocalDateTime.now());
+        }
+
+        agent.setAgentName(valueOrDefault(request.getAgentName(), request.getAgentCode()));
+        agent.setDescription(request.getDescription());
+        agent.setCategory(valueOrDefault(request.getCategory(), "Agent"));
+        agent.setApiUrl(request.getApiUrl());
+        agent.setHttpMethod("POST");
+        agent.setRequestSchema(request.getRequestSchema());
+        agent.setResponseSchema(request.getResponseSchema());
+        agent.setStatus(status);
+        agent.setUpdateTime(LocalDateTime.now());
+
+        if (agent.getId() == null) {
+            agentMapper.insert(agent);
+            log.info("Agent master created: {} [{}]", request.getAgentCode(), instanceId);
+        } else {
+            agentMapper.updateById(agent);
+            log.debug("Agent master updated: {} [{}]", request.getAgentCode(), instanceId);
+        }
+    }
+
+    private String valueOrDefault(String value, String defaultValue) {
+        return value != null && !value.isBlank() ? value : defaultValue;
     }
 
     @Override

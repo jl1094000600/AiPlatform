@@ -3,6 +3,7 @@ package com.aipal.agent.image.controller;
 import com.aipal.agent.image.dto.ImageRecognitionRequest;
 import com.aipal.agent.image.dto.ImageRecognitionResponse;
 import com.aipal.agent.image.entity.ImageRecognitionTask;
+import com.aipal.agent.image.config.AgentConfig;
 import com.aipal.agent.image.service.AgentService;
 import com.aipal.agent.image.service.HeartbeatService;
 import com.aipal.agent.image.service.ImageRecognitionService;
@@ -21,6 +22,7 @@ public class ImageAgentController {
     private final ImageRecognitionService imageRecognitionService;
     private final HeartbeatService heartbeatService;
     private final AgentService agentService;
+    private final AgentConfig agentConfig;
 
     @PostConstruct
     public void init() {
@@ -55,7 +57,7 @@ public class ImageAgentController {
     public Object health() {
         return java.util.Map.of(
                 "status", "UP",
-                "agent", "image-recognition-agent",
+                "agent", agentConfig.getAgentCode(),
                 "instanceId", heartbeatService.getInstanceId()
         );
     }

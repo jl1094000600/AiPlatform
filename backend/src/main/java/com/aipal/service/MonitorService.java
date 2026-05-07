@@ -35,7 +35,11 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
 
         // Get heartbeat info grouped by agentId
         List<AgentHeartbeat> heartbeats = heartbeatMapper.selectList(null);
-        Map<Long, List<AgentHeartbeat>> heartbeatByAgent = heartbeats.stream()
+        Map<String, List<AgentHeartbeat>> heartbeatByAgentCode = heartbeats.stream()
+                .filter(h -> h.getAgentCode() != null && !h.getAgentCode().isBlank())
+                .collect(Collectors.groupingBy(AgentHeartbeat::getAgentCode));
+        Map<Long, List<AgentHeartbeat>> heartbeatByAgentId = heartbeats.stream()
+                .filter(h -> h.getAgentId() != null)
                 .collect(Collectors.groupingBy(AgentHeartbeat::getAgentId));
 
         // Build nodes
@@ -46,17 +50,20 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
             node.setName(agent.getAgentName());
             node.setType(agent.getCategory());
 
-            List<AgentHeartbeat> agentHeartbeats = heartbeatByAgent.get(agent.getId());
+            List<AgentHeartbeat> agentHeartbeats = heartbeatByAgentCode.get(agent.getAgentCode());
+            if (agentHeartbeats == null || agentHeartbeats.isEmpty()) {
+                agentHeartbeats = heartbeatByAgentId.get(agent.getId());
+            }
             if (agentHeartbeats != null && !agentHeartbeats.isEmpty()) {
                 AgentHeartbeat latestHeartbeat = agentHeartbeats.stream()
                         .filter(h -> h.getLastHeartbeat() != null)
                         .max((h1, h2) -> h1.getLastHeartbeat().compareTo(h2.getLastHeartbeat()))
                         .orElse(agentHeartbeats.get(0));
-                node.setStatus(latestHeartbeat.getStatus());
+                node.setStatus(latestHeartbeat.getStatus() != null && latestHeartbeat.getStatus() == 1 ? "online" : "offline");
                 node.setLastHeartbeat(latestHeartbeat.getLastHeartbeat());
                 node.setInstanceCount(agentHeartbeats.size());
             } else {
-                node.setStatus(0);
+                node.setStatus(agent.getStatus() != null && agent.getStatus() == 1 ? "online" : "offline");
                 node.setInstanceCount(0);
             }
             nodes.add(node);

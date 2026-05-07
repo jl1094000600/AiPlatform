@@ -12,4 +12,5 @@ public class AgentHeartbeat {
 
     private Long agentId;
 
-    private String instanceId
+    private String instanceId;
+}

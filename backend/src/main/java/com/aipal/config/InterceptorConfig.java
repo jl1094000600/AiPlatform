@@ -23,12 +23,18 @@ public class InterceptorConfig implements HandlerInterceptor {
 
         String path = request.getRequestURI();
         // Allow public endpoints without authentication
-        if (path.startsWith("/api/v1/auth/") ||
-            path.startsWith("/api/v1/heartbeat/") ||
+        if (path.equals("/api/v1/agents") ||
             path.startsWith("/api/v1/agents/") ||
+            path.equals("/api/v1/models") ||
+            path.startsWith("/api/v1/models/") ||
+            path.equals("/api/v1/heartbeat/report") ||
+            path.startsWith("/api/v1/heartbeat/") ||
+            path.equals("/api/v1/registry/agents") ||
             path.startsWith("/api/v1/registry/agents/") ||
+            path.equals("/api/v1/monitor/agent-graph") ||
             path.startsWith("/api/v1/monitor/") ||
-            path.startsWith("/doc.html") ||
+            path.startsWith("/api/v1/auth/") ||
+            path.equals("/doc.html") ||
             path.startsWith("/webjars/") ||
             path.startsWith("/swagger-resources/") ||
             path.startsWith("/v3/api-docs/")) {

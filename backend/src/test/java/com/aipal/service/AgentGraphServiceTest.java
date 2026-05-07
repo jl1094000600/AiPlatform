@@ -123,6 +123,7 @@ class AgentGraphServiceTest {
 
         AgentHeartbeat heartbeat = new AgentHeartbeat();
         heartbeat.setAgentId(1L);
+        heartbeat.setAgentCode("online-agent");
         heartbeat.setStatus(1);
         heartbeat.setLastHeartbeat(LocalDateTime.now());
 
@@ -133,8 +134,36 @@ class AgentGraphServiceTest {
         AgentGraphResponse graph = monitorService.getAgentGraph();
         AgentGraphNode node = graph.getNodes().get(0);
 
-        assertEquals(1, node.getStatus());
+        assertEquals("online", node.getStatus());
         assertNotNull(node.getLastHeartbeat());
+        assertEquals(1, node.getInstanceCount());
+    }
+
+    @Test
+    void testGetAgentGraph_WithOnlyOnlineMarketingAgent() {
+        AiAgent agent = new AiAgent();
+        agent.setId(2L);
+        agent.setAgentCode("marketing-agent");
+        agent.setAgentName("市场营销Agent");
+        agent.setCategory("市场营销");
+
+        AgentHeartbeat heartbeat = new AgentHeartbeat();
+        heartbeat.setAgentId(2L);
+        heartbeat.setAgentCode("marketing-agent");
+        heartbeat.setInstanceId("marketing-001");
+        heartbeat.setStatus(1);
+        heartbeat.setLastHeartbeat(LocalDateTime.now());
+
+        when(agentMapper.selectList(any())).thenReturn(Collections.singletonList(agent));
+        when(heartbeatMapper.selectList(any())).thenReturn(Collections.singletonList(heartbeat));
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
+
+        AgentGraphResponse graph = monitorService.getAgentGraph();
+
+        assertEquals(1, graph.getNodes().size());
+        AgentGraphNode node = graph.getNodes().get(0);
+        assertEquals("市场营销Agent", node.getName());
+        assertEquals("online", node.getStatus());
         assertEquals(1, node.getInstanceCount());
     }
 

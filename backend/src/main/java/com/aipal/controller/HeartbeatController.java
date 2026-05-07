@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.HeartbeatRequest;
 import com.aipal.entity.AgentHeartbeat;
+import com.aipal.service.HeartbeatManagementService;
 import com.aipal.service.HeartbeatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -14,10 +15,11 @@ import org.springframework.web.bind.annotation.*;
 public class HeartbeatController {
 
     private final HeartbeatService heartbeatService;
+    private final HeartbeatManagementService heartbeatManagementService;
 
     @PostMapping("/report")
     public Result<Void> reportHeartbeat(@Valid @RequestBody HeartbeatRequest request) {
-        heartbeatService.recordHeartbeat(request);
+        heartbeatManagementService.recordHeartbeat(request);
         return Result.success(null);
     }
 

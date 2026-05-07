@@ -1,9 +1,11 @@
 package com.aipal.service;
 
 import com.aipal.common.TraceContext;
+import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentVersion;
 import com.aipal.entity.MonCallRecord;
+import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.MonCallRecordMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -15,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +26,7 @@ public class AgentService {
     private final AiAgentMapper agentMapper;
     private final AgentVersionService agentVersionService;
     private final MonCallRecordMapper callRecordMapper;
+    private final AgentHeartbeatMapper heartbeatMapper;
 
     public Page<AiAgent> listAgents(int pageNum, int pageSize, String name, Integer status, String category) {
         Page<AiAgent> page = new Page<>(pageNum, pageSize);
@@ -37,11 +41,17 @@ public class AgentService {
             wrapper.eq(AiAgent::getCategory, category);
         }
         wrapper.orderByDesc(AiAgent::getCreateTime);
-        return agentMapper.selectPage(page, wrapper);
+        Page<AiAgent> result = agentMapper.selectPage(page, wrapper);
+        enrichRuntimeStatus(result.getRecords());
+        return result;
     }
 
     public AiAgent getAgentById(Long id) {
-        return agentMapper.selectById(id);
+        AiAgent agent = agentMapper.selectById(id);
+        if (agent != null) {
+            enrichRuntimeStatus(List.of(agent));
+        }
+        return agent;
     }
 
     public boolean saveAgent(AiAgent agent) {
@@ -95,7 +105,45 @@ public class AgentService {
     public List<AiAgent> getOnlineAgents() {
         LambdaQueryWrapper<AiAgent> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(AiAgent::getStatus, 1);
-        return agentMapper.selectList(wrapper);
+        List<AiAgent> agents = agentMapper.selectList(wrapper);
+        enrichRuntimeStatus(agents);
+        return agents;
+    }
+
+    private void enrichRuntimeStatus(List<AiAgent> agents) {
+        if (agents == null || agents.isEmpty()) {
+            return;
+        }
+
+        List<AgentHeartbeat> heartbeats = heartbeatMapper.selectList(null);
+        Map<String, List<AgentHeartbeat>> heartbeatByCode = heartbeats.stream()
+                .filter(h -> h.getAgentCode() != null && !h.getAgentCode().isBlank())
+                .collect(Collectors.groupingBy(AgentHeartbeat::getAgentCode));
+        Map<Long, List<AgentHeartbeat>> heartbeatById = heartbeats.stream()
+                .filter(h -> h.getAgentId() != null)
+                .collect(Collectors.groupingBy(AgentHeartbeat::getAgentId));
+
+        for (AiAgent agent : agents) {
+            List<AgentHeartbeat> agentHeartbeats = heartbeatByCode.get(agent.getAgentCode());
+            if (agentHeartbeats == null || agentHeartbeats.isEmpty()) {
+                agentHeartbeats = heartbeatById.get(agent.getId());
+            }
+            agent.setInstanceCount(agentHeartbeats == null ? 0 : agentHeartbeats.size());
+            if (agentHeartbeats == null || agentHeartbeats.isEmpty()) {
+                agent.setRuntimeStatus("offline");
+                continue;
+            }
+
+            AgentHeartbeat latest = agentHeartbeats.stream()
+                    .filter(h -> h.getLastHeartbeat() != null)
+                    .max((h1, h2) -> h1.getLastHeartbeat().compareTo(h2.getLastHeartbeat()))
+                    .orElse(agentHeartbeats.get(0));
+            agent.setLastHeartbeat(latest.getLastHeartbeat());
+            agent.setRuntimeStatus(latest.getStatus() != null && latest.getStatus() == 1 ? "online" : "offline");
+            if (latest.getStatus() != null && latest.getStatus() == 1 && agent.getStatus() != 1) {
+                agent.setStatus(1);
+            }
+        }
     }
 
     public Map<String, Object> callAgent(Long agentId, Object params) {

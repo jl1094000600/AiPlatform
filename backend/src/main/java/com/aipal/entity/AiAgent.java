@@ -23,4 +23,13 @@ public class AiAgent {
     private LocalDateTime updateTime;
     @TableLogic
     private Integer isDeleted;
+
+    @TableField(exist = false)
+    private LocalDateTime lastHeartbeat;
+
+    @TableField(exist = false)
+    private Integer instanceCount;
+
+    @TableField(exist = false)
+    private String runtimeStatus;
 }

@@ -43,5 +43,6 @@ agent:
   instance-id: ${AGENT_INSTANCE_ID:marketing-001}
   endpoint: http://localhost:8081
   platform:
+    registry-url: http://localhost:8080/api/v1/registry/agents
     heartbeat-url: http://localhost:8080/api/v1/heartbeat/report
     a2a-url: http://localhost:8080/api/v1/a2a/message

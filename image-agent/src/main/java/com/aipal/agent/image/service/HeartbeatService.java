@@ -1,88 +1,108 @@
 package com.aipal.agent.image.service;
 
-import cn.hutool.core.util.IdUtil;
 import com.aipal.agent.image.config.AgentConfig;
 import com.aipal.agent.image.dto.HeartbeatRequest;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class HeartbeatService {
 
-    private static final String HEARTBEAT_KEY_PREFIX = "agent:heartbeat:";
-    private static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(90);
-
-    private final RedisTemplate<String, Object> redisTemplate;
     private final AgentConfig agentConfig;
+    private final RestTemplate restTemplate;
 
-    @Value("${server.port:8081}")
-    private int serverPort;
+    private int consecutiveFailures = 0;
+    private static final int MAX_CONSECUTIVE_FAILURES = 3;
 
-    private String instanceId = IdUtil.fastSimpleUUID();
-    private Long agentId = 1L;
+    @PostConstruct
+    public void init() {
+        log.info("HeartbeatService initialized for agent: {}, instance: {}, registry: {}, heartbeat: {}",
+                agentConfig.getAgentCode(), agentConfig.getInstanceId(), agentConfig.getRegistryUrl(), agentConfig.getHeartbeatUrl());
+        registerWithPlatform();
+        sendHeartbeat();
+    }
 
-    @Scheduled(fixedRateString = "${image-agent.heartbeat-interval:30000}")
+    private void registerWithPlatform() {
+        try {
+            restTemplate.postForEntity(agentConfig.getRegistryUrl(), buildRegistrationRequest(), Map.class);
+            log.info("Agent registered with platform: {} [{}]", agentConfig.getAgentCode(), agentConfig.getInstanceId());
+        } catch (Exception e) {
+            log.warn("Failed to register agent with platform: {}", e.getMessage());
+        }
+    }
+
+    @Scheduled(fixedRateString = "${agent.heartbeat-interval:30000}")
     public void sendHeartbeat() {
         try {
-            HeartbeatRequest request = new HeartbeatRequest();
-            request.setAgentId(agentId);
-            request.setInstanceId(instanceId);
-            request.setHealthScore(100);
-            request.setEndpoint("http://localhost:" + serverPort);
-
-            Map<String, Object> capabilities = new HashMap<>();
-            capabilities.put("imageRecognition", true);
-            capabilities.put("fileParsing", true);
-            request.setCapabilities(new java.util.ArrayList<>(capabilities.keySet()));
-
-            recordHeartbeatLocally(request);
-
-            sendHeartbeatToPlatform(request);
-
-            log.debug("Heartbeat sent for agent {} instance {}", agentId, instanceId);
+            restTemplate.postForEntity(agentConfig.getHeartbeatUrl(), buildHeartbeatRequest(), Void.class);
+            consecutiveFailures = 0;
+            log.debug("Heartbeat reported successfully");
         } catch (Exception e) {
-            log.error("Failed to send heartbeat", e);
+            consecutiveFailures++;
+            log.warn("Failed to report heartbeat: {}. Consecutive failures: {}",
+                    e.getMessage(), consecutiveFailures);
+
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                log.error("Max consecutive heartbeat failures reached. Agent may be offline from platform perspective.");
+            }
         }
     }
 
-    private void recordHeartbeatLocally(HeartbeatRequest request) {
-        String key = HEARTBEAT_KEY_PREFIX + request.getAgentId() + ":" + instanceId;
-        redisTemplate.opsForHash().put(key, "lastHeartbeat", LocalDateTime.now().toString());
-        redisTemplate.opsForHash().put(key, "healthScore", String.valueOf(request.getHealthScore()));
-        redisTemplate.opsForHash().put(key, "endpoint", request.getEndpoint() != null ? request.getEndpoint() : "");
-        redisTemplate.expire(key, HEARTBEAT_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+    Map<String, Object> buildRegistrationRequest() {
+        Map<String, Object> request = new HashMap<>();
+        request.put("agentCode", agentConfig.getAgentCode());
+        request.put("agentName", agentConfig.getAgentName());
+        request.put("description", agentConfig.getDescription());
+        request.put("category", agentConfig.getCategory());
+        request.put("apiUrl", agentConfig.getEndpoint());
+        request.put("healthEndpoint", "/api/image-agent/health");
+        request.put("instanceId", agentConfig.getInstanceId());
+        request.put("heartbeatInterval", Math.toIntExact(agentConfig.getHeartbeatInterval() / 1000));
+        request.put("heartbeatTimeout", 90);
+        return request;
     }
 
-    private void sendHeartbeatToPlatform(HeartbeatRequest request) {
-        try {
-            String platformUrl = agentConfig.getPlatformUrl();
-            String heartbeatUrl = platformUrl + "/api/agent/heartbeat";
+    HeartbeatRequest buildHeartbeatRequest() {
+        HeartbeatRequest request = new HeartbeatRequest();
+        request.setAgentCode(agentConfig.getAgentCode());
+        request.setInstanceId(agentConfig.getInstanceId());
+        request.setHealthScore(calculateHealthScore());
+        request.setEndpoint(agentConfig.getEndpoint());
+        request.setCapabilities(List.of("image_recognition", "file_parsing", "document_parsing"));
 
-            RestTemplate restTemplate = new RestTemplate();
-            restTemplate.postForObject(heartbeatUrl, request, Void.class);
-        } catch (Exception e) {
-            log.warn("Failed to send heartbeat to platform: {}", e.getMessage());
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("agentCode", agentConfig.getAgentCode());
+        metadata.put("agentName", agentConfig.getAgentName());
+        metadata.put("category", agentConfig.getCategory());
+        metadata.put("description", agentConfig.getDescription());
+        metadata.put("version", "1.0.0");
+        request.setMetadata(metadata);
+
+        return request;
+    }
+
+    private int calculateHealthScore() {
+        if (consecutiveFailures > 0) {
+            return Math.max(50, 100 - (consecutiveFailures * 15));
         }
-    }
-
-    public void setAgentId(Long agentId) {
-        this.agentId = agentId;
+        return 100;
     }
 
     public String getInstanceId() {
-        return instanceId;
+        return agentConfig.getInstanceId();
+    }
+
+    public int getConsecutiveFailures() {
+        return consecutiveFailures;
     }
 }

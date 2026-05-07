@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StreamOperations;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -26,7 +25,6 @@ public class A2ACommunicationService {
 
     private static final String STREAM_KEY_PREFIX = "a2a:stream:";
     private static final String CONSUMER_GROUP = "image-agent-group";
-    private static final Duration MESSAGE_TIMEOUT = Duration.ofSeconds(60);
 
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -62,7 +60,7 @@ public class A2ACommunicationService {
                 List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream().read(
                         Consumer.from(CONSUMER_GROUP, "image-agent-consumer"),
                         StreamReadOptions.empty().count(10).block(Duration.ofMillis(500)),
-                        StreamOffset.create(streamKey, ReadOffset.last())
+                        StreamOffset.create(streamKey, ReadOffset.lastConsumed())
                 );
 
                 if (records == null || records.isEmpty()) {

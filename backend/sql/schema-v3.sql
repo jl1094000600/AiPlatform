@@ -114,10 +114,19 @@ CREATE TABLE marketing_sales_data (
 -- ===============================================
 -- 初始化Agent数据
 -- ===============================================
-INSERT INTO ai_agent_info (agent_id, agent_name, agent_type, agent_description, capability, status, instance_id)
+-- v3.0 之后统一以 ai_agent 作为平台可见的 Agent 主数据表。
+-- ai_agent_info 保留用于兼容旧脚本，不再作为页面和图谱的数据源。
+INSERT INTO ai_agent (agent_code, agent_name, description, category, api_url, http_method, status)
 VALUES
-('image-recognition-agent', '图像识别Agent', 1, '提供图像识别和非图像文件文本提取功能', '["recognize", "process", "health"]', 0, 'default'),
-('marketing-agent', '市场营销Agent', 2, '提供销售数据分析、同比环比分析、统计汇总排名功能', '["sales_data_query", "trend_analysis", "statistics_ranking"]', 0, 'default');
+('image-agent', '图像识别Agent', '提供图像识别和非图像文件文本提取功能', '图像识别', 'http://localhost:8082', 'POST', 2),
+('marketing-agent', '市场营销Agent', '提供销售数据分析、同比环比分析、统计汇总排名功能', '市场营销', 'http://localhost:8081', 'POST', 2)
+ON DUPLICATE KEY UPDATE
+agent_name = VALUES(agent_name),
+description = VALUES(description),
+category = VALUES(category),
+api_url = VALUES(api_url),
+http_method = VALUES(http_method),
+update_time = CURRENT_TIMESTAMP;
 
 -- ===============================================
 -- 初始化图像识别Agent配置

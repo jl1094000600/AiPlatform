@@ -6,6 +6,7 @@ import java.util.Map;
 
 @Data
 public class HeartbeatRequest {
+    private String agentCode;
     private Long agentId;
     private String instanceId;
     private Integer healthScore;

@@ -20,8 +20,14 @@ public class HeartbeatService {
     @Value("${agent.code:marketing-agent}")
     private String agentCode;
 
+    @Value("${agent.name:市场营销Agent}")
+    private String agentName;
+
     @Value("${agent.instance-id:marketing-001}")
     private String instanceId;
+
+    @Value("${agent.platform.registry-url:http://localhost:8080/api/v1/registry/agents}")
+    private String registryUrl;
 
     @Value("${agent.platform.heartbeat-url:http://localhost:8080/api/v1/heartbeat/report}")
     private String heartbeatUrl;
@@ -35,15 +41,37 @@ public class HeartbeatService {
 
     @PostConstruct
     public void init() {
-        log.info("HeartbeatService initialized for agent: {}, instance: {}, url: {}",
-                agentCode, instanceId, heartbeatUrl);
+        log.info("HeartbeatService initialized for agent: {}, instance: {}, registry: {}, heartbeat: {}",
+                agentCode, instanceId, registryUrl, heartbeatUrl);
+        registerWithPlatform();
+        reportHeartbeat();
+    }
+
+    private void registerWithPlatform() {
+        try {
+            Map<String, Object> request = new HashMap<>();
+            request.put("agentCode", agentCode);
+            request.put("agentName", agentName);
+            request.put("description", "提供销售数据分析、同比环比分析、统计汇总排名和图表生成功能");
+            request.put("category", "市场营销");
+            request.put("apiUrl", agentEndpoint);
+            request.put("healthEndpoint", "/agent/marketing/health");
+            request.put("instanceId", instanceId);
+            request.put("heartbeatInterval", 30);
+            request.put("heartbeatTimeout", 90);
+
+            restTemplate.postForEntity(registryUrl, request, Map.class);
+            log.info("Agent registered with platform: {} [{}]", agentCode, instanceId);
+        } catch (Exception e) {
+            log.warn("Failed to register agent with platform: {}", e.getMessage());
+        }
     }
 
     @Scheduled(fixedRate = 30000)
     public void reportHeartbeat() {
         try {
             Map<String, Object> request = new HashMap<>();
-            request.put("agentId", getAgentIdFromCode());
+            request.put("agentCode", agentCode);
             request.put("instanceId", instanceId);
             request.put("healthScore", calculateHealthScore());
             request.put("endpoint", agentEndpoint);
@@ -51,6 +79,9 @@ public class HeartbeatService {
 
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("agentCode", agentCode);
+            metadata.put("agentName", agentName);
+            metadata.put("category", "市场营销");
+            metadata.put("description", "提供销售数据分析、同比环比分析、统计汇总排名和图表生成功能");
             metadata.put("version", "1.0.0");
             request.put("metadata", metadata);
 
@@ -67,10 +98,6 @@ public class HeartbeatService {
                 log.error("Max consecutive heartbeat failures reached. Agent may be offline from platform perspective.");
             }
         }
-    }
-
-    private Long getAgentIdFromCode() {
-        return 2L;
     }
 
     private int calculateHealthScore() {

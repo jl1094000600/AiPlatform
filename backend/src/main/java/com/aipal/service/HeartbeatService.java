@@ -90,7 +90,13 @@ public class HeartbeatService {
                 if (Duration.between(lastHeartbeat, now).compareTo(HEARTBEAT_TIMEOUT) > 0) {
                     String keyWithoutPrefix = key.replace(HEARTBEAT_KEY_PREFIX, "");
                     String[] parts = keyWithoutPrefix.split(":", 2);
-                    Long agentId = Long.parseLong(parts[0]);
+                    Long agentId;
+                    try {
+                        agentId = Long.parseLong(parts[0]);
+                    } catch (NumberFormatException e) {
+                        log.debug("Skipping agentCode heartbeat key in legacy detector: {}", key);
+                        continue;
+                    }
                     String instanceId = parts.length > 1 ? parts[1] : "default";
                     markAgentOffline(agentId, instanceId);
                     log.warn("Agent {} instance {} marked offline due to heartbeat timeout", agentId, instanceId);

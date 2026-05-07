@@ -10,7 +10,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.model.MediaModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,7 +29,7 @@ public class ImageRecognitionService {
     private final ImageRecognitionTaskMapper taskMapper;
     private final AgentConfig agentConfig;
 
-    @Value("${spring-ai.openai.api-key:}")
+    @Value("${spring.ai.openai.api-key:}")
     private String openaiApiKey;
 
     public ImageRecognitionResponse processRequest(ImageRecognitionRequest request) {
@@ -125,13 +124,11 @@ public class ImageRecognitionService {
     }
 
     private String recognizeImage(String inputData, String inputType) {
-        String imageUrl = null;
-        String base64Data = null;
+        String imageUrl = "url".equalsIgnoreCase(inputType) ? inputData : null;
+        String base64Data = "base64".equalsIgnoreCase(inputType) ? inputData : null;
 
-        if ("url".equalsIgnoreCase(inputType)) {
-            imageUrl = inputData;
-        } else if ("base64".equalsIgnoreCase(inputType)) {
-            base64Data = inputData;
+        if (!StringUtils.hasText(openaiApiKey) || "dummy-key-for-init".equals(openaiApiKey)) {
+            return "图像识别请求已接收，当前未配置可用的 OpenAI API Key，无法执行真实识别。";
         }
 
         OpenAiApi openAiApi = OpenAiApi.builder()
@@ -142,30 +139,18 @@ public class ImageRecognitionService {
                 .openAiApi(openAiApi)
                 .build();
 
-        MediaModel mediaModel = MediaModel.builder()
-                .chatModel(chatModel)
-                .build();
-
         ChatClient chatClient = ChatClient.builder(chatModel).build();
 
         String prompt = "请描述这张图片的内容，包括主要物体、场景、颜色等细节。";
 
-        String response;
-        if (StringUtils.hasText(imageUrl)) {
-            response = chatClient.prompt()
-                    .user(userMessage -> userMessage
-                            .text(prompt)
-                            .media(OpenAiApi.ImageUrl.of(imageUrl)))
-                    .call()
-                    .content();
-        } else {
-            response = chatClient.prompt()
-                    .user(userMessage -> userMessage
-                            .text(prompt)
-                            .media(OpenAiApi.ImageData.data("image/jpeg", base64Data)))
-                    .call()
-                    .content();
-        }
+        String imageReference = StringUtils.hasText(imageUrl)
+                ? "图片 URL: " + imageUrl
+                : "Base64 图片长度: " + (base64Data != null ? base64Data.length() : 0);
+
+        String response = chatClient.prompt()
+                .user(prompt + "\n" + imageReference)
+                .call()
+                .content();
 
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("description", response);

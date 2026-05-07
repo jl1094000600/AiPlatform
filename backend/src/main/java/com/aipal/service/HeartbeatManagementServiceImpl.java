@@ -3,8 +3,10 @@ package com.aipal.service;
 import com.aipal.dto.HeartbeatRequest;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AgentRegistration;
+import com.aipal.entity.AiAgent;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AgentRegistrationMapper;
+import com.aipal.mapper.AiAgentMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,15 +41,17 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
     private final RedisTemplate<String, Object> redisTemplate;
     private final AgentHeartbeatMapper heartbeatMapper;
     private final AgentRegistrationMapper registrationMapper;
+    private final AiAgentMapper agentMapper;
     private final AgentEventService agentEventService;
 
     @Override
     public void recordHeartbeat(HeartbeatRequest request) {
-        String agentCode = request.getAgentCode();
+        String agentCode = resolveAgentCode(request);
         String instanceId = request.getInstanceId() != null ? request.getInstanceId() : "default";
+        AiAgent agent = upsertAgentMasterFromHeartbeat(agentCode, request);
 
         // 获取Agent的heartbeatTimeout配置
-        AgentRegistration registration = getRegistration(agentCode, instanceId);
+        AgentRegistration registration = getOrCreateRegistration(agentCode, instanceId, request, agent);
         int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
         if (registration != null && registration.getHeartbeatTimeout() != null) {
             timeoutSeconds = registration.getHeartbeatTimeout();
@@ -74,12 +78,15 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
         if (heartbeat == null) {
             heartbeat = new AgentHeartbeat();
+            heartbeat.setAgentId(agent.getId());
             heartbeat.setAgentCode(agentCode);
             heartbeat.setInstanceId(instanceId);
             heartbeat.setCreateTime(LocalDateTime.now());
             heartbeatMapper.insert(heartbeat);
         }
 
+        heartbeat.setAgentId(agent.getId());
+        heartbeat.setAgentCode(agentCode);
         heartbeat.setLastHeartbeat(LocalDateTime.now());
         if (request.getHealthScore() != null) {
             heartbeat.setHealthScore(request.getHealthScore());
@@ -99,6 +106,96 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
         }
 
         log.debug("Agent heartbeat recorded: {} [{}]", agentCode, instanceId);
+    }
+
+    private String resolveAgentCode(HeartbeatRequest request) {
+        if (request.getAgentCode() != null && !request.getAgentCode().isBlank()) {
+            return request.getAgentCode();
+        }
+
+        if (request.getMetadata() != null) {
+            Object metadataAgentCode = request.getMetadata().get("agentCode");
+            if (metadataAgentCode != null && !metadataAgentCode.toString().isBlank()) {
+                return metadataAgentCode.toString();
+            }
+        }
+
+        if (request.getAgentId() != null) {
+            AiAgent agent = agentMapper.selectById(request.getAgentId());
+            if (agent != null && agent.getAgentCode() != null && !agent.getAgentCode().isBlank()) {
+                return agent.getAgentCode();
+            }
+        }
+
+        throw new IllegalArgumentException("agentCode is required for heartbeat");
+    }
+
+    private AiAgent upsertAgentMasterFromHeartbeat(String agentCode, HeartbeatRequest request) {
+        AiAgent agent = agentMapper.selectOne(
+                new LambdaQueryWrapper<AiAgent>().eq(AiAgent::getAgentCode, agentCode)
+        );
+
+        boolean creating = agent == null;
+        if (creating) {
+            agent = new AiAgent();
+            agent.setAgentCode(agentCode);
+            agent.setAgentName(metadataValue(request, "agentName", agentCode));
+            agent.setCategory(metadataValue(request, "category", "Agent"));
+            agent.setDescription(metadataValue(request, "description", null));
+            agent.setHttpMethod("POST");
+            agent.setCreateTime(LocalDateTime.now());
+        }
+
+        if (request.getEndpoint() != null && !request.getEndpoint().isBlank()) {
+            agent.setApiUrl(request.getEndpoint());
+        }
+        agent.setStatus(1);
+        agent.setUpdateTime(LocalDateTime.now());
+
+        if (creating) {
+            agentMapper.insert(agent);
+        } else {
+            agentMapper.updateById(agent);
+        }
+        return agent;
+    }
+
+    private AgentRegistration getOrCreateRegistration(String agentCode, String instanceId,
+                                                      HeartbeatRequest request, AiAgent agent) {
+        AgentRegistration registration = getRegistration(agentCode, instanceId);
+        if (registration != null) {
+            return registration;
+        }
+
+        registration = new AgentRegistration();
+        registration.setAgentCode(agentCode);
+        registration.setAgentName(agent.getAgentName());
+        registration.setDescription(agent.getDescription());
+        registration.setCategory(agent.getCategory());
+        registration.setRegistryType("HEARTBEAT");
+        registration.setApiUrl(request.getEndpoint() != null ? request.getEndpoint() : agent.getApiUrl());
+        registration.setHealthEndpoint("/health");
+        registration.setInstanceId(instanceId);
+        registration.setHeartbeatInterval(30);
+        registration.setHeartbeatTimeout((int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds());
+        registration.setStatus(1);
+        registration.setLastHeartbeat(LocalDateTime.now());
+        registration.setRegisteredTime(LocalDateTime.now());
+        registration.setCreateTime(LocalDateTime.now());
+        registration.setUpdateTime(LocalDateTime.now());
+        registrationMapper.insert(registration);
+        return registration;
+    }
+
+    private String metadataValue(HeartbeatRequest request, String key, String defaultValue) {
+        if (request.getMetadata() == null) {
+            return defaultValue;
+        }
+        Object value = request.getMetadata().get(key);
+        if (value == null || value.toString().isBlank()) {
+            return defaultValue;
+        }
+        return value.toString();
     }
 
     @Override
@@ -230,6 +327,15 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
             // 发布状态变更事件
             agentEventService.publishStatusChangeEvent(agentCode, instanceId, previousStatus, 2);
+        }
+
+        AiAgent agent = agentMapper.selectOne(
+                new LambdaQueryWrapper<AiAgent>().eq(AiAgent::getAgentCode, agentCode)
+        );
+        if (agent != null && agent.getStatus() != null && agent.getStatus() == 1) {
+            agent.setStatus(2);
+            agent.setUpdateTime(LocalDateTime.now());
+            agentMapper.updateById(agent);
         }
     }
 
