@@ -11,7 +11,7 @@ logs/
 
 # Dependencies
 node_modules/
-backend/target/
+*/target/
 
 # Build
 dist/
