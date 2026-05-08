@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:business": "node src/__tests__/BusinessOperations.test.js"
   },
   "dependencies": {
     "vue": "^3.4.21",

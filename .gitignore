@@ -17,6 +17,11 @@ node_modules/
 dist/
 build/
 *.class
+marketDoc/generated-code/
+marketDoc/generated-prd/
+
+# Test
+src/test/
 
 # Env
 .env

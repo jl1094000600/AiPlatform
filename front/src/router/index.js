@@ -11,10 +11,18 @@ const routes = [
     name: 'Home',
     component: () => import('../views/Home.vue'),
     children: [
+      { path: 'dashboard', name: 'BusinessDashboard', component: () => import('../views/BusinessDashboard.vue') },
       { path: 'agents', name: 'Agents', component: () => import('../views/AgentList.vue') },
       { path: 'monitor', name: 'Monitor', component: () => import('../views/Monitor.vue') },
       { path: 'graph', name: 'AgentGraph', component: () => import('../views/AgentGraph.vue') },
+      { path: 'agent-quality', name: 'AgentQuality', component: () => import('../views/AgentQualityMonitor.vue') },
+      { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue') },
       { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') },
+      { path: 'billing', name: 'BillingCenter', component: () => import('../views/BillingCenter.vue') },
+      { path: 'alerts', name: 'AlertCenter', component: () => import('../views/AlertCenter.vue') },
+      { path: 'audit-logs', name: 'AuditLogs', component: () => import('../views/AuditLogs.vue') },
+      { path: 'customers', name: 'Customers', component: () => import('../views/CustomerManagement.vue') },
+      { path: 'invoke', name: 'LowCodeInvoke', component: () => import('../views/LowCodeInvoke.vue') },
       { path: 'benchmark', name: 'Benchmark', component: () => import('../views/DatasetBenchmark.vue') },
       { path: 'workflows', name: 'Workflows', component: () => import('../views/WorkflowEditor.vue') },
       { path: 'workflows/list', name: 'WorkflowList', component: () => import('../views/WorkflowList.vue') }
@@ -33,7 +41,7 @@ router.beforeEach((to, from, next) => {
   if (to.path !== '/login' && !token) {
     next('/login')
   } else if (to.path === '/' && token) {
-    next('/agents')
+    next('/dashboard')
   } else {
     next()
   }

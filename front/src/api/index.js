@@ -87,6 +87,34 @@ export default {
   deleteModel(id) {
     return api.delete('/models/' + id)
   },
+
+  // Dataset APIs
+  getDatasets(params) {
+    return api.get('/datasets', { params })
+  },
+
+  // Agent quality APIs
+  getAgentRuntimeConfig(agentId) {
+    return api.get('/agents/' + agentId + '/runtime-config')
+  },
+  updateAgentRuntimeConfig(agentId, data) {
+    return api.put('/agents/' + agentId + '/runtime-config', data)
+  },
+  getAgentQualitySummary() {
+    return api.get('/agent-quality/summary')
+  },
+  getAgentQualityTrends(params) {
+    return api.get('/agent-quality/trends', { params })
+  },
+  runAgentQualityEvaluation(data) {
+    return api.post('/agent-quality/evaluations', data)
+  },
+  getAgentQualityEvaluations(params) {
+    return api.get('/agent-quality/evaluations', { params })
+  },
+  getAgentQualityResults(runId) {
+    return api.get('/agent-quality/evaluations/' + runId + '/results')
+  },
   
   // Auth APIs
   login(data) {
@@ -148,5 +176,151 @@ export default {
   },
   getAllWorkflowExecutions() {
     return api.get('/workflows/executions')
+  },
+
+  // Business dashboard APIs
+  getDashboardSummary() {
+    return api.get('/business-dashboard/summary')
+  },
+  getDashboardTrends() {
+    return api.get('/business-dashboard/trends')
+  },
+  getDashboardExceptions() {
+    return api.get('/business-dashboard/exceptions')
+  },
+
+  // Billing APIs
+  getBillingUsage(params) {
+    return api.get('/billing/usage', { params })
+  },
+  getBillingCostTrends(params) {
+    return api.get('/billing/cost-trends', { params })
+  },
+  getBillingBudgets(params) {
+    return api.get('/billing/budgets', { params })
+  },
+  createBillingBudget(data) {
+    return api.post('/billing/budgets', data)
+  },
+  updateBillingBudget(id, data) {
+    return api.put('/billing/budgets/' + id, data)
+  },
+  exportBilling(params) {
+    return api.get('/billing/bills/export', { params, responseType: 'blob' })
+  },
+
+  // Alert APIs
+  getAlertRules(params) {
+    return api.get('/alerts/rules', { params })
+  },
+  createAlertRule(data) {
+    return api.post('/alerts/rules', data)
+  },
+  updateAlertRule(id, data) {
+    return api.put('/alerts/rules/' + id, data)
+  },
+  deleteAlertRule(id) {
+    return api.delete('/alerts/rules/' + id)
+  },
+  getAlertEvents(params) {
+    return api.get('/alerts/events', { params })
+  },
+  ackAlertEvent(id) {
+    return api.post('/alerts/events/' + id + '/ack')
+  },
+  evaluateAlerts() {
+    return api.post('/alerts/evaluate')
+  },
+
+  // Audit APIs
+  getAuditLogs(params) {
+    return api.get('/audit-logs', { params })
+  },
+  exportAuditLogs(params) {
+    return api.get('/audit-logs/export', { params, responseType: 'blob' })
+  },
+
+  // Customer APIs
+  getCustomers(params) {
+    return api.get('/customers', { params })
+  },
+  getCustomer(id) {
+    return api.get('/customers/' + id)
+  },
+  createCustomer(data) {
+    return api.post('/customers', data)
+  },
+  updateCustomer(id, data) {
+    return api.put('/customers/' + id, data)
+  },
+  deleteCustomer(id) {
+    return api.delete('/customers/' + id)
+  },
+  freezeCustomer(id) {
+    return api.post('/customers/' + id + '/freeze')
+  },
+  adjustCustomerBalance(id, data) {
+    return api.post('/customers/' + id + '/balance/adjust', data)
+  },
+
+  // Low-code invocation APIs
+  createInvocation(data) {
+    return api.post('/invocations', data)
+  },
+  getInvocations(params) {
+    return api.get('/invocations', { params })
+  },
+  retryInvocation(id) {
+    return api.post('/invocations/' + id + '/retry')
+  },
+  downloadInvocation(id) {
+    return api.get('/invocations/' + id + '/download', { responseType: 'blob' })
+  },
+
+  // Automation pipeline APIs
+  getAutomationSummary() {
+    return api.get('/automation/reports/summary')
+  },
+  getAutomationPipelines(params) {
+    return api.get('/automation/pipelines', { params })
+  },
+  createAutomationPipeline(data) {
+    return api.post('/automation/pipelines', data)
+  },
+  getAutomationPipeline(id) {
+    return api.get('/automation/pipelines/' + id)
+  },
+  runAutomationStage(stageId) {
+    return api.post('/automation/stages/' + stageId + '/run')
+  },
+  regenerateAutomationPrd(pipelineId) {
+    return api.post('/automation/pipelines/' + pipelineId + '/regenerate-prd')
+  },
+  regenerateAutomationCode(pipelineId) {
+    return api.post('/automation/pipelines/' + pipelineId + '/regenerate-code')
+  },
+  getAutomationCodeTree(pipelineId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/code-tree')
+  },
+  getAutomationCodeFile(pipelineId, path) {
+    return api.get('/automation/pipelines/' + pipelineId + '/code-file', { params: { path } })
+  },
+  getAutomationCodeTemplates() {
+    return api.get('/automation/code-templates')
+  },
+  getAutomationCodeTemplate(fileName) {
+    return api.get('/automation/code-template', { params: { fileName } })
+  },
+  saveAutomationCodeTemplate(fileName, content) {
+    return api.put('/automation/code-template', { content }, { params: { fileName } })
+  },
+  getAutomationApprovals(params) {
+    return api.get('/automation/approvals', { params })
+  },
+  getAutomationApprovalDocument(id) {
+    return api.get('/automation/approvals/' + id + '/document')
+  },
+  approveAutomation(id, data) {
+    return api.post('/automation/approvals/' + id + '/approve', data)
   }
 }

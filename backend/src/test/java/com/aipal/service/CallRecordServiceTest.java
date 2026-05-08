@@ -55,7 +55,7 @@ class CallRecordServiceTest {
 
     @Test
     void testCountOnlineAgents() {
-        Integer count = callRecordService.countOnlineAgents();
+        Long count = callRecordService.countOnlineAgents();
         assertNotNull(count);
         assertTrue(count >= 0);
     }
@@ -125,7 +125,7 @@ class CallRecordServiceTest {
         record.setTraceId("test-trace-" + System.currentTimeMillis());
         record.setAgentId(1L);
         record.setDurationMs(100);
-        record.setSuccess((byte) 1);
+        record.setSuccess(1);
         record.setCreateTime(LocalDateTime.now());
         boolean saved = callRecordService.saveCallRecord(record);
         assertTrue(saved);

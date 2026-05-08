@@ -23,6 +23,7 @@ public class A2AService {
     private final SalesQueryTool salesQueryTool;
     private final TrendAnalysisTool trendAnalysisTool;
     private final StatisticsTool statisticsTool;
+    private final RuntimeConfigService runtimeConfigService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -42,7 +43,11 @@ public class A2AService {
                 case "sales_query" -> handleSalesQuery(payload);
                 case "trend_analysis" -> handleTrendAnalysis(payload);
                 case "statistics" -> handleStatistics(payload);
-                default -> Map.of("status", "success", "message", "Marketing Agent acknowledged");
+                default -> Map.of(
+                        "status", "success",
+                        "message", "Marketing Agent acknowledged",
+                        "runtimeConfig", runtimeConfigService.getCurrentConfig()
+                );
             };
         } catch (Exception e) {
             log.error("Error handling A2A message", e);

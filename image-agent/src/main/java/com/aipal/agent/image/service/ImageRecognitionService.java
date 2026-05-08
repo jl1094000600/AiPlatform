@@ -28,6 +28,7 @@ public class ImageRecognitionService {
     private final FileParseService fileParseService;
     private final ImageRecognitionTaskMapper taskMapper;
     private final AgentConfig agentConfig;
+    private final RuntimeConfigService runtimeConfigService;
 
     @Value("${spring.ai.openai.api-key:}")
     private String openaiApiKey;
@@ -141,7 +142,11 @@ public class ImageRecognitionService {
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
 
-        String prompt = "请描述这张图片的内容，包括主要物体、场景、颜色等细节。";
+        RuntimeConfigService.RuntimeConfig runtimeConfig = runtimeConfigService.getCurrentConfig();
+        String prompt = "请描述这张图片的内容，包括主要物体、场景、颜色等细节。"
+                + " 当前平台配置: model=" + runtimeConfig.getModelCode()
+                + ", topK=" + runtimeConfig.getTopK()
+                + ", temperature=" + runtimeConfig.getTemperature() + "。";
 
         String imageReference = StringUtils.hasText(imageUrl)
                 ? "图片 URL: " + imageUrl

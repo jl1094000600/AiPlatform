@@ -15,6 +15,10 @@ public class AiModel {
     private String provider;
     private String modelVersion;
     private String endpoint;
+    private String sdkType;
+    private String apiKey;
+    private BigDecimal defaultTemperature;
+    private Integer maxTokens;
     private String apiVersion;
     private BigDecimal pricePer1kToken;
     private Integer status;

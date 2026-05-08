@@ -208,44 +208,68 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
         try {
             Set<String> keys = scanKeys(HEARTBEAT_KEY_PREFIX + "*");
-            if (keys == null || keys.isEmpty()) {
-                return;
-            }
-
             LocalDateTime now = LocalDateTime.now();
-            for (String key : keys) {
-                try {
-                    Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
-                    if (lastHeartbeatStr == null) {
-                        continue;
+            if (keys != null && !keys.isEmpty()) {
+                for (String key : keys) {
+                    try {
+                        Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
+                        if (lastHeartbeatStr == null) {
+                            continue;
+                        }
+
+                        LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
+
+                        String keyWithoutPrefix = key.replace(HEARTBEAT_KEY_PREFIX, "");
+                        String[] parts = keyWithoutPrefix.split(":", 2);
+                        String agentCode = parts[0];
+                        String instanceId = parts.length > 1 ? parts[1] : "default";
+
+                        AgentRegistration registration = getRegistration(agentCode, instanceId);
+                        int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
+                        if (registration != null && registration.getHeartbeatTimeout() != null) {
+                            timeoutSeconds = registration.getHeartbeatTimeout();
+                        }
+
+                        Duration timeout = Duration.ofSeconds(timeoutSeconds);
+                        if (Duration.between(lastHeartbeat, now).compareTo(timeout) > 0) {
+                            markAgentOffline(agentCode, instanceId);
+                            log.warn("Agent {} [{}] marked offline due to heartbeat timeout",
+                                    agentCode, instanceId);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error processing heartbeat key {}: {}", key, e.getMessage());
                     }
-
-                    LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
-
-                    // 获取该Agent的超时配置
-                    String keyWithoutPrefix = key.replace(HEARTBEAT_KEY_PREFIX, "");
-                    String[] parts = keyWithoutPrefix.split(":", 2);
-                    String agentCode = parts[0];
-                    String instanceId = parts.length > 1 ? parts[1] : "default";
-
-                    AgentRegistration registration = getRegistration(agentCode, instanceId);
-                    int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
-                    if (registration != null && registration.getHeartbeatTimeout() != null) {
-                        timeoutSeconds = registration.getHeartbeatTimeout();
-                    }
-
-                    Duration timeout = Duration.ofSeconds(timeoutSeconds);
-                    if (Duration.between(lastHeartbeat, now).compareTo(timeout) > 0) {
-                        markAgentOffline(agentCode, instanceId);
-                        log.warn("Agent {} [{}] marked offline due to heartbeat timeout",
-                                agentCode, instanceId);
-                    }
-                } catch (Exception e) {
-                    log.warn("Error processing heartbeat key {}: {}", key, e.getMessage());
                 }
             }
+
+            markStaleDatabaseHeartbeatsOffline(now);
         } finally {
             detectLock.unlock();
+        }
+    }
+
+    private void markStaleDatabaseHeartbeatsOffline(LocalDateTime now) {
+        List<AgentHeartbeat> staleHeartbeats = heartbeatMapper.selectList(
+                new LambdaQueryWrapper<AgentHeartbeat>()
+                        .eq(AgentHeartbeat::getStatus, 1)
+                        .lt(AgentHeartbeat::getLastHeartbeat, now.minus(DEFAULT_HEARTBEAT_TIMEOUT))
+        );
+
+        for (AgentHeartbeat heartbeat : staleHeartbeats) {
+            String agentCode = heartbeat.getAgentCode();
+            if (agentCode == null || agentCode.isBlank()) {
+                log.debug("Skip stale heartbeat without agentCode, id={}", heartbeat.getId());
+                continue;
+            }
+            String instanceId = heartbeat.getInstanceId() != null ? heartbeat.getInstanceId() : "default";
+            try {
+                markAgentOffline(agentCode, instanceId);
+                log.warn("Agent {} [{}] marked offline due to stale database heartbeat",
+                        agentCode, instanceId);
+            } catch (Exception e) {
+                log.warn("Error marking stale heartbeat offline for {} [{}]: {}",
+                        agentCode, instanceId, e.getMessage());
+            }
         }
     }
 

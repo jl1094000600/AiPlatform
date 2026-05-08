@@ -15,8 +15,8 @@
               <line x1="38" y1="28" x2="52" y2="28" stroke="white" stroke-width="2"/>
             </svg>
           </div>
-          <h1 class="brand-title">AI Platform</h1>
-          <p class="brand-tagline">智能_agent协作平台</p>
+          <h1 class="brand-title">Agent中台</h1>
+          <p class="brand-tagline">业务协作与运行管理平台</p>
         </div>
 
         <div class="features-list">
@@ -97,7 +97,7 @@
           </div>
         </div>
 
-        <p class="copyright">© 2024 AI Platform. All rights reserved.</p>
+        <p class="copyright">© 2024 Agent中台. All rights reserved.</p>
       </div>
     </div>
   </div>
@@ -116,11 +116,11 @@ const loading = ref(false)
 const rememberMe = ref(false)
 
 const features = [
-  '智能 Agent 注册与管理',
+  '服务注册与管理',
   '实时心跳监控',
-  'A2A 通信协议',
-  'Agent 调用关系图谱',
-  'TTS 语音合成'
+  '调用关系图谱',
+  '模型与接口管理',
+  '成本与审计追踪'
 ]
 
 const handleLogin = async () => {
@@ -136,7 +136,7 @@ const handleLogin = async () => {
       localStorage.setItem('token', res.data.data.token)
       localStorage.setItem('user', JSON.stringify(res.data.data))
       ElMessage.success({ message: '登录成功，欢迎回来！', duration: 1500 })
-      router.push('/agents')
+      router.push('/dashboard')
     } else {
       ElMessage.error(res.data.message || '登录失败')
     }
@@ -206,13 +206,13 @@ const handleLogin = async () => {
   font-weight: 700;
   color: white;
   margin-bottom: 12px;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .brand-tagline {
   font-size: 16px;
   color: rgba(255, 255, 255, 0.8);
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
 }
 
 .features-list {

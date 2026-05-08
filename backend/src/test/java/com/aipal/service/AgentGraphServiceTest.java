@@ -168,6 +168,32 @@ class AgentGraphServiceTest {
     }
 
     @Test
+    void testGetAgentGraph_StaleHeartbeatIsOffline() {
+        AiAgent agent = new AiAgent();
+        agent.setId(2L);
+        agent.setAgentCode("marketing-agent");
+        agent.setAgentName("市场营销Agent");
+        agent.setCategory("市场营销");
+
+        AgentHeartbeat heartbeat = new AgentHeartbeat();
+        heartbeat.setAgentId(2L);
+        heartbeat.setAgentCode("marketing-agent");
+        heartbeat.setInstanceId("marketing-001");
+        heartbeat.setStatus(1);
+        heartbeat.setLastHeartbeat(LocalDateTime.now().minusMinutes(5));
+
+        when(agentMapper.selectList(any())).thenReturn(Collections.singletonList(agent));
+        when(heartbeatMapper.selectList(any())).thenReturn(Collections.singletonList(heartbeat));
+        when(a2aTaskMapper.selectList(any())).thenReturn(new ArrayList<>());
+
+        AgentGraphResponse graph = monitorService.getAgentGraph();
+        AgentGraphNode node = graph.getNodes().get(0);
+
+        assertEquals("offline", node.getStatus());
+        assertEquals(0, node.getInstanceCount());
+    }
+
+    @Test
     void testGetAgentGraph_A2ATaskAggregation() {
         // Test that A2A tasks are properly aggregated by source->target pair
         A2ATask task1 = new A2ATask();

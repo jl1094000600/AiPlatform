@@ -1,9 +1,9 @@
 package com.aipal.service;
 
+import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.MonCallRecord;
-import com.aipal.entity.AiAgent;
+import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.MonCallRecordMapper;
-import com.aipal.mapper.AiAgentMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CallRecordService {
     private final MonCallRecordMapper callRecordMapper;
-    private final AiAgentMapper agentMapper;
+    private final AgentHeartbeatMapper heartbeatMapper;
 
     public Page<MonCallRecord> listCallRecords(int pageNum, int pageSize, Long agentId, LocalDateTime startTime, LocalDateTime endTime) {
         Page<MonCallRecord> page = new Page<>(pageNum, pageSize);
@@ -115,9 +115,13 @@ public class CallRecordService {
     }
 
     public Long countOnlineAgents() {
-        LambdaQueryWrapper<AiAgent> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(AiAgent::getStatus, 1);
-        return agentMapper.selectCount(wrapper);
+        List<AgentHeartbeat> heartbeats = heartbeatMapper.selectList(null);
+        return heartbeats.stream()
+                .filter(AgentRuntimeStatusSupport::isOnline)
+                .map(AgentHeartbeat::getAgentCode)
+                .filter(code -> code != null && !code.isBlank())
+                .distinct()
+                .count();
     }
 
     public Double getCurrentQps() {

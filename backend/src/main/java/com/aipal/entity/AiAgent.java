@@ -15,6 +15,8 @@ public class AiAgent {
     private String category;
     private String apiUrl;
     private String httpMethod;
+    private Long modelId;
+    private String modelCode;
     private String requestSchema;
     private String responseSchema;
     private Integer status;

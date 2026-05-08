@@ -1,21 +1,9 @@
 <template>
   <div class="layout-container">
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="logo-icon">
-          <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-            <circle cx="24" cy="24" r="20" stroke="url(#sidebarGrad)" stroke-width="2" fill="none"/>
-            <circle cx="24" cy="24" r="8" fill="url(#sidebarGrad)"/>
-            <defs>
-              <linearGradient id="sidebarGrad" x1="0" y1="0" x2="48" y2="48">
-                <stop offset="0%" stop-color="#00f0ff"/>
-                <stop offset="100%" stop-color="#ff00aa"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <span class="logo-text">AI Platform</span>
+        <div class="logo-icon">AP</div>
+        <span class="logo-text">{{ t('app.name') }}</span>
       </div>
 
       <nav class="sidebar-nav">
@@ -33,27 +21,28 @@
 
       <div class="sidebar-footer">
         <div class="user-info">
-          <div class="user-avatar">
-            {{ userInfo.username?.charAt(0)?.toUpperCase() || 'A' }}
-          </div>
+          <div class="user-avatar">{{ userInfo.username?.charAt(0)?.toUpperCase() || 'A' }}</div>
           <div class="user-details">
-            <span class="user-name">{{ userInfo.realName || userInfo.username }}</span>
-            <span class="user-role">系统管理员</span>
+            <span class="user-name">{{ userInfo.realName || userInfo.username || 'Admin' }}</span>
+            <span class="user-role">{{ t('common.admin') }}</span>
           </div>
         </div>
-        <button class="logout-btn" @click="handleLogout" title="退出登录">
+        <button class="logout-btn" @click="handleLogout" :title="t('common.logout')">
           <SwitchButton />
         </button>
       </div>
     </aside>
 
-    <!-- Main Content -->
     <main class="main-content">
       <header class="main-header">
         <div class="header-left">
           <h2 class="page-title">{{ currentPageTitle }}</h2>
         </div>
         <div class="header-right">
+          <div class="lang-switch">
+            <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中</button>
+            <button :class="{ active: locale === 'en' }" @click="setLocale('en')">EN</button>
+          </div>
           <div class="header-time mono">{{ currentTime }}</div>
         </div>
       </header>
@@ -68,21 +57,45 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Cpu, Monitor, Box, SwitchButton, Connection } from '@element-plus/icons-vue'
+import {
+  Bell,
+  Box,
+  Connection,
+  Cpu,
+  DataAnalysis,
+  Finished,
+  MagicStick,
+  Money,
+  Monitor,
+  Promotion,
+  SwitchButton,
+  Tickets,
+  User
+} from '@element-plus/icons-vue'
+import { useI18n } from '../i18n'
 
 const router = useRouter()
 const route = useRoute()
+const { locale, t, setLocale } = useI18n()
 
-const navItems = [
-  { path: '/agents', label: 'Agent管理', icon: Cpu },
-  { path: '/monitor', label: '接口监控', icon: Monitor },
-  { path: '/graph', label: '调用图谱', icon: Connection },
-  { path: '/models', label: '模型管理', icon: Box }
-]
+const navItems = computed(() => [
+  { path: '/dashboard', label: t('nav.overview'), icon: DataAnalysis },
+  { path: '/automation', label: t('nav.automation'), icon: Promotion },
+  { path: '/agents', label: t('nav.agents'), icon: Cpu },
+  { path: '/agent-quality', label: t('nav.quality'), icon: Finished },
+  { path: '/monitor', label: t('nav.monitor'), icon: Monitor },
+  { path: '/graph', label: t('nav.graph'), icon: Connection },
+  { path: '/models', label: t('nav.models'), icon: Box },
+  { path: '/billing', label: t('nav.billing'), icon: Money },
+  { path: '/alerts', label: t('nav.alerts'), icon: Bell },
+  { path: '/audit-logs', label: t('nav.audit'), icon: Tickets },
+  { path: '/customers', label: t('nav.customers'), icon: User },
+  { path: '/invoke', label: t('nav.invoke'), icon: MagicStick }
+])
 
 const currentPageTitle = computed(() => {
-  const item = navItems.find(n => route.path.startsWith(n.path))
-  return item?.label || '控制台'
+  const item = navItems.value.find(n => route.path.startsWith(n.path))
+  return item?.label || t('common.console')
 })
 
 const userInfo = computed(() => {
@@ -132,28 +145,15 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* Sidebar */
 .sidebar {
   width: 240px;
   height: 100vh;
-  background: var(--bg-card);
-  backdrop-filter: blur(20px);
-  border-right: 1px solid var(--border-color);
+  background: #111827;
+  border-right: 1px solid #111827;
   display: flex;
   flex-direction: column;
   position: relative;
   z-index: 100;
-}
-
-.sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 1px;
-  height: 100%;
-  background: linear-gradient(180deg, var(--accent-cyan), transparent, var(--accent-magenta));
-  opacity: 0.5;
 }
 
 .sidebar-header {
@@ -161,23 +161,28 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .logo-icon {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .logo-text {
   font-size: 16px;
   font-weight: 700;
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: -0.01em;
+  color: #f9fafb;
+  letter-spacing: 0;
 }
 
 .sidebar-nav {
@@ -186,15 +191,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  color: var(--text-secondary);
+  padding: 13px 16px;
+  border-radius: 8px;
+  color: #cbd5e1;
   text-decoration: none;
   transition: all 0.2s ease;
   position: relative;
@@ -209,19 +215,19 @@ onUnmounted(() => {
   transform: translateY(-50%);
   width: 3px;
   height: 0;
-  background: var(--accent-cyan);
+  background: #60a5fa;
   border-radius: 0 3px 3px 0;
   transition: height 0.2s ease;
 }
 
 .nav-item:hover {
-  background: rgba(0, 240, 255, 0.05);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
 }
 
 .nav-item.active {
-  background: rgba(0, 240, 255, 0.1);
-  color: var(--accent-cyan);
+  background: #1f2937;
+  color: #ffffff;
 }
 
 .nav-item.active::before {
@@ -237,12 +243,12 @@ onUnmounted(() => {
 .nav-text {
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -260,13 +266,13 @@ onUnmounted(() => {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+  background: #2563eb;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-size: 14px;
-  color: #000;
+  color: #ffffff;
   flex-shrink: 0;
 }
 
@@ -279,7 +285,7 @@ onUnmounted(() => {
 .user-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #f9fafb;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -287,7 +293,7 @@ onUnmounted(() => {
 
 .user-role {
   font-size: 11px;
-  color: var(--text-muted);
+  color: #94a3b8;
 }
 
 .logout-btn {
@@ -307,10 +313,8 @@ onUnmounted(() => {
 
 .logout-btn:hover {
   background: rgba(239, 68, 68, 0.2);
-  transform: scale(1.05);
 }
 
-/* Main Content */
 .main-content {
   flex: 1;
   display: flex;
@@ -326,13 +330,41 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border-color);
-  background: rgba(5, 5, 8, 0.5);
-  backdrop-filter: blur(10px);
+  background: #ffffff;
 }
 
 .header-left {
   display: flex;
   align-items: center;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.lang-switch button {
+  min-width: 42px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.lang-switch button.active {
+  background: #111827;
+  color: #ffffff;
 }
 
 .page-title {
@@ -351,9 +383,9 @@ onUnmounted(() => {
   flex: 1;
   padding: 24px 32px;
   overflow-y: auto;
+  background: var(--bg-base);
 }
 
-/* Responsive */
 @media (max-width: 768px) {
   .sidebar {
     width: 72px;

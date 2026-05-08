@@ -2,7 +2,9 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.AiAgent;
+import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
+import com.aipal.service.AgentRuntimeConfigService;
 import com.aipal.service.AgentService;
 import com.aipal.service.AgentVersionService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -18,6 +20,7 @@ public class AgentController {
 
     private final AgentService agentService;
     private final AgentVersionService agentVersionService;
+    private final AgentRuntimeConfigService runtimeConfigService;
 
     @GetMapping
     public Result<Page<AiAgent>> listAgents(
@@ -60,6 +63,11 @@ public class AgentController {
         return Result.success(agentService.offline(id));
     }
 
+    @PostMapping("/{id}/rollback")
+    public Result<Boolean> rollbackAgent(@PathVariable Long id) {
+        return Result.success(agentVersionService.rollbackToPreviousVersion(id));
+    }
+
     @GetMapping("/{id}/versions")
     public Result<List<AiAgentVersion>> getVersions(@PathVariable Long id) {
         return Result.success(agentVersionService.getVersionsByAgentId(id));
@@ -68,5 +76,17 @@ public class AgentController {
     @PostMapping("/{id}/call")
     public Result<?> callAgent(@PathVariable Long id, @RequestBody(required = false) Object params) {
         return Result.success(agentService.callAgent(id, params));
+    }
+
+    @GetMapping("/{id}/runtime-config")
+    public Result<AiAgentRuntimeConfig> getRuntimeConfig(@PathVariable Long id) {
+        return Result.success(runtimeConfigService.getOrDefaultByAgentId(id));
+    }
+
+    @PutMapping("/{id}/runtime-config")
+    public Result<AiAgentRuntimeConfig> updateRuntimeConfig(
+            @PathVariable Long id,
+            @RequestBody AiAgentRuntimeConfig config) {
+        return Result.success(runtimeConfigService.saveForAgent(id, config));
     }
 }

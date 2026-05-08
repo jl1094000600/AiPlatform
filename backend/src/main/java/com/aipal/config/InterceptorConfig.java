@@ -25,6 +25,10 @@ public class InterceptorConfig implements HandlerInterceptor {
         // Allow public endpoints without authentication
         if (path.equals("/api/v1/agents") ||
             path.startsWith("/api/v1/agents/") ||
+            path.startsWith("/api/v1/agent-config/") ||
+            path.startsWith("/api/v1/agent-quality/") ||
+            path.equals("/api/v1/datasets") ||
+            path.startsWith("/api/v1/datasets/") ||
             path.equals("/api/v1/models") ||
             path.startsWith("/api/v1/models/") ||
             path.equals("/api/v1/heartbeat/report") ||
@@ -33,6 +37,16 @@ public class InterceptorConfig implements HandlerInterceptor {
             path.startsWith("/api/v1/registry/agents/") ||
             path.equals("/api/v1/monitor/agent-graph") ||
             path.startsWith("/api/v1/monitor/") ||
+            path.startsWith("/api/v1/business-dashboard/") ||
+            path.startsWith("/api/v1/billing/") ||
+            path.startsWith("/api/v1/alerts/") ||
+            path.equals("/api/v1/audit-logs") ||
+            path.startsWith("/api/v1/audit-logs/") ||
+            path.equals("/api/v1/customers") ||
+            path.startsWith("/api/v1/customers/") ||
+            path.equals("/api/v1/invocations") ||
+            path.startsWith("/api/v1/invocations/") ||
+            path.startsWith("/api/v1/automation/") ||
             path.startsWith("/api/v1/auth/") ||
             path.equals("/doc.html") ||
             path.startsWith("/webjars/") ||

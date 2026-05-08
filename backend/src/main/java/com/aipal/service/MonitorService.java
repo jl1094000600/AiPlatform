@@ -55,15 +55,12 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
                 agentHeartbeats = heartbeatByAgentId.get(agent.getId());
             }
             if (agentHeartbeats != null && !agentHeartbeats.isEmpty()) {
-                AgentHeartbeat latestHeartbeat = agentHeartbeats.stream()
-                        .filter(h -> h.getLastHeartbeat() != null)
-                        .max((h1, h2) -> h1.getLastHeartbeat().compareTo(h2.getLastHeartbeat()))
-                        .orElse(agentHeartbeats.get(0));
-                node.setStatus(latestHeartbeat.getStatus() != null && latestHeartbeat.getStatus() == 1 ? "online" : "offline");
+                AgentHeartbeat latestHeartbeat = AgentRuntimeStatusSupport.latestHeartbeat(agentHeartbeats);
+                node.setStatus(AgentRuntimeStatusSupport.runtimeStatus(latestHeartbeat));
                 node.setLastHeartbeat(latestHeartbeat.getLastHeartbeat());
-                node.setInstanceCount(agentHeartbeats.size());
+                node.setInstanceCount(AgentRuntimeStatusSupport.onlineInstanceCount(agentHeartbeats));
             } else {
-                node.setStatus(agent.getStatus() != null && agent.getStatus() == 1 ? "online" : "offline");
+                node.setStatus("offline");
                 node.setInstanceCount(0);
             }
             nodes.add(node);

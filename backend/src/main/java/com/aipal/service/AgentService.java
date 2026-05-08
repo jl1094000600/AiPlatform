@@ -3,10 +3,13 @@ package com.aipal.service;
 import com.aipal.common.TraceContext;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
+import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
+import com.aipal.entity.AiModel;
 import com.aipal.entity.MonCallRecord;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.MonCallRecordMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -27,6 +30,8 @@ public class AgentService {
     private final AgentVersionService agentVersionService;
     private final MonCallRecordMapper callRecordMapper;
     private final AgentHeartbeatMapper heartbeatMapper;
+    private final AiModelMapper modelMapper;
+    private final AgentRuntimeConfigService runtimeConfigService;
 
     public Page<AiAgent> listAgents(int pageNum, int pageSize, String name, Integer status, String category) {
         Page<AiAgent> page = new Page<>(pageNum, pageSize);
@@ -58,11 +63,17 @@ public class AgentService {
         if (agent.getStatus() == null) {
             agent.setStatus(2);
         }
-        return agentMapper.insert(agent) > 0;
+        fillModelCode(agent);
+        boolean saved = agentMapper.insert(agent) > 0;
+        syncRuntimeModel(agent);
+        return saved;
     }
 
     public boolean updateAgent(AiAgent agent) {
-        return agentMapper.updateById(agent) > 0;
+        fillModelCode(agent);
+        boolean updated = agentMapper.updateById(agent) > 0;
+        syncRuntimeModel(agent);
+        return updated;
     }
 
     public boolean deleteAgent(Long id) {
@@ -128,19 +139,16 @@ public class AgentService {
             if (agentHeartbeats == null || agentHeartbeats.isEmpty()) {
                 agentHeartbeats = heartbeatById.get(agent.getId());
             }
-            agent.setInstanceCount(agentHeartbeats == null ? 0 : agentHeartbeats.size());
+            agent.setInstanceCount(AgentRuntimeStatusSupport.onlineInstanceCount(agentHeartbeats));
             if (agentHeartbeats == null || agentHeartbeats.isEmpty()) {
                 agent.setRuntimeStatus("offline");
                 continue;
             }
 
-            AgentHeartbeat latest = agentHeartbeats.stream()
-                    .filter(h -> h.getLastHeartbeat() != null)
-                    .max((h1, h2) -> h1.getLastHeartbeat().compareTo(h2.getLastHeartbeat()))
-                    .orElse(agentHeartbeats.get(0));
+            AgentHeartbeat latest = AgentRuntimeStatusSupport.latestHeartbeat(agentHeartbeats);
             agent.setLastHeartbeat(latest.getLastHeartbeat());
-            agent.setRuntimeStatus(latest.getStatus() != null && latest.getStatus() == 1 ? "online" : "offline");
-            if (latest.getStatus() != null && latest.getStatus() == 1 && agent.getStatus() != 1) {
+            agent.setRuntimeStatus(AgentRuntimeStatusSupport.runtimeStatus(latest));
+            if (AgentRuntimeStatusSupport.isOnline(latest) && agent.getStatus() != 1) {
                 agent.setStatus(1);
             }
         }
@@ -168,6 +176,7 @@ public class AgentService {
             result.put("status", "success");
             result.put("message", "Agent调用成功");
             result.put("agentName", agent.getAgentName());
+            result.put("modelCode", agent.getModelCode());
 
             record.setResponseTime(LocalDateTime.now());
             record.setDurationMs(100);
@@ -185,5 +194,24 @@ public class AgentService {
         } finally {
             callRecordMapper.insert(record);
         }
+    }
+
+    private void fillModelCode(AiAgent agent) {
+        if (agent.getModelId() == null) {
+            return;
+        }
+        AiModel model = modelMapper.selectById(agent.getModelId());
+        if (model != null) {
+            agent.setModelCode(model.getModelCode());
+        }
+    }
+
+    private void syncRuntimeModel(AiAgent agent) {
+        if (agent.getId() == null || agent.getModelId() == null) {
+            return;
+        }
+        AiAgentRuntimeConfig config = runtimeConfigService.getOrDefaultByAgentId(agent.getId());
+        config.setModelId(agent.getModelId());
+        runtimeConfigService.saveForAgent(agent.getId(), config);
     }
 }

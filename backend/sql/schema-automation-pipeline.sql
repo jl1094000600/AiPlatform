@@ -1,0 +1,107 @@
+-- Automation pipeline M1
+
+CREATE TABLE IF NOT EXISTS automation_pipeline (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT,
+    pipeline_code      VARCHAR(64)  NOT NULL,
+    product_line       VARCHAR(128) NOT NULL,
+    project_name       VARCHAR(128) NOT NULL,
+    requirement_title  VARCHAR(256) NOT NULL,
+    requirement_summary TEXT        DEFAULT NULL,
+    owner_role         VARCHAR(64)  DEFAULT 'project_manager',
+    initiator          VARCHAR(64)  DEFAULT NULL,
+    template_file      VARCHAR(255) DEFAULT NULL,
+    project_mode       VARCHAR(32)  NOT NULL DEFAULT 'scratch',
+    code_level         VARCHAR(32)  NOT NULL DEFAULT 'module',
+    generate_frontend  TINYINT      NOT NULL DEFAULT 1,
+    generate_backend   TINYINT      NOT NULL DEFAULT 1,
+    frontend_output_path VARCHAR(255) DEFAULT 'front/src/generated',
+    backend_output_path  VARCHAR(255) DEFAULT 'backend/src/main/java/com/aipal/generated',
+    status             VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
+    current_stage      VARCHAR(64)  DEFAULT 'requirement_analysis',
+    total_stages       INT          NOT NULL DEFAULT 7,
+    passed_stages      INT          NOT NULL DEFAULT 0,
+    failed_stages      INT          NOT NULL DEFAULT 0,
+    approval_required  TINYINT      NOT NULL DEFAULT 1,
+    create_time        DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    update_time        DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted         TINYINT      NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_pipeline_code (pipeline_code),
+    KEY idx_status_time (status, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS automation_stage_run (
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    pipeline_id       BIGINT       NOT NULL,
+    stage_key         VARCHAR(64)  NOT NULL,
+    stage_name        VARCHAR(128) NOT NULL,
+    stage_order       INT          NOT NULL,
+    executor_type     VARCHAR(32)  NOT NULL DEFAULT 'AI',
+    ai_model_code     VARCHAR(64)  DEFAULT NULL,
+    status            VARCHAR(32)  NOT NULL DEFAULT 'PENDING',
+    requires_approval TINYINT      NOT NULL DEFAULT 1,
+    input_summary     TEXT         DEFAULT NULL,
+    output_summary    TEXT         DEFAULT NULL,
+    error_message     TEXT         DEFAULT NULL,
+    start_time        DATETIME     DEFAULT NULL,
+    end_time          DATETIME     DEFAULT NULL,
+    duration_ms       INT          DEFAULT 0,
+    create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_pipeline_stage (pipeline_id, stage_key),
+    KEY idx_stage_status (status, stage_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS automation_approval (
+    id             BIGINT       NOT NULL AUTO_INCREMENT,
+    pipeline_id    BIGINT       NOT NULL,
+    stage_run_id   BIGINT       NOT NULL,
+    approval_type  VARCHAR(64)  NOT NULL,
+    reviewer_role  VARCHAR(64)  NOT NULL,
+    status         VARCHAR(32)  NOT NULL DEFAULT 'PENDING',
+    comment        TEXT         DEFAULT NULL,
+    reviewed_by    VARCHAR(64)  DEFAULT NULL,
+    reviewed_time  DATETIME     DEFAULT NULL,
+    create_time    DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    update_time    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_status_role (status, reviewer_role),
+    KEY idx_pipeline_id (pipeline_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS automation_report_snapshot (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    snapshot_date   DATE         NOT NULL,
+    product_line    VARCHAR(128) DEFAULT NULL,
+    total_count     INT          NOT NULL DEFAULT 0,
+    running_count   INT          NOT NULL DEFAULT 0,
+    completed_count INT          NOT NULL DEFAULT 0,
+    blocked_count   INT          NOT NULL DEFAULT 0,
+    pass_rate       DOUBLE       NOT NULL DEFAULT 0,
+    create_time     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_snapshot_date (snapshot_date, product_line)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS automation_generation_job (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    pipeline_id      BIGINT       NOT NULL,
+    stage_run_id     BIGINT       NOT NULL,
+    job_type         VARCHAR(32)  NOT NULL,
+    status           VARCHAR(32)  NOT NULL DEFAULT 'QUEUED',
+    request_user_id  VARCHAR(64)  DEFAULT NULL,
+    trace_id         VARCHAR(64)  NOT NULL,
+    context_snapshot MEDIUMTEXT   DEFAULT NULL,
+    artifact_path    VARCHAR(512) DEFAULT NULL,
+    error_message    TEXT         DEFAULT NULL,
+    start_time       DATETIME     DEFAULT NULL,
+    end_time         DATETIME     DEFAULT NULL,
+    duration_ms      INT          DEFAULT NULL,
+    create_time      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    update_time      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_job_status_time (status, create_time),
+    KEY idx_job_pipeline_stage (pipeline_id, stage_run_id),
+    KEY idx_job_trace (trace_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
