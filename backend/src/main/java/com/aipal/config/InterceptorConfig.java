@@ -47,6 +47,7 @@ public class InterceptorConfig implements HandlerInterceptor {
             path.equals("/api/v1/invocations") ||
             path.startsWith("/api/v1/invocations/") ||
             path.startsWith("/api/v1/automation/") ||
+            path.startsWith("/api/v1/rag/") ||
             path.startsWith("/api/v1/auth/") ||
             path.equals("/doc.html") ||
             path.startsWith("/webjars/") ||

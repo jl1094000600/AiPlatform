@@ -115,6 +115,14 @@ export default {
   getAgentQualityResults(runId) {
     return api.get('/agent-quality/evaluations/' + runId + '/results')
   },
+
+  // RAG APIs
+  createRagIngestion(data) {
+    return api.post('/rag/ingestions', data)
+  },
+  getRagIngestions(params) {
+    return api.get('/rag/ingestions', { params })
+  },
   
   // Auth APIs
   login(data) {

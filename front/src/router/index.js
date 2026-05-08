@@ -16,6 +16,7 @@ const routes = [
       { path: 'monitor', name: 'Monitor', component: () => import('../views/Monitor.vue') },
       { path: 'graph', name: 'AgentGraph', component: () => import('../views/AgentGraph.vue') },
       { path: 'agent-quality', name: 'AgentQuality', component: () => import('../views/AgentQualityMonitor.vue') },
+      { path: 'rag', name: 'RagKnowledge', component: () => import('../views/RagKnowledge.vue') },
       { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue') },
       { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') },
       { path: 'billing', name: 'BillingCenter', component: () => import('../views/BillingCenter.vue') },
