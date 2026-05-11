@@ -19,6 +19,8 @@ build/
 *.class
 marketDoc/generated-code/
 marketDoc/generated-prd/
+bge-m3-training/runs/
+bge-m3-training/output/
 
 # Test
 src/test/

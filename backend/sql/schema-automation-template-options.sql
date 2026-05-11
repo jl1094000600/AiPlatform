@@ -50,3 +50,17 @@ SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schem
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'automation_pipeline' AND column_name = 'skill_id') = 0,
+    'ALTER TABLE automation_pipeline ADD COLUMN skill_id BIGINT DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'automation_pipeline' AND column_name = 'skill_snapshot') = 0,
+    'ALTER TABLE automation_pipeline ADD COLUMN skill_snapshot MEDIUMTEXT DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
