@@ -180,13 +180,14 @@ public class RagService {
         payload.put("documents", chunks);
         payload.put("metadatas", metadatas);
 
+        if (!isChromaV2(client)) {
+            throw new IllegalStateException("Chroma v2 heartbeat is unavailable at " + baseUrl);
+        }
         try {
             writeToChromaV2(client, record.getCollectionName(), payload);
-            return;
-        } catch (RestClientException ex) {
-            // Older local deployments may still expose v1; keep a fallback for compatibility.
+        } catch (Exception ex) {
+            throw new IllegalStateException("Chroma v2 ingestion failed: " + ex.getMessage(), ex);
         }
-        writeToChromaV1(client, record.getCollectionName(), payload);
     }
 
     private void writeToChromaV2(RestClient client, String collectionName, Map<String, Object> payload) throws Exception {
@@ -196,22 +197,6 @@ public class RagService {
                 .body(payload).retrieve().toBodilessEntity();
     }
 
-    private void writeToChromaV1(RestClient client, String collectionName, Map<String, Object> payload) throws Exception {
-        String collectionId = ensureCollectionV1(client, collectionName);
-        RestClientException lastError = null;
-        for (String path : List.of("/api/v1/collections/" + collectionId + "/add",
-                "/api/v1/collections/" + collectionName + "/add")) {
-            try {
-                client.post().uri(path).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        .body(payload).retrieve().toBodilessEntity();
-                return;
-            } catch (RestClientException ex) {
-                lastError = ex;
-            }
-        }
-        throw lastError == null ? new IllegalStateException("Unable to add chunks to Chroma") : lastError;
-    }
-
     private String ensureCollectionV2(RestClient client, String collectionName) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("name", collectionName);
@@ -219,30 +204,8 @@ public class RagService {
         payload.put("metadata", Map.of("source", "AIPlatform"));
 
         String path = "/api/v2/tenants/default_tenant/databases/default_database/collections";
-        String body = client.post().uri(path)
-                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                .body(payload)
-                .retrieve()
-                .body(String.class);
-        String id = extractCollectionId(body, collectionName);
-        if (!isBlank(id)) {
-            return id;
-        }
-
-        body = client.get().uri(path + "?limit=100&offset=0").retrieve().body(String.class);
-        id = extractCollectionId(body, collectionName);
-        if (!isBlank(id)) {
-            return id;
-        }
-        throw new IllegalStateException("Unable to resolve Chroma v2 collection id");
-    }
-
-    private String ensureCollectionV1(RestClient client, String collectionName) throws Exception {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("name", collectionName);
-        payload.put("metadata", Map.of("source", "AIPlatform"));
         try {
-            String body = client.post().uri("/api/v1/collections")
+            String body = client.post().uri(path)
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                     .body(payload)
                     .retrieve()
@@ -255,16 +218,21 @@ public class RagService {
             // Existing collections and Chroma version differences are handled by lookup below.
         }
 
-        try {
-            String body = client.get().uri("/api/v1/collections").retrieve().body(String.class);
-            String id = extractCollectionId(body, collectionName);
-            if (!isBlank(id)) {
-                return id;
-            }
-        } catch (RestClientException ignored) {
-            // Fall through to name-based endpoints.
+        String body = client.get().uri(path + "?limit=100&offset=0").retrieve().body(String.class);
+        String id = extractCollectionId(body, collectionName);
+        if (!isBlank(id)) {
+            return id;
         }
-        return collectionName;
+        throw new IllegalStateException("Unable to resolve Chroma v2 collection id");
+    }
+
+    private boolean isChromaV2(RestClient client) {
+        try {
+            client.get().uri("/api/v2/heartbeat").retrieve().toBodilessEntity();
+            return true;
+        } catch (RestClientException ex) {
+            return false;
+        }
     }
 
     private String extractCollectionId(String body, String collectionName) throws Exception {
