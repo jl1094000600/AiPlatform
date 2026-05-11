@@ -93,6 +93,55 @@
         </div>
       </section>
     </div>
+
+    <section class="chroma-panel">
+      <div class="section-head">
+        <h3>当前 Chroma 内容</h3>
+        <span>直接读取当前向量库集合与文档块</span>
+      </div>
+
+      <el-table v-if="collections.length" :data="collections" border v-loading="collectionsLoading">
+        <el-table-column prop="name" label="集合名称" min-width="180" />
+        <el-table-column prop="id" label="Collection ID" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="dimension" label="维度" width="90" />
+        <el-table-column prop="count" label="文档块" width="100" />
+        <el-table-column label="元数据" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatMetadata(row.metadata) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button size="small" @click="openDocuments(row)">查看文档块</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div v-else class="empty-state">
+        <p>暂无 Chroma 集合，或当前地址无法读取。</p>
+      </div>
+    </section>
+
+    <el-drawer v-model="documentsVisible" :title="documentsTitle" size="720px">
+      <div class="documents-toolbar">
+        <span>共 {{ documentsTotal }} 个文档块</span>
+        <el-button size="small" :loading="documentsLoading" @click="loadDocuments">刷新</el-button>
+      </div>
+      <div v-loading="documentsLoading" class="document-list">
+        <div v-for="doc in documents" :key="doc.id" class="document-item">
+          <div class="document-head">
+            <strong>{{ doc.id }}</strong>
+            <el-tag size="small">chunk {{ doc.chunkIndex ?? '-' }}</el-tag>
+          </div>
+          <div class="document-meta">
+            <span>{{ doc.documentTitle || '-' }}</span>
+            <span>recordId: {{ doc.recordId ?? '-' }}</span>
+          </div>
+          <pre>{{ doc.preview || doc.document }}</pre>
+        </div>
+        <div v-if="!documents.length" class="empty-state">
+          <p>暂无文档块</p>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -108,6 +157,13 @@ const loading = ref(false)
 const submitting = ref(false)
 const models = ref([])
 const records = ref([])
+const collections = ref([])
+const collectionsLoading = ref(false)
+const documentsVisible = ref(false)
+const documentsLoading = ref(false)
+const documents = ref([])
+const documentsTotal = ref(0)
+const currentCollection = ref(null)
 
 const form = reactive({
   collectionName: 'default_knowledge',
@@ -141,10 +197,22 @@ const loadRecords = async () => {
   records.value = res.data?.data?.records || []
 }
 
+const loadCollections = async () => {
+  collectionsLoading.value = true
+  try {
+    const res = await api.getChromaCollections({ chromaUrl: form.chromaUrl })
+    collections.value = res.data?.data || []
+  } catch (e) {
+    collections.value = []
+  } finally {
+    collectionsLoading.value = false
+  }
+}
+
 const loadPageData = async () => {
   loading.value = true
   try {
-    await Promise.all([loadModels(), loadRecords()])
+    await Promise.all([loadModels(), loadRecords(), loadCollections()])
   } catch (e) {
     ElMessage.error(t('rag.loadFailed'))
   } finally {
@@ -163,7 +231,7 @@ const handleIngest = async () => {
     if (res.data?.code === 200) {
       ElMessage.success(t('rag.success'))
       form.content = ''
-      await loadRecords()
+      await Promise.all([loadRecords(), loadCollections()])
     } else {
       ElMessage.error(res.data?.message || t('rag.failed'))
     }
@@ -178,6 +246,39 @@ const statusType = (status) => {
   if (status === 'SUCCESS') return 'success'
   if (status === 'FAILED') return 'danger'
   return 'warning'
+}
+
+const documentsTitle = computed(() => currentCollection.value ? `${currentCollection.value.name} 文档块` : '文档块')
+
+const openDocuments = async (collection) => {
+  currentCollection.value = collection
+  documentsVisible.value = true
+  await loadDocuments()
+}
+
+const loadDocuments = async () => {
+  if (!currentCollection.value?.id) return
+  documentsLoading.value = true
+  try {
+    const res = await api.getChromaDocuments(currentCollection.value.id, {
+      chromaUrl: form.chromaUrl,
+      limit: 50,
+      offset: 0
+    })
+    documents.value = res.data?.data?.documents || []
+    documentsTotal.value = res.data?.data?.total || 0
+  } catch (e) {
+    documents.value = []
+    documentsTotal.value = 0
+    ElMessage.error(e.response?.data?.message || 'Chroma 文档块加载失败')
+  } finally {
+    documentsLoading.value = false
+  }
+}
+
+const formatMetadata = (metadata) => {
+  if (!metadata || !Object.keys(metadata).length) return '-'
+  return Object.entries(metadata).map(([key, value]) => `${key}: ${value}`).join(', ')
 }
 
 onMounted(loadPageData)
@@ -213,11 +314,16 @@ onMounted(loadPageData)
 }
 
 .ingest-panel,
-.history-panel {
+.history-panel,
+.chroma-panel {
   background: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 18px;
+}
+
+.chroma-panel {
+  margin-top: 16px;
 }
 
 .section-head {
@@ -264,6 +370,58 @@ onMounted(loadPageData)
   padding: 48px 24px;
   color: var(--text-muted);
   text-align: center;
+}
+
+.documents-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.document-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.document-item {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.document-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.document-head strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.document-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.document-item pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  color: #111827;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 @media (max-width: 1180px) {

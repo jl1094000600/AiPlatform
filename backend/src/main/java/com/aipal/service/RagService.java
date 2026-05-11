@@ -10,11 +10,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -73,6 +75,79 @@ public class RagService {
         LambdaQueryWrapper<RagIngestionRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(RagIngestionRecord::getCreateTime);
         return recordMapper.selectPage(page, wrapper);
+    }
+
+    public List<Map<String, Object>> listChromaCollections(String chromaUrl) {
+        RestClient client = createChromaV2Client(chromaUrl);
+        try {
+            String body = client.get().uri(chromaCollectionsPath() + "?limit=100&offset=0").retrieve().body(String.class);
+            JsonNode root = objectMapper.readTree(body);
+            List<Map<String, Object>> collections = new ArrayList<>();
+            if (root.isArray()) {
+                for (JsonNode item : root) {
+                    Map<String, Object> collection = new LinkedHashMap<>();
+                    String id = item.path("id").asText("");
+                    collection.put("id", id);
+                    collection.put("name", item.path("name").asText(""));
+                    collection.put("dimension", item.path("dimension").isNumber() ? item.path("dimension").asInt() : null);
+                    collection.put("metadata", readObject(item.path("metadata")));
+                    collection.put("count", isBlank(id) ? 0 : countChromaDocuments(client, id));
+                    collections.add(collection);
+                }
+            }
+            return collections;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to list Chroma collections: " + e.getMessage(), e);
+        }
+    }
+
+    public Map<String, Object> listChromaDocuments(String chromaUrl, String collectionId, int limit, int offset) {
+        if (isBlank(collectionId) || collectionId.contains("/") || collectionId.contains("\\")) {
+            throw new IllegalArgumentException("collectionId is required");
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        int safeOffset = Math.max(0, offset);
+        RestClient client = createChromaV2Client(chromaUrl);
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("include", List.of("documents", "metadatas"));
+            payload.put("limit", safeLimit);
+            payload.put("offset", safeOffset);
+
+            String body = client.post().uri(chromaCollectionsPath() + "/" + collectionId + "/get")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(payload)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode root = objectMapper.readTree(body);
+            List<Map<String, Object>> documents = new ArrayList<>();
+            JsonNode ids = root.path("ids");
+            JsonNode docs = root.path("documents");
+            JsonNode metadatas = root.path("metadatas");
+            for (int i = 0; ids.isArray() && i < ids.size(); i++) {
+                JsonNode metadata = metadatas.isArray() && i < metadatas.size() ? metadatas.get(i) : objectMapper.createObjectNode();
+                String document = docs.isArray() && i < docs.size() ? docs.get(i).asText("") : "";
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", ids.get(i).asText(""));
+                row.put("document", document);
+                row.put("preview", document.length() > 260 ? document.substring(0, 260) + "..." : document);
+                row.put("metadata", readObject(metadata));
+                row.put("documentTitle", metadata.path("documentTitle").asText(""));
+                row.put("recordId", metadata.path("recordId").isMissingNode() ? null : metadata.path("recordId").asText(""));
+                row.put("chunkIndex", metadata.path("chunkIndex").isMissingNode() ? null : metadata.path("chunkIndex").asText(""));
+                documents.add(row);
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("collectionId", collectionId);
+            result.put("limit", safeLimit);
+            result.put("offset", safeOffset);
+            result.put("total", countChromaDocuments(client, collectionId));
+            result.put("documents", documents);
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to list Chroma documents: " + e.getMessage(), e);
+        }
     }
 
     private void validate(RagIngestionRequest request) {
@@ -160,8 +235,7 @@ public class RagService {
     }
 
     private void writeToChroma(RagIngestionRecord record, List<String> chunks, List<List<Double>> embeddings) throws Exception {
-        String baseUrl = normalizeBaseUrl(record.getChromaUrl());
-        RestClient client = RestClient.create(baseUrl);
+        RestClient client = createChromaV2Client(record.getChromaUrl());
 
         Map<String, Object> payload = new LinkedHashMap<>();
         List<String> ids = new ArrayList<>();
@@ -180,9 +254,6 @@ public class RagService {
         payload.put("documents", chunks);
         payload.put("metadatas", metadatas);
 
-        if (!isChromaV2(client)) {
-            throw new IllegalStateException("Chroma v2 heartbeat is unavailable at " + baseUrl);
-        }
         try {
             writeToChromaV2(client, record.getCollectionName(), payload);
         } catch (Exception ex) {
@@ -233,6 +304,62 @@ public class RagService {
         } catch (RestClientException ex) {
             return false;
         }
+    }
+
+    private RestClient createChromaV2Client(String chromaUrl) {
+        String baseUrl = resolveReachableChromaBaseUrl(chromaUrl);
+        return RestClient.create(baseUrl);
+    }
+
+    private String resolveReachableChromaBaseUrl(String chromaUrl) {
+        List<String> errors = new ArrayList<>();
+        for (String candidate : chromaBaseUrlCandidates(normalizeBaseUrl(chromaUrl))) {
+            RestClient client = RestClient.create(candidate);
+            if (isChromaV2(client)) {
+                return candidate;
+            }
+            errors.add(candidate);
+        }
+        throw new IllegalStateException("Chroma v2 heartbeat is unavailable. Tried: " + String.join(", ", errors));
+    }
+
+    private List<String> chromaBaseUrlCandidates(String baseUrl) {
+        List<String> candidates = new ArrayList<>();
+        candidates.add(baseUrl);
+        try {
+            URI uri = URI.create(baseUrl);
+            String scheme = uri.getScheme() == null ? "http" : uri.getScheme();
+            int port = uri.getPort();
+            String portPart = port > 0 ? ":" + port : "";
+            String host = uri.getHost();
+            if ("localhost".equalsIgnoreCase(host)) {
+                candidates.add(scheme + "://[::1]" + portPart);
+                candidates.add(scheme + "://127.0.0.1" + portPart);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Keep the original URL as the only candidate.
+        }
+        return candidates.stream().distinct().toList();
+    }
+
+    private String chromaCollectionsPath() {
+        return "/api/v2/tenants/default_tenant/databases/default_database/collections";
+    }
+
+    private int countChromaDocuments(RestClient client, String collectionId) {
+        try {
+            String body = client.get().uri(chromaCollectionsPath() + "/" + collectionId + "/count").retrieve().body(String.class);
+            return Integer.parseInt(body == null ? "0" : body.trim());
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private Map<String, Object> readObject(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return Map.of();
+        }
+        return objectMapper.convertValue(node, new TypeReference<Map<String, Object>>() {});
     }
 
     private String extractCollectionId(String body, String collectionName) throws Exception {

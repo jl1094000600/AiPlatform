@@ -169,6 +169,12 @@ export default {
   getRagIngestions(params) {
     return api.get('/rag/ingestions', { params })
   },
+  getChromaCollections(params) {
+    return api.get('/rag/chroma/collections', { params })
+  },
+  getChromaDocuments(collectionId, params) {
+    return api.get('/rag/chroma/collections/' + collectionId + '/documents', { params })
+  },
   
   // Auth APIs
   login(data) {
