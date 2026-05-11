@@ -16,6 +16,10 @@ public class RagIngestionRecord {
     private String documentTitle;
     private Long embeddingModelId;
     private String embeddingModelCode;
+    private String chunkMode;
+    private String contentType;
+    private Long semanticModelId;
+    private String semanticModelCode;
     private String chromaUrl;
     private Integer chunkSize;
     private Integer chunkOverlap;
