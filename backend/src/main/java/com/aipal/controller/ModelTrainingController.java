@@ -1,6 +1,9 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.dto.ModelTrainingDatasetImportRequest;
+import com.aipal.dto.ModelTrainingDatasetMockRequest;
+import com.aipal.dto.ModelTrainingDatasetSaveRequest;
 import com.aipal.dto.ModelTrainingRequest;
 import com.aipal.service.ModelTrainingService;
 import lombok.RequiredArgsConstructor;
@@ -36,5 +39,30 @@ public class ModelTrainingController {
     @GetMapping("/jobs/{id}/logs")
     public Result<?> getLogs(@PathVariable String id) {
         return Result.success(modelTrainingService.getLogs(id));
+    }
+
+    @GetMapping("/datasets")
+    public Result<?> listDatasets() {
+        return Result.success(modelTrainingService.listDatasets());
+    }
+
+    @PostMapping("/datasets/import")
+    public Result<?> importDataset(@RequestBody ModelTrainingDatasetImportRequest request) {
+        return Result.success(modelTrainingService.importDataset(request));
+    }
+
+    @PostMapping("/datasets/mock")
+    public Result<?> previewMockDataset(@RequestBody ModelTrainingDatasetMockRequest request) {
+        return Result.success(modelTrainingService.previewMockDataset(request));
+    }
+
+    @PostMapping("/datasets/mock/preview")
+    public Result<?> previewMockDatasetV2(@RequestBody ModelTrainingDatasetMockRequest request) {
+        return Result.success(modelTrainingService.previewMockDataset(request));
+    }
+
+    @PostMapping("/datasets/save")
+    public Result<?> saveDataset(@RequestBody ModelTrainingDatasetSaveRequest request) {
+        return Result.success(modelTrainingService.saveDataset(request));
     }
 }

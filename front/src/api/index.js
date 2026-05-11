@@ -101,6 +101,18 @@ export default {
   getModelTrainingLogs(id) {
     return api.get('/model-training/jobs/' + id + '/logs')
   },
+  getModelTrainingDatasets() {
+    return api.get('/model-training/datasets')
+  },
+  importModelTrainingDataset(data) {
+    return api.post('/model-training/datasets/import', data)
+  },
+  previewModelTrainingMockDataset(data) {
+    return api.post('/model-training/datasets/mock', data)
+  },
+  saveModelTrainingDataset(data) {
+    return api.post('/model-training/datasets/save', data)
+  },
 
   // Dataset APIs
   getDatasets(params) {
