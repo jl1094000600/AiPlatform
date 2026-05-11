@@ -19,6 +19,7 @@ const routes = [
       { path: 'rag', name: 'RagKnowledge', component: () => import('../views/RagKnowledge.vue') },
       { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue') },
       { path: 'skills', name: 'Skills', component: () => import('../views/SkillManagement.vue') },
+      { path: 'memories', name: 'UserMemories', component: () => import('../views/UserMemoryManagement.vue') },
       { path: 'models', name: 'Models', component: () => import('../views/ModelList.vue') },
       { path: 'model-training', name: 'ModelTraining', component: () => import('../views/ModelTraining.vue') },
       { path: 'billing', name: 'BillingCenter', component: () => import('../views/BillingCenter.vue') },

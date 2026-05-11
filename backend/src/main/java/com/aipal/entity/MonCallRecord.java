@@ -13,6 +13,8 @@ public class MonCallRecord {
     private Long agentId;
     private String agentVersion;
     private Long bizModuleId;
+    private Long userId;
+    private String username;
     private Long modelId;
     private LocalDateTime requestTime;
     private LocalDateTime responseTime;

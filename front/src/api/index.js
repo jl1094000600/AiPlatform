@@ -134,6 +134,20 @@ export default {
     return api.delete('/skills/' + id)
   },
 
+  // User memory APIs
+  getUserMemories(params) {
+    return api.get('/user-memories', { params })
+  },
+  getShortTermMemories(params) {
+    return api.get('/user-memories/short-term', { params })
+  },
+  compressUserMemories(params) {
+    return api.post('/user-memories/compress', null, { params })
+  },
+  clearShortTermMemories(params) {
+    return api.delete('/user-memories/short-term', { params })
+  },
+
   // Dataset APIs
   getDatasets(params) {
     return api.get('/datasets', { params })

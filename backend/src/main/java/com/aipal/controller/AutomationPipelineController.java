@@ -1,9 +1,11 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.config.JwtConfig;
 import com.aipal.dto.AutomationApprovalRequest;
 import com.aipal.dto.AutomationPipelineRequest;
 import com.aipal.service.AutomationPipelineService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +24,7 @@ import java.util.Map;
 public class AutomationPipelineController {
 
     private final AutomationPipelineService automationService;
+    private final JwtConfig jwtConfig;
 
     @GetMapping("/pipelines")
     public Result<?> listPipelines(@RequestParam(defaultValue = "1") int pageNum,
@@ -31,7 +34,8 @@ public class AutomationPipelineController {
     }
 
     @PostMapping("/pipelines")
-    public Result<?> createPipeline(@RequestBody AutomationPipelineRequest request) {
+    public Result<?> createPipeline(@RequestBody AutomationPipelineRequest request, HttpServletRequest httpRequest) {
+        applyCurrentUser(request, httpRequest);
         return Result.success(automationService.createPipeline(request));
     }
 
@@ -53,6 +57,28 @@ public class AutomationPipelineController {
     @PostMapping("/pipelines/{id}/regenerate-code")
     public Result<?> regenerateCode(@PathVariable Long id) {
         return Result.success(automationService.regenerateCode(id));
+    }
+
+    private void applyCurrentUser(AutomationPipelineRequest request, HttpServletRequest httpRequest) {
+        String token = bearerToken(httpRequest);
+        if (token == null) {
+            return;
+        }
+        try {
+            Long userId = jwtConfig.getUserIdFromToken(token);
+            String username = jwtConfig.getUsernameFromToken(token);
+            request.setInitiatorUserId(userId);
+            request.setInitiatorUsername(username);
+            request.setInitiator(username);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String bearerToken(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
+        String token = authHeader.substring(7);
+        return jwtConfig.validateToken(token) ? token : null;
     }
 
     @GetMapping("/pipelines/{id}/code-tree")

@@ -24,8 +24,11 @@ public class BillingController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(required = false) Long agentId,
-            @RequestParam(required = false) Long bizModuleId) {
-        return Result.success(billingService.getUsage(startDate, endDate, agentId, bizModuleId));
+            @RequestParam(required = false) Long bizModuleId,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String source) {
+        return Result.success(billingService.getUsage(startDate, endDate, agentId, bizModuleId, userId, username, source));
     }
 
     @GetMapping("/cost-trends")
@@ -33,8 +36,11 @@ public class BillingController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(required = false) Long agentId,
-            @RequestParam(required = false) Long bizModuleId) {
-        return Result.success(billingService.getCostTrends(startDate, endDate, agentId, bizModuleId));
+            @RequestParam(required = false) Long bizModuleId,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String source) {
+        return Result.success(billingService.getCostTrends(startDate, endDate, agentId, bizModuleId, userId, username, source));
     }
 
     @GetMapping("/budgets")
@@ -58,10 +64,13 @@ public class BillingController {
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(required = false) Long agentId,
-            @RequestParam(required = false) Long bizModuleId) {
+            @RequestParam(required = false) Long bizModuleId,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String source) {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=billing.csv")
                 .contentType(MediaType.TEXT_PLAIN)
-                .body(billingService.exportBill(startDate, endDate, agentId, bizModuleId));
+                .body(billingService.exportBill(startDate, endDate, agentId, bizModuleId, userId, username, source));
     }
 }

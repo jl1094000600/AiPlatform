@@ -155,6 +155,10 @@ public class AgentService {
     }
 
     public Map<String, Object> callAgent(Long agentId, Object params) {
+        return callAgent(agentId, params, null, null);
+    }
+
+    public Map<String, Object> callAgent(Long agentId, Object params, Long userId, String username) {
         AiAgent agent = agentMapper.selectById(agentId);
         if (agent == null || agent.getStatus() != 1) {
             throw new RuntimeException("Agent不存在或未上线");
@@ -167,6 +171,8 @@ public class AgentService {
         record.setTraceId(traceId);
         record.setAgentId(agentId);
         record.setBizModuleId(1L);
+        record.setUserId(userId);
+        record.setUsername(username);
         record.setRequestTime(requestTime);
         record.setSuccess(1);
 

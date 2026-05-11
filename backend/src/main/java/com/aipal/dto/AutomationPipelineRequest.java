@@ -9,6 +9,8 @@ public class AutomationPipelineRequest {
     private String requirementTitle;
     private String requirementSummary;
     private String initiator;
+    private Long initiatorUserId;
+    private String initiatorUsername;
     private Long modelId;
     private String aiModelCode;
     private String templateFile;

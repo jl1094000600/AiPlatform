@@ -66,6 +66,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/invocations/**").permitAll()
                 .requestMatchers("/api/v1/automation/**").permitAll()
                 .requestMatchers("/api/v1/rag/**").permitAll()
+                .requestMatchers("/api/v1/skills/**").permitAll()
+                .requestMatchers("/api/v1/user-memories/**").permitAll()
                 .requestMatchers("/doc.html", "/webjars/**", "/swagger-resources/**", "/v3/api-docs/**").permitAll()
                 .anyRequest().authenticated()
             );

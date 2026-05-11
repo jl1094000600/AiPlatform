@@ -312,12 +312,19 @@ const codeLoading = ref(false)
 const codeTruncated = ref(false)
 let detailPollTimer = null
 const detail = reactive({ pipeline: null, stages: [], approvals: [] })
+const currentUsername = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}')?.username || 'admin'
+  } catch {
+    return 'admin'
+  }
+}
 const form = reactive({
   productLine: '',
   projectName: '',
   requirementTitle: '',
   requirementSummary: '',
-  initiator: 'admin',
+  initiator: currentUsername(),
   modelId: null,
   aiModelCode: 'default-open-model',
   skillId: null,
@@ -385,7 +392,7 @@ const createPipeline = async () => {
     projectName: '',
     requirementTitle: '',
     requirementSummary: '',
-    initiator: 'admin',
+    initiator: currentUsername(),
     modelId: null,
     aiModelCode: 'default-open-model',
     skillId: null,

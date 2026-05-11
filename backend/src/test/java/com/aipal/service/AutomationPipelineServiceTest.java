@@ -51,7 +51,7 @@ class AutomationPipelineServiceTest {
             return 1;
         }).when(stageRunMapper).insert(any());
 
-        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, mock(SkillService.class));
+        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, mock(SkillService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -98,7 +98,7 @@ class AutomationPipelineServiceTest {
             return 1;
         }).when(generationJobMapper).insert(any());
 
-        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, skillService);
+        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, skillService, mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -124,7 +124,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                skillService
+                skillService,
+                mock(UserMemoryService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -143,7 +144,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -164,7 +166,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "RUNNING");
         AutomationStageRun requirement = stage(10L, 1L, "requirement_analysis", 1, "WAITING_APPROVAL");
@@ -187,7 +190,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "BLOCKED");
         AutomationStageRun rejectedBuild = stage(12L, 1L, "build_compile", 3, "REJECTED");
@@ -209,7 +213,8 @@ class AutomationPipelineServiceTest {
                 approvalMapper,
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AutomationApproval approval = new AutomationApproval();
         approval.setId(7L);
@@ -227,7 +232,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
 
         Map<String, Object> tree = service.getProjectDirectoryTree();
@@ -251,7 +257,8 @@ class AutomationPipelineServiceTest {
                 approvalMapper,
                 generationJobMapper,
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AutomationGenerationJob stale = generationJob(1L);
         AutomationGenerationJob latest = generationJob(2L);
@@ -273,7 +280,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
                 mock(AiModelMapper.class),
-                mock(SkillService.class)
+                mock(SkillService.class),
+                mock(UserMemoryService.class)
         );
         AiModel model = new AiModel();
         model.setProvider("MiniMax");

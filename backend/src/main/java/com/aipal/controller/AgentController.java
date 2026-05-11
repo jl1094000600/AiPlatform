@@ -1,6 +1,7 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.config.JwtConfig;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
@@ -8,6 +9,7 @@ import com.aipal.service.AgentRuntimeConfigService;
 import com.aipal.service.AgentService;
 import com.aipal.service.AgentVersionService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +23,7 @@ public class AgentController {
     private final AgentService agentService;
     private final AgentVersionService agentVersionService;
     private final AgentRuntimeConfigService runtimeConfigService;
+    private final JwtConfig jwtConfig;
 
     @GetMapping
     public Result<Page<AiAgent>> listAgents(
@@ -74,8 +77,37 @@ public class AgentController {
     }
 
     @PostMapping("/{id}/call")
-    public Result<?> callAgent(@PathVariable Long id, @RequestBody(required = false) Object params) {
-        return Result.success(agentService.callAgent(id, params));
+    public Result<?> callAgent(@PathVariable Long id,
+                               @RequestBody(required = false) Object params,
+                               HttpServletRequest request) {
+        return Result.success(agentService.callAgent(id, params, currentUserId(request), currentUsername(request)));
+    }
+
+    private Long currentUserId(HttpServletRequest request) {
+        String token = bearerToken(request);
+        if (token == null) return null;
+        try {
+            return jwtConfig.getUserIdFromToken(token);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String currentUsername(HttpServletRequest request) {
+        String token = bearerToken(request);
+        if (token == null) return null;
+        try {
+            return jwtConfig.getUsernameFromToken(token);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String bearerToken(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
+        String token = authHeader.substring(7);
+        return jwtConfig.validateToken(token) ? token : null;
     }
 
     @GetMapping("/{id}/runtime-config")

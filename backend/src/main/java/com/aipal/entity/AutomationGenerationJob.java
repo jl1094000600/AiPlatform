@@ -21,6 +21,9 @@ public class AutomationGenerationJob {
     private String contextSnapshot;
     private String artifactPath;
     private String errorMessage;
+    private Integer inputTokens;
+    private Integer outputTokens;
+    private Integer totalTokens;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer durationMs;

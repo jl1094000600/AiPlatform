@@ -19,6 +19,8 @@ public class AutomationPipeline {
     private String requirementSummary;
     private String ownerRole;
     private String initiator;
+    private Long initiatorUserId;
+    private String initiatorUsername;
     private String templateFile;
     private String projectMode;
     private String codeLevel;

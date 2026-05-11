@@ -81,6 +81,7 @@ public class AutomationPipelineService {
     private final AutomationGenerationJobMapper generationJobMapper;
     private final AiModelMapper modelMapper;
     private final SkillService skillService;
+    private final UserMemoryService userMemoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Page<AutomationPipeline> listPipelines(int pageNum, int pageSize, String status) {
@@ -102,6 +103,8 @@ public class AutomationPipelineService {
         pipeline.setRequirementSummary(request.getRequirementSummary());
         pipeline.setOwnerRole("project_manager");
         pipeline.setInitiator(request.getInitiator());
+        pipeline.setInitiatorUserId(request.getInitiatorUserId());
+        pipeline.setInitiatorUsername(request.getInitiatorUsername());
         pipeline.setTemplateFile(resolvePrdTemplateFile(request.getTemplateFile()));
         pipeline.setProjectMode(isBlank(request.getProjectMode()) ? "scratch" : request.getProjectMode().trim());
         pipeline.setCodeLevel(isBlank(request.getCodeLevel()) ? "module" : request.getCodeLevel().trim());
@@ -200,6 +203,8 @@ public class AutomationPipelineService {
         request.setRequirementTitle(pipeline.getRequirementTitle());
         request.setRequirementSummary(pipeline.getRequirementSummary());
         request.setInitiator(pipeline.getInitiator());
+        request.setInitiatorUserId(pipeline.getInitiatorUserId());
+        request.setInitiatorUsername(pipeline.getInitiatorUsername());
         request.setTemplateFile(pipeline.getTemplateFile());
         request.setProjectMode(pipeline.getProjectMode());
         request.setCodeLevel(pipeline.getCodeLevel());
@@ -516,12 +521,12 @@ public class AutomationPipelineService {
     }
 
     private void generatePrdAndRequestReview(AutomationPipeline pipeline, AutomationStageRun stage,
-                                             AutomationPipelineRequest request) {
+                                             AutomationPipelineRequest request, AutomationGenerationJob job) {
         LocalDateTime start = LocalDateTime.now();
         stage.setStatus(STATUS_RUNNING);
         stage.setStartTime(start);
 
-        String prdContent = generatePrdContent(request);
+        String prdContent = generatePrdContent(request, job);
         saveArtifact(stage, prdContent);
         stage.setOutputSummary("PRD generated: " + stage.getArtifactPath());
         stage.setEndTime(LocalDateTime.now());
@@ -530,12 +535,13 @@ public class AutomationPipelineService {
         stage.setUpdateTime(LocalDateTime.now());
         stageRunMapper.updateById(stage);
         createApproval(pipeline, stage);
+        appendPipelineMemory(pipeline, stage, job, "PRD", request.getRequirementSummary(), prdContent);
     }
 
     private AutomationGenerationJob enqueuePrdGenerationJob(AutomationPipeline pipeline, AutomationStageRun stage,
                                                             AutomationPipelineRequest request) {
         try {
-            return enqueueGenerationJob(pipeline, stage, JOB_TYPE_PRD, request.getInitiator(),
+            return enqueueGenerationJob(pipeline, stage, JOB_TYPE_PRD, resolveRequestUserId(request),
                     objectMapper.writeValueAsString(request));
         } catch (IOException e) {
             throw new IllegalStateException("Failed to snapshot PRD generation context: " + e.getMessage(), e);
@@ -562,7 +568,7 @@ public class AutomationPipelineService {
             snapshot.put("skillSnapshot", pipeline.getSkillSnapshot());
             snapshot.put("prdContent", readStageArtifact(prdStage));
             snapshot.put("aiModelCode", stage.getAiModelCode());
-            return enqueueGenerationJob(pipeline, stage, JOB_TYPE_CODE, pipeline.getInitiator(),
+            return enqueueGenerationJob(pipeline, stage, JOB_TYPE_CODE, resolvePipelineRequestUserId(pipeline),
                     objectMapper.writeValueAsString(snapshot));
         } catch (IOException e) {
             throw new IllegalStateException("Failed to snapshot code generation context: " + e.getMessage(), e);
@@ -584,6 +590,48 @@ public class AutomationPipelineService {
         job.setUpdateTime(LocalDateTime.now());
         generationJobMapper.insert(job);
         return job;
+    }
+
+    private String resolveRequestUserId(AutomationPipelineRequest request) {
+        if (request.getInitiatorUserId() != null) {
+            return String.valueOf(request.getInitiatorUserId());
+        }
+        if (request.getInitiatorUsername() != null && !request.getInitiatorUsername().isBlank()) {
+            return request.getInitiatorUsername();
+        }
+        return request.getInitiator();
+    }
+
+    private String resolvePipelineRequestUserId(AutomationPipeline pipeline) {
+        if (pipeline.getInitiatorUserId() != null) {
+            return String.valueOf(pipeline.getInitiatorUserId());
+        }
+        if (pipeline.getInitiatorUsername() != null && !pipeline.getInitiatorUsername().isBlank()) {
+            return pipeline.getInitiatorUsername();
+        }
+        return pipeline.getInitiator();
+    }
+
+    private String resolvePipelineUserKey(AutomationPipeline pipeline) {
+        return userMemoryService.normalizeUserKey(null, pipeline.getInitiatorUserId(),
+                pipeline.getInitiatorUsername() == null ? pipeline.getInitiator() : pipeline.getInitiatorUsername());
+    }
+
+    private void appendPipelineMemory(AutomationPipeline pipeline, AutomationStageRun stage, AutomationGenerationJob job,
+                                      String memoryStage, String inputSummary, String outputSummary) {
+        userMemoryService.appendPipelineMemory(
+                resolvePipelineUserKey(pipeline),
+                pipeline.getInitiatorUserId(),
+                pipeline.getInitiatorUsername() == null ? pipeline.getInitiator() : pipeline.getInitiatorUsername(),
+                pipeline.getId(),
+                stage.getId(),
+                memoryStage,
+                inputSummary,
+                outputSummary,
+                job == null ? null : job.getInputTokens(),
+                job == null ? null : job.getOutputTokens(),
+                job == null ? null : job.getTotalTokens()
+        );
     }
 
     private void supersedeQueuedGenerationJobs(Long pipelineId, Long stageRunId, String jobType) {
@@ -710,7 +758,7 @@ public class AutomationPipelineService {
         AutomationPipelineRequest request = objectMapper.readValue(job.getContextSnapshot(), AutomationPipelineRequest.class);
         AutomationPipeline pipeline = requirePipeline(job.getPipelineId());
         AutomationStageRun stage = requireStage(job.getStageRunId());
-        generatePrdAndRequestReview(pipeline, stage, request);
+        generatePrdAndRequestReview(pipeline, stage, request, job);
         job.setArtifactPath(stage.getArtifactPath());
     }
 
@@ -727,7 +775,7 @@ public class AutomationPipelineService {
         String prdContent = snapshot.path("prdContent").asText("");
         String templateContent = snapshot.path("templateContent").asText("");
         String skillSnapshot = snapshot.path("skillSnapshot").asText("");
-        List<GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent, skillSnapshot);
+        List<GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent, skillSnapshot, job);
         String manifest = writeGeneratedCode(pipelineId, job.getId(), files);
 
         stage = requireStage(stageId);
@@ -741,7 +789,9 @@ public class AutomationPipelineService {
         stage.setUpdateTime(LocalDateTime.now());
         stageRunMapper.updateById(stage);
         job.setArtifactPath(stage.getArtifactPath());
-        createApproval(requirePipeline(pipelineId), stage);
+        AutomationPipeline latestPipeline = requirePipeline(pipelineId);
+        createApproval(latestPipeline, stage);
+        appendPipelineMemory(latestPipeline, stage, job, "CODE", prdContent, manifest);
     }
 
     private void failGenerationJob(AutomationGenerationJob job, LocalDateTime start, Exception e) {
@@ -770,7 +820,8 @@ public class AutomationPipelineService {
     }
 
     private List<GeneratedFile> generateCodeFiles(AutomationPipeline pipeline, AutomationStageRun stage,
-                                                  String prdContent, String templateContent, String skillSnapshot) {
+                                                  String prdContent, String templateContent, String skillSnapshot,
+                                                  AutomationGenerationJob job) {
         AiModel model = modelMapper.selectOne(
                 new LambdaQueryWrapper<AiModel>()
                         .eq(stage.getAiModelCode() != null, AiModel::getModelCode, stage.getAiModelCode())
@@ -778,23 +829,22 @@ public class AutomationPipelineService {
         );
         if (model == null || model.getEndpoint() == null || model.getEndpoint().isBlank()
                 || model.getApiKey() == null || model.getApiKey().isBlank()) {
-            return fallbackCodeFiles(pipeline, prdContent, "模型未配置或缺少 API Key");
+            return fallbackCodeFiles(pipeline, prdContent, "Model is not configured or API key is missing");
         }
 
         try {
-            String content = callModel(
-                    model,
-                    "你是企业级全栈工程师。只返回 JSON，不要 Markdown 代码围栏。",
-                    buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot)
-            );
+            String systemPrompt = "You are an enterprise full-stack engineer. Return pure JSON only, without Markdown fences.";
+            String userPrompt = buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot);
+            ModelCallResult result = callModel(model, systemPrompt, userPrompt);
+            applyTokenUsage(job, result);
+            String content = result.content();
             List<GeneratedFile> files = parseGeneratedCodeFiles(content, pipeline);
-            return files.isEmpty() ? fallbackCodeFiles(pipeline, prdContent, "模型未返回可解析代码文件") : files;
+            return files.isEmpty() ? fallbackCodeFiles(pipeline, prdContent, "Model returned no parseable code files") : files;
         } catch (Exception e) {
-            return fallbackCodeFiles(pipeline, prdContent, "模型调用失败：" + e.getMessage());
+            return fallbackCodeFiles(pipeline, prdContent, "Model call failed: " + e.getMessage());
         }
     }
-
-    private String callModel(AiModel model, String systemPrompt, String userPrompt) throws IOException {
+    private ModelCallResult callModel(AiModel model, String systemPrompt, String userPrompt) throws IOException {
         String endpoint = model.getEndpoint().endsWith("/")
                 ? model.getEndpoint() + "chat/completions"
                 : model.getEndpoint() + "/chat/completions";
@@ -815,7 +865,7 @@ public class AutomationPipelineService {
                 .body(body)
                 .retrieve()
                 .body(String.class);
-        return extractOpenAiContent(response);
+        return extractModelCallResult(response, systemPrompt, userPrompt);
     }
 
     private String buildCodePrompt(AutomationPipeline pipeline, String prdContent, String templateContent, String skillSnapshot) {
@@ -1028,7 +1078,7 @@ public class AutomationPipelineService {
         return files;
     }
 
-    private String generatePrdContent(AutomationPipelineRequest request) {
+    private String generatePrdContent(AutomationPipelineRequest request, AutomationGenerationJob job) {
         AiModel model = request.getModelId() == null ? null : modelMapper.selectById(request.getModelId());
         String fallback = buildFallbackPrd(request);
         String templateContent = readPrdTemplateContent(request.getTemplateFile());
@@ -1041,13 +1091,15 @@ public class AutomationPipelineService {
             String endpoint = model.getEndpoint().endsWith("/")
                     ? model.getEndpoint() + "chat/completions"
                     : model.getEndpoint() + "/chat/completions";
+            String systemPrompt = "You are a senior product manager. Return a structured Markdown PRD with background, goals, user stories, functional requirements, non-functional requirements, acceptance criteria, and risks.";
+            String userPrompt = buildPrdPrompt(request, templateContent);
             Map<String, Object> body = Map.of(
                     "model", model.getModelCode(),
                     "temperature", model.getDefaultTemperature() == null ? BigDecimal.ONE : model.getDefaultTemperature(),
                     "max_tokens", resolveMaxTokens(model),
                     "messages", List.of(
-                            Map.of("role", "system", "content", "你是资深产品经理，请输出结构化 PRD，必须包含背景、目标、用户故事、功能需求、非功能需求、验收标准、风险。"),
-                            Map.of("role", "user", "content", buildPrdPrompt(request, templateContent))
+                            Map.of("role", "system", "content", systemPrompt),
+                            Map.of("role", "user", "content", userPrompt)
                     )
             );
             String response = RestClient.create()
@@ -1058,14 +1110,15 @@ public class AutomationPipelineService {
                     .body(body)
                     .retrieve()
                     .body(String.class);
-            String content = extractOpenAiContent(response);
+            ModelCallResult result = extractModelCallResult(response, systemPrompt, userPrompt);
+            applyTokenUsage(job, result);
+            String content = result.content();
             return content == null || content.isBlank() ? fallback : content;
         } catch (Exception e) {
             return fallback + "\n\n> Model generation failed, fallback PRD was created locally. Reason: "
                     + e.getMessage();
         }
     }
-
     private String buildPrdPrompt(AutomationPipelineRequest request, String templateContent) {
         String effectiveTemplateContent = (templateContent == null ? "" : templateContent)
                 + "\n\nSkill Context:\n" + buildSkillContext(request.getSkillSnapshot());
@@ -1126,10 +1179,44 @@ public class AutomationPipelineService {
                         ? "由业务输入生成。" : request.getRequirementSummary());
     }
 
-    private String extractOpenAiContent(String response) throws IOException {
+    private ModelCallResult extractModelCallResult(String response, String systemPrompt, String userPrompt) throws IOException {
         JsonNode root = objectMapper.readTree(response);
         JsonNode content = root.path("choices").path(0).path("message").path("content");
-        return content.isMissingNode() ? "" : content.asText();
+        String text = content.isMissingNode() ? "" : content.asText();
+        JsonNode usage = root.path("usage");
+        int promptTokens = firstInt(usage, "prompt_tokens", "input_tokens");
+        int completionTokens = firstInt(usage, "completion_tokens", "output_tokens");
+        int totalTokens = firstInt(usage, "total_tokens");
+        if (totalTokens <= 0) {
+            promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
+            completionTokens = estimateTokens(text);
+            totalTokens = promptTokens + completionTokens;
+        } else if (promptTokens + completionTokens <= 0) {
+            promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
+            completionTokens = Math.max(0, totalTokens - promptTokens);
+        }
+        return new ModelCallResult(text, promptTokens, completionTokens, totalTokens);
+    }
+
+    private int firstInt(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode()) return 0;
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isNumber()) return Math.max(0, value.asInt());
+        }
+        return 0;
+    }
+
+    private int estimateTokens(String text) {
+        if (text == null || text.isBlank()) return 0;
+        return Math.max(1, (int) Math.ceil(text.length() / 4.0));
+    }
+
+    private void applyTokenUsage(AutomationGenerationJob job, ModelCallResult result) {
+        if (job == null || result == null) return;
+        job.setInputTokens(result.inputTokens());
+        job.setOutputTokens(result.outputTokens());
+        job.setTotalTokens(result.totalTokens());
     }
 
     private void saveArtifact(AutomationStageRun stage, String content) {
@@ -1653,5 +1740,8 @@ public class AutomationPipelineService {
     }
 
     private record GeneratedFile(String path, String content) {
+    }
+
+    private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {
     }
 }
