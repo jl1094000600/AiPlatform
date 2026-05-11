@@ -66,6 +66,10 @@
       <div v-if="detail.pipeline" class="detail">
         <h3>{{ detail.pipeline.requirementTitle }}</h3>
         <p>{{ detail.pipeline.requirementSummary || t('automation.noSummary') }}</p>
+        <div v-if="detail.pipeline.autoDeployEnabled === 1" class="deploy-badge">
+          <el-tag type="success">自动部署</el-tag>
+          <span>部署配置 ID：{{ detail.pipeline.deployProfileId || '-' }}</span>
+        </div>
         <div class="stage-list">
           <div v-for="stage in detail.stages" :key="stage.id" class="stage-item">
             <div>
@@ -90,6 +94,23 @@
                 @click="runStage(stage)"
               >{{ t('automation.run') }}</el-button>
             </div>
+          </div>
+        </div>
+        <div v-if="deployRuns.length" class="deploy-runs">
+          <h4>部署执行记录</h4>
+          <div v-for="run in deployRuns" :key="run.id" class="deploy-run">
+            <div class="deploy-run-head">
+              <strong>{{ run.stageKey }}</strong>
+              <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
+            </div>
+            <div class="deploy-run-meta">
+              <span>{{ run.deployType || '-' }} / {{ run.environmentName || '-' }}</span>
+              <span v-if="run.imageName">镜像：{{ run.imageName }}</span>
+              <span v-if="run.containerName">容器：{{ run.containerName }}</span>
+              <span v-if="run.jenkinsBuildUrl">Jenkins：{{ run.jenkinsBuildUrl }}</span>
+              <span v-if="run.healthMessage">健康检查：{{ run.healthMessage }}</span>
+            </div>
+            <pre>{{ run.commandLog || run.errorMessage || '-' }}</pre>
           </div>
         </div>
       </div>
@@ -126,6 +147,19 @@
               :key="skill.id"
               :label="skill.skillName + ' / ' + skill.skillCode"
               :value="skill.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="自动部署">
+          <el-switch v-model="form.autoDeployEnabled" active-text="启用" inactive-text="关闭" />
+        </el-form-item>
+        <el-form-item v-if="form.autoDeployEnabled" label="部署配置" required>
+          <el-select v-model="form.deployProfileId" filterable clearable placeholder="选择 Docker 或 Jenkins 部署配置" style="width: 100%">
+            <el-option
+              v-for="profile in deployProfiles"
+              :key="profile.id"
+              :label="profile.profileName + ' / ' + profile.deployType + ' / ' + profile.environmentName"
+              :value="profile.id"
             />
           </el-select>
         </el-form-item>
@@ -289,6 +323,8 @@ const pipelines = ref([])
 const approvals = ref([])
 const models = ref([])
 const skills = ref([])
+const deployProfiles = ref([])
+const deployRuns = ref([])
 const prdTemplates = ref([])
 const templateVisible = ref(false)
 const currentTemplateFile = ref('')
@@ -328,6 +364,8 @@ const form = reactive({
   modelId: null,
   aiModelCode: 'default-open-model',
   skillId: null,
+  autoDeployEnabled: false,
+  deployProfileId: null,
   templateFile: 'default-prd-template.md',
   projectMode: 'scratch',
   codeLevel: 'module',
@@ -347,12 +385,13 @@ const summaryCards = computed(() => [
 const loadAll = async () => {
   loading.value = true
   try {
-    const [summaryRes, pipelineRes, approvalRes, modelsRes, skillsRes, prdTemplatesRes, directoriesRes] = await Promise.all([
+    const [summaryRes, pipelineRes, approvalRes, modelsRes, skillsRes, deployProfilesRes, prdTemplatesRes, directoriesRes] = await Promise.all([
       api.getAutomationSummary(),
       api.getAutomationPipelines({ pageNum: 1, pageSize: 20 }),
       api.getAutomationApprovals({ pageNum: 1, pageSize: 20, status: 'PENDING' }),
       api.getModels({ pageNum: 1, pageSize: 100 }),
       api.getEnabledSkills(),
+      api.getEnabledAutomationDeployProfiles(),
       api.getAutomationPrdTemplates(),
       api.getAutomationProjectDirectories()
     ])
@@ -361,6 +400,7 @@ const loadAll = async () => {
     approvals.value = approvalRes.data.data?.records || []
     models.value = modelsRes.data.data?.records || []
     skills.value = skillsRes.data.data || []
+    deployProfiles.value = deployProfilesRes.data.data || []
     prdTemplates.value = prdTemplatesRes.data.data || []
     projectDirectoryTree.value = directoriesRes.data.data ? [directoriesRes.data.data] : []
     if (!form.templateFile && prdTemplates.value.length) {
@@ -384,6 +424,10 @@ const createPipeline = async () => {
     ElMessage.warning(t('automation.scopeRequired'))
     return
   }
+  if (form.autoDeployEnabled && !form.deployProfileId) {
+    ElMessage.warning('开启自动部署时请选择部署配置')
+    return
+  }
   await api.createAutomationPipeline(form)
   ElMessage.success(t('automation.created'))
   createVisible.value = false
@@ -396,6 +440,8 @@ const createPipeline = async () => {
     modelId: null,
     aiModelCode: 'default-open-model',
     skillId: null,
+    autoDeployEnabled: false,
+    deployProfileId: null,
     templateFile: prdTemplates.value[0]?.fileName || 'default-prd-template.md',
     projectMode: 'scratch',
     codeLevel: 'module',
@@ -480,6 +526,12 @@ const createTemplate = async () => {
 const openDetail = async (row, keepDrawer = true) => {
   const res = await api.getAutomationPipeline(row.id)
   Object.assign(detail, res.data.data || { pipeline: null, stages: [], approvals: [] })
+  if (detail.pipeline?.id) {
+    const deployRes = await api.getAutomationDeployRuns(detail.pipeline.id)
+    deployRuns.value = deployRes.data?.data || []
+  } else {
+    deployRuns.value = []
+  }
   if (keepDrawer) {
     detailVisible.value = true
   }
@@ -503,7 +555,7 @@ const isStageRunnable = (stage) => {
   if (rejectedStage) {
     return rejectedStage.id === stage.id
   }
-  if (!['PENDING', 'RUNNING'].includes(stage.status)) {
+  if (!['PENDING', 'RUNNING', 'BLOCKED'].includes(stage.status)) {
     return false
   }
   if (detail.pipeline?.currentStage && detail.pipeline.currentStage !== stage.stageKey) {
@@ -515,8 +567,8 @@ const isStageRunnable = (stage) => {
 const syncDetailPolling = () => {
   stopDetailPolling()
   if (!detail.pipeline) return
-  const hasRunningCode = detail.stages.some(stage => stage.stageKey === 'code_generation' && (stage.status === 'QUEUED' || stage.status === 'RUNNING'))
-  if (!hasRunningCode) return
+  const hasRunningStage = detail.stages.some(stage => ['QUEUED', 'RUNNING'].includes(stage.status))
+  if (!hasRunningStage) return
   detailPollTimer = window.setInterval(async () => {
     await openDetail(detail.pipeline, false)
     if (codeVisible.value && codeTree.value?.pipelineId) {
@@ -678,10 +730,17 @@ onUnmounted(stopDetailPolling)
 .approvals-panel { margin-top: 16px; }
 .detail h3 { margin-bottom: 8px; }
 .detail p { color: var(--text-muted); margin-bottom: 16px; }
+.deploy-badge { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--text-muted); font-size: 13px; }
 .stage-list { display: flex; flex-direction: column; gap: 10px; }
 .stage-item { display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; }
 .stage-item span { display: block; color: var(--text-muted); margin-top: 5px; line-height: 1.5; }
 .stage-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.deploy-runs { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.deploy-runs h4 { margin: 0; font-size: 15px; }
+.deploy-run { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; background: #f8fafc; }
+.deploy-run-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.deploy-run-meta { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
+.deploy-run pre { max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; line-height: 1.5; color: #111827; }
 .prd-meta { color: var(--text-muted); margin-bottom: 12px; font-size: 13px; word-break: break-all; }
 .code-meta { display: flex; flex-direction: column; gap: 6px; color: var(--text-muted); font-size: 13px; margin-bottom: 12px; word-break: break-all; }
 .code-generating { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }

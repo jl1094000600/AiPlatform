@@ -81,6 +81,8 @@ public class AutomationPipelineService {
     private final AutomationGenerationJobMapper generationJobMapper;
     private final AiModelMapper modelMapper;
     private final SkillService skillService;
+    private final AutomationDeployProfileService deployProfileService;
+    private final AutomationDeploymentExecutionService deploymentExecutionService;
     private final UserMemoryService userMemoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -115,6 +117,11 @@ public class AutomationPipelineService {
         String skillSnapshot = request.getSkillId() == null ? null : skillService.requireEnabledSkillSnapshot(request.getSkillId());
         pipeline.setSkillId(request.getSkillId());
         pipeline.setSkillSnapshot(skillSnapshot);
+        boolean autoDeployEnabled = Boolean.TRUE.equals(request.getAutoDeployEnabled());
+        String deployProfileSnapshot = autoDeployEnabled ? deployProfileService.requireEnabledSnapshot(request.getDeployProfileId()) : null;
+        pipeline.setAutoDeployEnabled(autoDeployEnabled ? 1 : 0);
+        pipeline.setDeployProfileId(autoDeployEnabled ? request.getDeployProfileId() : null);
+        pipeline.setDeployProfileSnapshot(deployProfileSnapshot);
         pipeline.setStatus(STATUS_RUNNING);
         pipeline.setCurrentStage(stageDefinitions().get(0).key());
         pipeline.setTotalStages(stageDefinitions().size());
@@ -126,6 +133,8 @@ public class AutomationPipelineService {
         pipeline.setIsDeleted(0);
         pipelineMapper.insert(pipeline);
         request.setSkillSnapshot(skillSnapshot);
+        request.setAutoDeployEnabled(autoDeployEnabled);
+        request.setDeployProfileSnapshot(deployProfileSnapshot);
 
         AutomationStageRun firstStage = null;
         for (StageDefinition definition : stageDefinitions()) {
@@ -137,7 +146,9 @@ public class AutomationPipelineService {
             stage.setExecutorType("AI");
             stage.setAiModelCode(resolveModelCode(request));
             stage.setStatus(definition.order() == 1 ? STATUS_QUEUED : STATUS_PENDING);
-            stage.setRequiresApproval(1);
+            boolean autoDeployStage = autoDeployEnabled && definition.order() >= 3 && definition.order() <= 6;
+            stage.setExecutorType(autoDeployStage ? "DEPLOY" : "AI");
+            stage.setRequiresApproval(autoDeployStage ? 0 : 1);
             stage.setInputSummary(inputForStage(request, definition));
             if (definition.order() == 1) {
                 stage.setOutputSummary("PRD 生成任务已进入队列。");
@@ -214,6 +225,9 @@ public class AutomationPipelineService {
         request.setBackendOutputPath(pipeline.getBackendOutputPath());
         request.setSkillId(pipeline.getSkillId());
         request.setSkillSnapshot(pipeline.getSkillSnapshot());
+        request.setAutoDeployEnabled(pipeline.getAutoDeployEnabled() != null && pipeline.getAutoDeployEnabled() == 1);
+        request.setDeployProfileId(pipeline.getDeployProfileId());
+        request.setDeployProfileSnapshot(pipeline.getDeployProfileSnapshot());
         AiModel model = modelMapper.selectOne(
                 new LambdaQueryWrapper<AiModel>()
                         .eq(stage.getAiModelCode() != null, AiModel::getModelCode, stage.getAiModelCode())
@@ -266,6 +280,14 @@ public class AutomationPipelineService {
         }
         if (STAGE_CODE_GENERATION.equals(stage.getStageKey())) {
             return startCodeGeneration(stage.getPipelineId(), STATUS_REJECTED.equals(stage.getStatus()));
+        }
+        if (isAutoDeployEnabled(pipeline) && deploymentExecutionService.isDeploymentStage(stage.getStageKey())) {
+            AutomationStageRun result = deploymentExecutionService.executeStage(pipeline, stage);
+            refreshPipelineProgress(pipeline.getId());
+            if (STATUS_SUCCESS.equals(result.getStatus())) {
+                runAutoDeployStages(pipeline.getId(), stage.getStageKey());
+            }
+            return result;
         }
 
         LocalDateTime start = LocalDateTime.now();
@@ -329,6 +351,8 @@ public class AutomationPipelineService {
         refreshPipelineProgress(stage.getPipelineId());
         if (STATUS_SUCCESS.equals(nextStatus) && STAGE_REQUIREMENT_ANALYSIS.equals(stage.getStageKey())) {
             startCodeGeneration(stage.getPipelineId(), true);
+        } else if (STATUS_SUCCESS.equals(nextStatus) && STAGE_CODE_GENERATION.equals(stage.getStageKey())) {
+            runAutoDeployStages(stage.getPipelineId(), null);
         }
         return approval;
     }
@@ -566,6 +590,9 @@ public class AutomationPipelineService {
             snapshot.put("backendOutputPath", pipeline.getBackendOutputPath());
             snapshot.put("skillId", pipeline.getSkillId());
             snapshot.put("skillSnapshot", pipeline.getSkillSnapshot());
+            snapshot.put("autoDeployEnabled", pipeline.getAutoDeployEnabled());
+            snapshot.put("deployProfileId", pipeline.getDeployProfileId());
+            snapshot.put("deployProfileSnapshot", pipeline.getDeployProfileSnapshot());
             snapshot.put("prdContent", readStageArtifact(prdStage));
             snapshot.put("aiModelCode", stage.getAiModelCode());
             return enqueueGenerationJob(pipeline, stage, JOB_TYPE_CODE, resolvePipelineRequestUserId(pipeline),
@@ -1238,7 +1265,9 @@ public class AutomationPipelineService {
         AutomationPipeline pipeline = requirePipeline(pipelineId);
         List<AutomationStageRun> stages = listStages(pipelineId);
         long passed = stages.stream().filter(s -> STATUS_SUCCESS.equals(s.getStatus())).count();
-        long failed = stages.stream().filter(s -> STATUS_REJECTED.equals(s.getStatus())).count();
+        long failed = stages.stream()
+                .filter(s -> STATUS_REJECTED.equals(s.getStatus()) || STATUS_BLOCKED.equals(s.getStatus()))
+                .count();
 
         pipeline.setPassedStages((int) passed);
         pipeline.setFailedStages((int) failed);
@@ -1263,24 +1292,58 @@ public class AutomationPipelineService {
         pipelineMapper.updateById(pipeline);
     }
 
+    private void runAutoDeployStages(Long pipelineId, String afterStageKey) {
+        AutomationPipeline pipeline = requirePipeline(pipelineId);
+        if (!isAutoDeployEnabled(pipeline)) {
+            return;
+        }
+        List<String> stageKeys = List.of("build_compile", "test_execution", "deployment_release", "operations_monitoring");
+        boolean start = afterStageKey == null;
+        for (String stageKey : stageKeys) {
+            if (!start) {
+                start = stageKey.equals(afterStageKey);
+                continue;
+            }
+            AutomationStageRun stage = findStage(pipelineId, stageKey);
+            if (stage == null || STATUS_SUCCESS.equals(stage.getStatus())) {
+                continue;
+            }
+            if (!STATUS_PENDING.equals(stage.getStatus()) && !STATUS_RUNNING.equals(stage.getStatus())
+                    && !STATUS_BLOCKED.equals(stage.getStatus())) {
+                break;
+            }
+            AutomationStageRun result = deploymentExecutionService.executeStage(requirePipeline(pipelineId), stage);
+            refreshPipelineProgress(pipelineId);
+            if (!STATUS_SUCCESS.equals(result.getStatus())) {
+                break;
+            }
+        }
+    }
+
+    private boolean isAutoDeployEnabled(AutomationPipeline pipeline) {
+        return pipeline != null && pipeline.getAutoDeployEnabled() != null && pipeline.getAutoDeployEnabled() == 1;
+    }
+
     private void validateStageCanRun(AutomationPipeline pipeline, AutomationStageRun stage) {
         if (STATUS_COMPLETED.equals(pipeline.getStatus())) {
             throw new IllegalStateException("Completed pipelines cannot be executed");
         }
         List<AutomationStageRun> stages = listStages(pipeline.getId());
         AutomationStageRun rejectedStage = stages.stream()
-                .filter(item -> STATUS_REJECTED.equals(item.getStatus()))
+                .filter(item -> STATUS_REJECTED.equals(item.getStatus()) || STATUS_BLOCKED.equals(item.getStatus()))
                 .min(Comparator.comparing(AutomationStageRun::getStageOrder))
                 .orElse(null);
         if (rejectedStage != null && !rejectedStage.getId().equals(stage.getId())) {
             throw new IllegalStateException("Only the rejected stage can be modified while a pipeline is blocked");
         }
         if (!STATUS_REJECTED.equals(stage.getStatus())
+                && !STATUS_BLOCKED.equals(stage.getStatus())
                 && !STATUS_PENDING.equals(stage.getStatus())
                 && !STATUS_RUNNING.equals(stage.getStatus())) {
-            throw new IllegalStateException("Only pending or rejected stages can be executed");
+            throw new IllegalStateException("Only pending, blocked, or rejected stages can be executed");
         }
         if (!STATUS_REJECTED.equals(stage.getStatus())
+                && !STATUS_BLOCKED.equals(stage.getStatus())
                 && pipeline.getCurrentStage() != null
                 && !"done".equals(pipeline.getCurrentStage())
                 && !pipeline.getCurrentStage().equals(stage.getStageKey())) {
@@ -1518,6 +1581,11 @@ public class AutomationPipelineService {
         pipeline.setSkillId(snapshot.path("skillId").isMissingNode() || snapshot.path("skillId").isNull()
                 ? base.getSkillId() : snapshot.path("skillId").asLong());
         pipeline.setSkillSnapshot(snapshot.path("skillSnapshot").asText(base.getSkillSnapshot()));
+        pipeline.setAutoDeployEnabled(snapshot.path("autoDeployEnabled").isMissingNode()
+                ? base.getAutoDeployEnabled() : snapshot.path("autoDeployEnabled").asInt());
+        pipeline.setDeployProfileId(snapshot.path("deployProfileId").isMissingNode() || snapshot.path("deployProfileId").isNull()
+                ? base.getDeployProfileId() : snapshot.path("deployProfileId").asLong());
+        pipeline.setDeployProfileSnapshot(snapshot.path("deployProfileSnapshot").asText(base.getDeployProfileSnapshot()));
         return pipeline;
     }
 
@@ -1681,6 +1749,9 @@ public class AutomationPipelineService {
         if (request == null || isBlank(request.getProductLine()) || isBlank(request.getProjectName())
                 || isBlank(request.getRequirementTitle())) {
             throw new IllegalArgumentException("productLine, projectName, and requirementTitle are required");
+        }
+        if (Boolean.TRUE.equals(request.getAutoDeployEnabled()) && request.getDeployProfileId() == null) {
+            throw new IllegalArgumentException("deployProfileId is required when auto deploy is enabled");
         }
     }
 

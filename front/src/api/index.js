@@ -408,5 +408,26 @@ export default {
   },
   approveAutomation(id, data) {
     return api.post('/automation/approvals/' + id + '/approve', data)
+  },
+  getAutomationDeployProfiles(params) {
+    return api.get('/automation/deploy-profiles', { params })
+  },
+  getEnabledAutomationDeployProfiles() {
+    return api.get('/automation/deploy-profiles/enabled')
+  },
+  getAutomationDeployProfile(id) {
+    return api.get('/automation/deploy-profiles/' + id)
+  },
+  createAutomationDeployProfile(data) {
+    return api.post('/automation/deploy-profiles', data)
+  },
+  updateAutomationDeployProfile(id, data) {
+    return api.put('/automation/deploy-profiles/' + id, data)
+  },
+  deleteAutomationDeployProfile(id) {
+    return api.delete('/automation/deploy-profiles/' + id)
+  },
+  getAutomationDeployRuns(pipelineId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/deploy-runs')
   }
 }

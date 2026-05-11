@@ -3,7 +3,10 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.config.JwtConfig;
 import com.aipal.dto.AutomationApprovalRequest;
+import com.aipal.dto.AutomationDeployProfileRequest;
 import com.aipal.dto.AutomationPipelineRequest;
+import com.aipal.service.AutomationDeployProfileService;
+import com.aipal.service.AutomationDeploymentExecutionService;
 import com.aipal.service.AutomationPipelineService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,8 @@ import java.util.Map;
 public class AutomationPipelineController {
 
     private final AutomationPipelineService automationService;
+    private final AutomationDeployProfileService deployProfileService;
+    private final AutomationDeploymentExecutionService deploymentExecutionService;
     private final JwtConfig jwtConfig;
 
     @GetMapping("/pipelines")
@@ -42,6 +47,43 @@ public class AutomationPipelineController {
     @GetMapping("/pipelines/{id}")
     public Result<?> getPipeline(@PathVariable Long id) {
         return Result.success(automationService.getDetail(id));
+    }
+
+    @GetMapping("/pipelines/{id}/deploy-runs")
+    public Result<?> getDeployRuns(@PathVariable Long id) {
+        return Result.success(deploymentExecutionService.listRuns(id));
+    }
+
+    @GetMapping("/deploy-profiles")
+    public Result<?> listDeployProfiles(@RequestParam(defaultValue = "1") int pageNum,
+                                        @RequestParam(defaultValue = "20") int pageSize,
+                                        @RequestParam(required = false) Integer status) {
+        return Result.success(deployProfileService.list(pageNum, pageSize, status));
+    }
+
+    @GetMapping("/deploy-profiles/enabled")
+    public Result<?> listEnabledDeployProfiles() {
+        return Result.success(deployProfileService.listEnabled());
+    }
+
+    @GetMapping("/deploy-profiles/{id}")
+    public Result<?> getDeployProfile(@PathVariable Long id) {
+        return Result.success(deployProfileService.get(id));
+    }
+
+    @PostMapping("/deploy-profiles")
+    public Result<?> createDeployProfile(@RequestBody AutomationDeployProfileRequest request) {
+        return Result.success(deployProfileService.create(request));
+    }
+
+    @PutMapping("/deploy-profiles/{id}")
+    public Result<?> updateDeployProfile(@PathVariable Long id, @RequestBody AutomationDeployProfileRequest request) {
+        return Result.success(deployProfileService.update(id, request));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/deploy-profiles/{id}")
+    public Result<?> deleteDeployProfile(@PathVariable Long id) {
+        return Result.success(deployProfileService.delete(id));
     }
 
     @PostMapping("/stages/{stageId}/run")

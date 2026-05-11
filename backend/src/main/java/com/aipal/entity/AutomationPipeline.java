@@ -30,6 +30,9 @@ public class AutomationPipeline {
     private String backendOutputPath;
     private Long skillId;
     private String skillSnapshot;
+    private Integer autoDeployEnabled;
+    private Long deployProfileId;
+    private String deployProfileSnapshot;
     private String status;
     private String currentStage;
     private Integer totalStages;

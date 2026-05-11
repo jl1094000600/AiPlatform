@@ -22,4 +22,7 @@ public class AutomationPipelineRequest {
     private String backendOutputPath;
     private Long skillId;
     private String skillSnapshot;
+    private Boolean autoDeployEnabled;
+    private Long deployProfileId;
+    private String deployProfileSnapshot;
 }
