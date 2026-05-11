@@ -83,6 +83,7 @@ const { locale, t, setLocale } = useI18n()
 const navItems = computed(() => [
   { path: '/dashboard', label: t('nav.overview'), icon: DataAnalysis },
   { path: '/automation', label: t('nav.automation'), icon: Promotion },
+  { path: '/skills', label: t('nav.skills'), icon: MagicStick },
   { path: '/agents', label: t('nav.agents'), icon: Cpu },
   { path: '/agent-quality', label: t('nav.quality'), icon: Finished },
   { path: '/rag', label: t('nav.rag'), icon: FolderOpened },

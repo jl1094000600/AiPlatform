@@ -119,6 +119,16 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="Skill">
+          <el-select v-model="form.skillId" filterable clearable placeholder="可选，不选择则按默认流水线生成" style="width: 100%">
+            <el-option
+              v-for="skill in skills"
+              :key="skill.id"
+              :label="skill.skillName + ' / ' + skill.skillCode"
+              :value="skill.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="t('automation.template')">
           <div class="inline-field">
             <el-select v-model="form.templateFile" filterable style="width: 100%">
@@ -278,6 +288,7 @@ const summary = ref({})
 const pipelines = ref([])
 const approvals = ref([])
 const models = ref([])
+const skills = ref([])
 const prdTemplates = ref([])
 const templateVisible = ref(false)
 const currentTemplateFile = ref('')
@@ -309,6 +320,7 @@ const form = reactive({
   initiator: 'admin',
   modelId: null,
   aiModelCode: 'default-open-model',
+  skillId: null,
   templateFile: 'default-prd-template.md',
   projectMode: 'scratch',
   codeLevel: 'module',
@@ -328,11 +340,12 @@ const summaryCards = computed(() => [
 const loadAll = async () => {
   loading.value = true
   try {
-    const [summaryRes, pipelineRes, approvalRes, modelsRes, prdTemplatesRes, directoriesRes] = await Promise.all([
+    const [summaryRes, pipelineRes, approvalRes, modelsRes, skillsRes, prdTemplatesRes, directoriesRes] = await Promise.all([
       api.getAutomationSummary(),
       api.getAutomationPipelines({ pageNum: 1, pageSize: 20 }),
       api.getAutomationApprovals({ pageNum: 1, pageSize: 20, status: 'PENDING' }),
       api.getModels({ pageNum: 1, pageSize: 100 }),
+      api.getEnabledSkills(),
       api.getAutomationPrdTemplates(),
       api.getAutomationProjectDirectories()
     ])
@@ -340,6 +353,7 @@ const loadAll = async () => {
     pipelines.value = pipelineRes.data.data?.records || []
     approvals.value = approvalRes.data.data?.records || []
     models.value = modelsRes.data.data?.records || []
+    skills.value = skillsRes.data.data || []
     prdTemplates.value = prdTemplatesRes.data.data || []
     projectDirectoryTree.value = directoriesRes.data.data ? [directoriesRes.data.data] : []
     if (!form.templateFile && prdTemplates.value.length) {
@@ -374,6 +388,7 @@ const createPipeline = async () => {
     initiator: 'admin',
     modelId: null,
     aiModelCode: 'default-open-model',
+    skillId: null,
     templateFile: prdTemplates.value[0]?.fileName || 'default-prd-template.md',
     projectMode: 'scratch',
     codeLevel: 'module',

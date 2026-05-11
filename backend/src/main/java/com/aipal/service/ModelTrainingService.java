@@ -15,7 +15,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -40,6 +42,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
+@Slf4j
 @Service
 public class ModelTrainingService {
 
@@ -113,10 +116,21 @@ public class ModelTrainingService {
                 "mock-bgem3-training.jsonl"
         );
 
-        AiModel model = resolveGenerationModel(request == null ? null : request.getModelCode());
-        String modelContent = callModelForDataset(model, topic, count);
-        List<Map<String, Object>> records = parseModelDatasetRecords(modelContent, count);
-        String content = toJsonl(records);
+        String requestedModelCode = request == null ? null : request.getModelCode();
+        AiModel model = null;
+        String content;
+        List<Map<String, Object>> records;
+        try {
+            model = resolveGenerationModel(requestedModelCode);
+            String modelContent = callModelForDataset(model, topic, count);
+            records = parseModelDatasetRecords(modelContent, count);
+            content = toJsonl(records);
+        } catch (RuntimeException e) {
+            String modelCode = model == null ? requestedModelCode : model.getModelCode();
+            log.error("Model training dataset preview failed. topic={}, count={}, modelCode={}, reason={}",
+                    topic, count, modelCode, e.getMessage(), e);
+            throw e;
+        }
 
         ModelTrainingDatasetPreview preview = new ModelTrainingDatasetPreview();
         preview.setFileName(fileName);
@@ -444,7 +458,12 @@ public class ModelTrainingService {
                         Map.of("role", "user", "content", buildDatasetPrompt(topic, count))
                 )
         );
-        String response = RestClient.create()
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(10_000);
+        requestFactory.setReadTimeout(170_000);
+        String response = RestClient.builder()
+                .requestFactory(requestFactory)
+                .build()
                 .post()
                 .uri(endpoint)
                 .header("Authorization", "Bearer " + model.getApiKey())

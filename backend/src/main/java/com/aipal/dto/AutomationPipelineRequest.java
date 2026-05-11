@@ -18,4 +18,6 @@ public class AutomationPipelineRequest {
     private Boolean generateBackend;
     private String frontendOutputPath;
     private String backendOutputPath;
+    private Long skillId;
+    private String skillSnapshot;
 }

@@ -108,10 +108,30 @@ export default {
     return api.post('/model-training/datasets/import', data)
   },
   previewModelTrainingMockDataset(data) {
-    return api.post('/model-training/datasets/mock', data)
+    return api.post('/model-training/datasets/mock', data, { timeout: 180000 })
   },
   saveModelTrainingDataset(data) {
     return api.post('/model-training/datasets/save', data)
+  },
+
+  // Skill APIs
+  getSkills(params) {
+    return api.get('/skills', { params })
+  },
+  getEnabledSkills() {
+    return api.get('/skills/enabled')
+  },
+  getSkill(id) {
+    return api.get('/skills/' + id)
+  },
+  createSkill(data) {
+    return api.post('/skills', data)
+  },
+  updateSkill(id, data) {
+    return api.put('/skills/' + id, data)
+  },
+  deleteSkill(id) {
+    return api.delete('/skills/' + id)
   },
 
   // Dataset APIs

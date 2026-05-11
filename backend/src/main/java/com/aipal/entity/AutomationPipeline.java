@@ -26,6 +26,8 @@ public class AutomationPipeline {
     private Integer generateBackend;
     private String frontendOutputPath;
     private String backendOutputPath;
+    private Long skillId;
+    private String skillSnapshot;
     private String status;
     private String currentStage;
     private Integer totalStages;

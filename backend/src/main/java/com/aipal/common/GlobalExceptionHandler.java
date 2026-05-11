@@ -25,6 +25,18 @@ public class GlobalExceptionHandler {
         return Result.badRequest(message);
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Result<?> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.warn("Bad request: {}", e.getMessage());
+        return Result.badRequest(e.getMessage());
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public Result<?> handleIllegalStateException(IllegalStateException e) {
+        log.error("Illegal state: {}", e.getMessage(), e);
+        return Result.serverError(e.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public Result<?> handleException(Exception e) {
         log.error("Internal server error", e);

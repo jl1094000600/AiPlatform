@@ -51,7 +51,7 @@ class AutomationPipelineServiceTest {
             return 1;
         }).when(stageRunMapper).insert(any());
 
-        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper);
+        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, mock(SkillService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -70,13 +70,80 @@ class AutomationPipelineServiceTest {
     }
 
     @Test
+    void createsPipelineWithOptionalSkillSnapshot() {
+        AutomationPipelineMapper pipelineMapper = mock(AutomationPipelineMapper.class);
+        AutomationStageRunMapper stageRunMapper = mock(AutomationStageRunMapper.class);
+        AutomationApprovalMapper approvalMapper = mock(AutomationApprovalMapper.class);
+        AutomationGenerationJobMapper generationJobMapper = mock(AutomationGenerationJobMapper.class);
+        AiModelMapper modelMapper = mock(AiModelMapper.class);
+        SkillService skillService = mock(SkillService.class);
+        List<AutomationPipeline> insertedPipelines = new ArrayList<>();
+        List<AutomationGenerationJob> insertedJobs = new ArrayList<>();
+        String snapshot = "{\"skillName\":\"Delivery Skill\",\"functionDefinitions\":[]}";
+
+        when(skillService.requireEnabledSkillSnapshot(9L)).thenReturn(snapshot);
+        doAnswer(invocation -> {
+            AutomationPipeline pipeline = invocation.getArgument(0);
+            pipeline.setId(1L);
+            insertedPipelines.add(pipeline);
+            return 1;
+        }).when(pipelineMapper).insert(any());
+        doAnswer(invocation -> {
+            AutomationStageRun stage = invocation.getArgument(0);
+            stage.setId((long) stage.getStageOrder());
+            return 1;
+        }).when(stageRunMapper).insert(any());
+        doAnswer(invocation -> {
+            insertedJobs.add(invocation.getArgument(0));
+            return 1;
+        }).when(generationJobMapper).insert(any());
+
+        AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper, generationJobMapper, modelMapper, skillService);
+        AutomationPipelineRequest request = new AutomationPipelineRequest();
+        request.setProductLine("Core");
+        request.setProjectName("AI Platform");
+        request.setRequirementTitle("Automated delivery");
+        request.setSkillId(9L);
+
+        AutomationPipeline pipeline = service.createPipeline(request);
+
+        assertEquals(9L, pipeline.getSkillId());
+        assertEquals(snapshot, pipeline.getSkillSnapshot());
+        assertEquals(snapshot, request.getSkillSnapshot());
+        assertEquals(snapshot, insertedPipelines.get(0).getSkillSnapshot());
+        assertEquals(true, insertedJobs.get(0).getContextSnapshot().contains("Delivery Skill"));
+    }
+
+    @Test
+    void rejectsUnavailableSkillWhenCreatingPipeline() {
+        SkillService skillService = mock(SkillService.class);
+        when(skillService.requireEnabledSkillSnapshot(9L)).thenThrow(new IllegalArgumentException("Skill is disabled: 9"));
+        AutomationPipelineService service = new AutomationPipelineService(
+                mock(AutomationPipelineMapper.class),
+                mock(AutomationStageRunMapper.class),
+                mock(AutomationApprovalMapper.class),
+                mock(AutomationGenerationJobMapper.class),
+                mock(AiModelMapper.class),
+                skillService
+        );
+        AutomationPipelineRequest request = new AutomationPipelineRequest();
+        request.setProductLine("Core");
+        request.setProjectName("AI Platform");
+        request.setRequirementTitle("Automated delivery");
+        request.setSkillId(9L);
+
+        assertThrows(IllegalArgumentException.class, () -> service.createPipeline(request));
+    }
+
+    @Test
     void rejectsUnsafePrdTemplateNames() {
         AutomationPipelineService service = new AutomationPipelineService(
                 mock(AutomationPipelineMapper.class),
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -96,7 +163,8 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "RUNNING");
         AutomationStageRun requirement = stage(10L, 1L, "requirement_analysis", 1, "WAITING_APPROVAL");
@@ -118,7 +186,8 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "BLOCKED");
         AutomationStageRun rejectedBuild = stage(12L, 1L, "build_compile", 3, "REJECTED");
@@ -139,7 +208,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 approvalMapper,
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AutomationApproval approval = new AutomationApproval();
         approval.setId(7L);
@@ -156,7 +226,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
 
         Map<String, Object> tree = service.getProjectDirectoryTree();
@@ -179,7 +250,8 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 approvalMapper,
                 generationJobMapper,
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AutomationGenerationJob stale = generationJob(1L);
         AutomationGenerationJob latest = generationJob(2L);
@@ -200,7 +272,8 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
-                mock(AiModelMapper.class)
+                mock(AiModelMapper.class),
+                mock(SkillService.class)
         );
         AiModel model = new AiModel();
         model.setProvider("MiniMax");

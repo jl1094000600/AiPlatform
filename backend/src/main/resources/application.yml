@@ -23,7 +23,7 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       logic-delete-field: isDeleted
@@ -36,7 +36,10 @@ jwt:
 
 logging:
   level:
-    com.aipal: debug
+    root: warn
+    com.aipal: warn
+    org.mybatis: warn
+    com.baomidou.mybatisplus: warn
 
 cors:
   allowed-origins: http://localhost:3000,http://localhost:5173

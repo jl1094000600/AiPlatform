@@ -406,7 +406,7 @@ const importDataset = async () => {
     importForm.content = ''
     ElMessage.success('训练数据已导入')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '训练数据导入失败')
+    ElMessage.error(resolveErrorMessage(error, '训练数据导入失败'))
   } finally {
     importing.value = false
   }
@@ -425,7 +425,7 @@ const previewMockDataset = async () => {
     mockPreview.content = data.content || ''
     ElMessage.success('大模型数据已生成预览')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '大模型训练数据预览失败')
+    ElMessage.error(resolveErrorMessage(error, '大模型训练数据预览失败'))
   } finally {
     previewing.value = false
   }
@@ -449,7 +449,7 @@ const saveMockDataset = async () => {
     chooseDataset(res.data.data)
     ElMessage.success('训练数据已保存')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '训练数据保存失败')
+    ElMessage.error(resolveErrorMessage(error, '训练数据保存失败'))
   } finally {
     savingDataset.value = false
   }
@@ -492,6 +492,13 @@ const formatBytes = (bytes) => {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+const resolveErrorMessage = (error, fallback) => {
+  if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+    return '大模型生成超时，请减少样本数或检查模型服务响应速度'
+  }
+  return error?.response?.data?.message || fallback
 }
 
 onMounted(async () => {

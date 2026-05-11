@@ -80,6 +80,7 @@ public class AutomationPipelineService {
     private final AutomationApprovalMapper approvalMapper;
     private final AutomationGenerationJobMapper generationJobMapper;
     private final AiModelMapper modelMapper;
+    private final SkillService skillService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Page<AutomationPipeline> listPipelines(int pageNum, int pageSize, String status) {
@@ -108,6 +109,9 @@ public class AutomationPipelineService {
         pipeline.setGenerateBackend(Boolean.FALSE.equals(request.getGenerateBackend()) ? 0 : 1);
         pipeline.setFrontendOutputPath(normalizeGenerateRoot(request.getFrontendOutputPath(), DEFAULT_FRONTEND_OUTPUT_PATH));
         pipeline.setBackendOutputPath(normalizeGenerateRoot(request.getBackendOutputPath(), DEFAULT_BACKEND_OUTPUT_PATH));
+        String skillSnapshot = request.getSkillId() == null ? null : skillService.requireEnabledSkillSnapshot(request.getSkillId());
+        pipeline.setSkillId(request.getSkillId());
+        pipeline.setSkillSnapshot(skillSnapshot);
         pipeline.setStatus(STATUS_RUNNING);
         pipeline.setCurrentStage(stageDefinitions().get(0).key());
         pipeline.setTotalStages(stageDefinitions().size());
@@ -118,6 +122,7 @@ public class AutomationPipelineService {
         pipeline.setUpdateTime(now);
         pipeline.setIsDeleted(0);
         pipelineMapper.insert(pipeline);
+        request.setSkillSnapshot(skillSnapshot);
 
         AutomationStageRun firstStage = null;
         for (StageDefinition definition : stageDefinitions()) {
@@ -202,6 +207,8 @@ public class AutomationPipelineService {
         request.setGenerateBackend(pipeline.getGenerateBackend() == null || pipeline.getGenerateBackend() == 1);
         request.setFrontendOutputPath(pipeline.getFrontendOutputPath());
         request.setBackendOutputPath(pipeline.getBackendOutputPath());
+        request.setSkillId(pipeline.getSkillId());
+        request.setSkillSnapshot(pipeline.getSkillSnapshot());
         AiModel model = modelMapper.selectOne(
                 new LambdaQueryWrapper<AiModel>()
                         .eq(stage.getAiModelCode() != null, AiModel::getModelCode, stage.getAiModelCode())
@@ -551,6 +558,8 @@ public class AutomationPipelineService {
             snapshot.put("generateBackend", pipeline.getGenerateBackend());
             snapshot.put("frontendOutputPath", pipeline.getFrontendOutputPath());
             snapshot.put("backendOutputPath", pipeline.getBackendOutputPath());
+            snapshot.put("skillId", pipeline.getSkillId());
+            snapshot.put("skillSnapshot", pipeline.getSkillSnapshot());
             snapshot.put("prdContent", readStageArtifact(prdStage));
             snapshot.put("aiModelCode", stage.getAiModelCode());
             return enqueueGenerationJob(pipeline, stage, JOB_TYPE_CODE, pipeline.getInitiator(),
@@ -717,7 +726,8 @@ public class AutomationPipelineService {
         JsonNode snapshot = objectMapper.readTree(job.getContextSnapshot());
         String prdContent = snapshot.path("prdContent").asText("");
         String templateContent = snapshot.path("templateContent").asText("");
-        List<GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent);
+        String skillSnapshot = snapshot.path("skillSnapshot").asText("");
+        List<GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent, skillSnapshot);
         String manifest = writeGeneratedCode(pipelineId, job.getId(), files);
 
         stage = requireStage(stageId);
@@ -760,7 +770,7 @@ public class AutomationPipelineService {
     }
 
     private List<GeneratedFile> generateCodeFiles(AutomationPipeline pipeline, AutomationStageRun stage,
-                                                  String prdContent, String templateContent) {
+                                                  String prdContent, String templateContent, String skillSnapshot) {
         AiModel model = modelMapper.selectOne(
                 new LambdaQueryWrapper<AiModel>()
                         .eq(stage.getAiModelCode() != null, AiModel::getModelCode, stage.getAiModelCode())
@@ -775,7 +785,7 @@ public class AutomationPipelineService {
             String content = callModel(
                     model,
                     "你是企业级全栈工程师。只返回 JSON，不要 Markdown 代码围栏。",
-                    buildCodePrompt(pipeline, prdContent, templateContent)
+                    buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot)
             );
             List<GeneratedFile> files = parseGeneratedCodeFiles(content, pipeline);
             return files.isEmpty() ? fallbackCodeFiles(pipeline, prdContent, "模型未返回可解析代码文件") : files;
@@ -808,7 +818,9 @@ public class AutomationPipelineService {
         return extractOpenAiContent(response);
     }
 
-    private String buildCodePrompt(AutomationPipeline pipeline, String prdContent, String templateContent) {
+    private String buildCodePrompt(AutomationPipeline pipeline, String prdContent, String templateContent, String skillSnapshot) {
+        String effectiveTemplateContent = (templateContent == null ? "" : templateContent)
+                + "\n\nSkill Context:\n" + buildSkillContext(skillSnapshot);
         return """
                 请根据以下 PRD 生成最小可运行的前后端代码增量。
                 项目：%s
@@ -850,7 +862,7 @@ public class AutomationPipelineService {
                 pipeline.getGenerateBackend() != null && pipeline.getGenerateBackend() == 1,
                 pipeline.getFrontendOutputPath(),
                 pipeline.getBackendOutputPath(),
-                templateContent,
+                effectiveTemplateContent,
                 pipeline.getBackendOutputPath(),
                 pipeline.getFrontendOutputPath(),
                 prdContent == null ? "" : prdContent
@@ -1055,7 +1067,9 @@ public class AutomationPipelineService {
     }
 
     private String buildPrdPrompt(AutomationPipelineRequest request, String templateContent) {
-        return "PRD Template:\n" + (templateContent == null ? "" : templateContent) + "\n\n" + """
+        String effectiveTemplateContent = (templateContent == null ? "" : templateContent)
+                + "\n\nSkill Context:\n" + buildSkillContext(request.getSkillSnapshot());
+        return "PRD Template:\n" + effectiveTemplateContent + "\n\n" + """
                 产品线：%s
                 项目：%s
                 需求标题：%s
@@ -1414,6 +1428,9 @@ public class AutomationPipelineService {
                 ? base.getGenerateBackend() : snapshot.path("generateBackend").asInt());
         pipeline.setFrontendOutputPath(snapshot.path("frontendOutputPath").asText(base.getFrontendOutputPath()));
         pipeline.setBackendOutputPath(snapshot.path("backendOutputPath").asText(base.getBackendOutputPath()));
+        pipeline.setSkillId(snapshot.path("skillId").isMissingNode() || snapshot.path("skillId").isNull()
+                ? base.getSkillId() : snapshot.path("skillId").asLong());
+        pipeline.setSkillSnapshot(snapshot.path("skillSnapshot").asText(base.getSkillSnapshot()));
         return pipeline;
     }
 
@@ -1454,6 +1471,49 @@ public class AutomationPipelineService {
         }
         String relativePath = normalizeRelativePath(projectRoot.relativize(path.toAbsolutePath().normalize()).toString());
         return EXCLUDED_DIRECTORY_PATHS.contains(relativePath);
+    }
+
+    private String buildSkillContext(String skillSnapshot) {
+        if (skillSnapshot == null || skillSnapshot.isBlank()) {
+            return "No skill selected.";
+        }
+        try {
+            JsonNode skill = objectMapper.readTree(skillSnapshot);
+            StringBuilder builder = new StringBuilder();
+            builder.append("Skill Name: ").append(skill.path("skillName").asText("")).append('\n');
+            builder.append("Skill Code: ").append(skill.path("skillCode").asText("")).append('\n');
+            if (!skill.path("description").asText("").isBlank()) {
+                builder.append("Description: ").append(skill.path("description").asText()).append('\n');
+            }
+            if (!skill.path("promptContent").asText("").isBlank()) {
+                builder.append("Prompt: ").append(skill.path("promptContent").asText()).append('\n');
+            }
+            JsonNode functions = skill.path("functionDefinitions");
+            if (functions.isArray() && functions.size() > 0) {
+                builder.append("Readable Java function metadata:\n");
+                for (JsonNode function : functions) {
+                    if (function.path("enabled").isBoolean() && !function.path("enabled").asBoolean()) {
+                        continue;
+                    }
+                    builder.append("- ").append(function.path("name").asText("")).append('\n');
+                    if (!function.path("description").asText("").isBlank()) {
+                        builder.append("  Description: ").append(function.path("description").asText()).append('\n');
+                    }
+                    if (!function.path("parametersJson").asText("").isBlank()) {
+                        builder.append("  Parameters JSON: ").append(function.path("parametersJson").asText()).append('\n');
+                    }
+                    if (!function.path("returnSchema").asText("").isBlank()) {
+                        builder.append("  Return: ").append(function.path("returnSchema").asText()).append('\n');
+                    }
+                    if (!function.path("javaSnippet").asText("").isBlank()) {
+                        builder.append("  Java snippet:\n").append(function.path("javaSnippet").asText()).append('\n');
+                    }
+                }
+            }
+            return builder.toString();
+        } catch (IOException e) {
+            return skillSnapshot;
+        }
     }
 
     private String normalizeRelativePath(String path) {

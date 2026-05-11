@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS automation_pipeline (
     generate_backend   TINYINT      NOT NULL DEFAULT 1,
     frontend_output_path VARCHAR(255) DEFAULT 'front/src/generated',
     backend_output_path  VARCHAR(255) DEFAULT 'backend/src/main/java/com/aipal/generated',
+    skill_id           BIGINT       DEFAULT NULL,
+    skill_snapshot     MEDIUMTEXT   DEFAULT NULL,
     status             VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
     current_stage      VARCHAR(64)  DEFAULT 'requirement_analysis',
     total_stages       INT          NOT NULL DEFAULT 7,
