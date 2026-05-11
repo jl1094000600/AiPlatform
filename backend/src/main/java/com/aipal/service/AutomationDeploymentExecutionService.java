@@ -29,6 +29,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -81,8 +82,10 @@ public class AutomationDeploymentExecutionService {
 
         try {
             StageResult result = switch (stage.getStageKey()) {
-                case "build_compile" -> executeConfiguredCommand(profile.getBuildCommand(), "No build command configured", workDir(pipeline, profile));
-                case "test_execution" -> executeConfiguredCommand(profile.getTestCommand(), "No test command configured", workDir(pipeline, profile));
+                case "build_compile" -> executeConfiguredCommand(profile.getBuildCommand(), "No build command configured",
+                        workDir(pipeline, profile), profile.getTimeoutSeconds());
+                case "test_execution" -> executeConfiguredCommand(profile.getTestCommand(), "No test command configured",
+                        workDir(pipeline, profile), profile.getTimeoutSeconds());
                 case "deployment_release" -> executeDeployment(pipeline, profile, workDir(pipeline, profile));
                 case "operations_monitoring" -> executeHealthCheck(profile);
                 default -> StageResult.success("Stage skipped");
@@ -120,11 +123,11 @@ public class AutomationDeploymentExecutionService {
         return run;
     }
 
-    private StageResult executeConfiguredCommand(String command, String emptyMessage, Path workDir) throws Exception {
+    private StageResult executeConfiguredCommand(String command, String emptyMessage, Path workDir, Integer timeoutSeconds) throws Exception {
         if (isBlank(command)) {
             return StageResult.success(emptyMessage);
         }
-        return runCommand(shellCommand(command), workDir, 600);
+        return runCommand(shellCommand(command), workDir, timeoutSeconds);
     }
 
     private StageResult executeDeployment(AutomationPipeline pipeline, AutomationDeployProfileResponse profile, Path workDir) throws Exception {
@@ -196,7 +199,7 @@ public class AutomationDeploymentExecutionService {
         String jobPath = jenkinsJobPath(jobName);
         String query = toQuery(params);
         RestClient.RequestBodySpec request = client.post().uri(jobPath + "/buildWithParameters" + (query.isBlank() ? "" : "?" + query));
-        headers.forEach(request::header);
+        headers.forEach((name, value) -> request.header(name, value));
         ResponseEntity<Void> response = request.retrieve().toBodilessEntity();
         String queueUrl = response.getHeaders().getFirst("Location");
         int pollSeconds = Math.max(2, config.path("pollIntervalSeconds").asInt(5));
@@ -292,6 +295,24 @@ public class AutomationDeploymentExecutionService {
         builder.directory(workDir.toFile());
         builder.redirectErrorStream(true);
         Process process = builder.start();
+        CompletableFuture<String> logFuture = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
+        boolean finished = process.waitFor(Math.max(10, timeoutSeconds == null ? 600 : timeoutSeconds), TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            String log = readFutureLog(logFuture);
+            return StageResult.failure(-1, log + "\nCommand timed out", "Command timed out");
+        }
+        int exitCode = process.exitValue();
+        String log = readFutureLog(logFuture);
+        String commandText = String.join(" ", command);
+        String fullLog = "$ " + commandText + "\n" + log;
+        if (exitCode == 0 || ignoreFailure) {
+            return new StageResult(true, exitCode, fullLog, null, null, null, null, null, null, null, null);
+        }
+        return StageResult.failure(exitCode, fullLog, "Command failed with exit code " + exitCode);
+    }
+
+    private String readProcessOutput(Process process) {
         StringBuilder log = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             String line;
@@ -300,19 +321,18 @@ public class AutomationDeploymentExecutionService {
                     log.append(line).append('\n');
                 }
             }
+        } catch (IOException e) {
+            log.append("Failed to read process output: ").append(e.getMessage());
         }
-        boolean finished = process.waitFor(Math.max(10, timeoutSeconds == null ? 600 : timeoutSeconds), TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            return StageResult.failure(-1, log + "\nCommand timed out", "Command timed out");
+        return log.toString();
+    }
+
+    private String readFutureLog(CompletableFuture<String> logFuture) {
+        try {
+            return logFuture.get(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return "";
         }
-        int exitCode = process.exitValue();
-        String commandText = String.join(" ", command);
-        String fullLog = "$ " + commandText + "\n" + log;
-        if (exitCode == 0 || ignoreFailure) {
-            return new StageResult(true, exitCode, fullLog, null, null, null, null, null, null, null, null);
-        }
-        return StageResult.failure(exitCode, fullLog, "Command failed with exit code " + exitCode);
     }
 
     private List<String> shellCommand(String command) {
@@ -413,7 +433,7 @@ public class AutomationDeploymentExecutionService {
         }
         try {
             RestClient.RequestHeadersSpec<?> request = client.get().uri("/crumbIssuer/api/json");
-            headers.forEach(request::header);
+            headers.forEach((name, value) -> request.header(name, value));
             String body = request.retrieve().body(String.class);
             JsonNode crumb = objectMapper.readTree(body);
             String field = crumb.path("crumbRequestField").asText("");
@@ -434,8 +454,8 @@ public class AutomationDeploymentExecutionService {
         Integer buildNumber = null;
         while (System.currentTimeMillis() < deadline && buildUrl == null && !isBlank(queueUrl)) {
             Thread.sleep(pollSeconds * 1000L);
-            RestClient.RequestHeadersSpec<?> request = RestClient.create(trimTrailingSlash(queueUrl)).get().uri("/api/json");
-            headers.forEach(request::header);
+            RestClient.RequestHeadersSpec<?> request = RestClient.create().get().uri(trimTrailingSlash(queueUrl) + "/api/json");
+            headers.forEach((name, value) -> request.header(name, value));
             JsonNode queue = objectMapper.readTree(request.retrieve().body(String.class));
             if (!queue.path("executable").isMissingNode()) {
                 buildUrl = queue.path("executable").path("url").asText(null);
@@ -448,8 +468,8 @@ public class AutomationDeploymentExecutionService {
         }
         while (System.currentTimeMillis() < deadline) {
             Thread.sleep(pollSeconds * 1000L);
-            RestClient.RequestHeadersSpec<?> request = RestClient.create(trimTrailingSlash(buildUrl)).get().uri("/api/json");
-            headers.forEach(request::header);
+            RestClient.RequestHeadersSpec<?> request = RestClient.create().get().uri(trimTrailingSlash(buildUrl) + "/api/json");
+            headers.forEach((name, value) -> request.header(name, value));
             JsonNode build = objectMapper.readTree(request.retrieve().body(String.class));
             if (!build.path("building").asBoolean(false)) {
                 return new JenkinsBuild(buildNumber, buildUrl, build.path("result").asText("UNKNOWN"));

@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS rag_ingestion_record (
     document_title VARCHAR(255) NOT NULL COMMENT '文档标题',
     embedding_model_id BIGINT NOT NULL COMMENT 'Embedding模型ID',
     embedding_model_code VARCHAR(128) NOT NULL COMMENT 'Embedding模型编码',
+    chunk_mode VARCHAR(32) DEFAULT 'FIXED',
+    content_type VARCHAR(32) DEFAULT 'AUTO',
+    semantic_model_id BIGINT DEFAULT NULL,
+    semantic_model_code VARCHAR(128) DEFAULT NULL,
     chroma_url VARCHAR(255) NOT NULL COMMENT 'Chroma服务地址',
     chunk_size INT NOT NULL COMMENT '分块大小',
     chunk_overlap INT NOT NULL COMMENT '分块重叠',
@@ -19,3 +23,24 @@ CREATE TABLE IF NOT EXISTS rag_ingestion_record (
     KEY idx_rag_model_time (embedding_model_id, create_time),
     KEY idx_rag_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RAG文档入库记录表';
+
+SET @schema_name = DATABASE();
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'rag_ingestion_record' AND column_name = 'chunk_mode') = 0,
+    'ALTER TABLE rag_ingestion_record ADD COLUMN chunk_mode VARCHAR(32) DEFAULT ''FIXED''',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'rag_ingestion_record' AND column_name = 'content_type') = 0,
+    'ALTER TABLE rag_ingestion_record ADD COLUMN content_type VARCHAR(32) DEFAULT ''AUTO''',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'rag_ingestion_record' AND column_name = 'semantic_model_id') = 0,
+    'ALTER TABLE rag_ingestion_record ADD COLUMN semantic_model_id BIGINT DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF((SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = @schema_name AND table_name = 'rag_ingestion_record' AND column_name = 'semantic_model_code') = 0,
+    'ALTER TABLE rag_ingestion_record ADD COLUMN semantic_model_code VARCHAR(128) DEFAULT NULL',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
