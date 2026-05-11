@@ -85,9 +85,8 @@
                 @click.stop="openCodeTree(stage)"
               >{{ t('automation.viewCode') }}</el-button>
               <el-button
-                v-else-if="stage.stageKey !== 'requirement_analysis' && stage.stageKey !== 'code_generation'"
+                v-else-if="isStageRunnable(stage)"
                 size="small"
-                :disabled="stage.status === 'SUCCESS'"
                 @click="runStage(stage)"
               >{{ t('automation.run') }}</el-button>
             </div>
@@ -124,7 +123,7 @@
           <div class="inline-field">
             <el-select v-model="form.templateFile" filterable style="width: 100%">
               <el-option
-                v-for="template in templates"
+                v-for="template in prdTemplates"
                 :key="template.fileName"
                 :label="template.fileName"
                 :value="template.fileName"
@@ -155,10 +154,28 @@
         </el-form-item>
         <div class="form-grid">
           <el-form-item :label="t('automation.frontendOutput')">
-            <el-input v-model="form.frontendOutputPath" :disabled="!form.generateFrontend" />
+            <el-tree-select
+              v-model="form.frontendOutputPath"
+              :data="projectDirectoryTree"
+              node-key="value"
+              check-strictly
+              filterable
+              :props="directoryTreeProps"
+              :disabled="!form.generateFrontend"
+              style="width: 100%"
+            />
           </el-form-item>
           <el-form-item :label="t('automation.backendOutput')">
-            <el-input v-model="form.backendOutputPath" :disabled="!form.generateBackend" />
+            <el-tree-select
+              v-model="form.backendOutputPath"
+              :data="projectDirectoryTree"
+              node-key="value"
+              check-strictly
+              filterable
+              :props="directoryTreeProps"
+              :disabled="!form.generateBackend"
+              style="width: 100%"
+            />
           </el-form-item>
         </div>
       </el-form>
@@ -172,7 +189,7 @@
       <div class="template-toolbar">
         <el-select v-model="currentTemplateFile" filterable style="width: 100%" @change="loadTemplateContent">
           <el-option
-            v-for="template in templates"
+            v-for="template in prdTemplates"
             :key="template.fileName"
             :label="template.fileName"
             :value="template.fileName"
@@ -182,7 +199,7 @@
         <el-button @click="createTemplate">{{ t('common.create') }}</el-button>
       </div>
       <div class="template-meta">
-        {{ t('automation.templateSavePath') }}：marketDoc/code-templates/{{ currentTemplateFile || '-' }}
+        {{ t('automation.templateSavePath') }}：marketDoc/prd-templates/{{ currentTemplateFile || '-' }}
       </div>
       <el-input v-model="templateContent" type="textarea" :rows="24" v-loading="templateLoading" />
       <div class="drawer-footer">
@@ -238,8 +255,8 @@
       <template #footer>
         <el-button @click="codeVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button v-if="codeTree.pipelineId" @click="regenerateCode">{{ t('automation.regenerateCode') }}</el-button>
-        <el-button v-if="currentCodeApproval" type="danger" plain @click="submitCodeReview('REJECTED')">{{ t('automation.reject') }}</el-button>
-        <el-button v-if="currentCodeApproval" type="primary" @click="submitCodeReview('SUCCESS')">{{ t('automation.approve') }}</el-button>
+        <el-button v-if="isPendingApproval(currentCodeApproval)" type="danger" plain @click="submitCodeReview('REJECTED')">{{ t('automation.reject') }}</el-button>
+        <el-button v-if="isPendingApproval(currentCodeApproval)" type="primary" @click="submitCodeReview('SUCCESS')">{{ t('automation.approve') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -261,12 +278,14 @@ const summary = ref({})
 const pipelines = ref([])
 const approvals = ref([])
 const models = ref([])
-const templates = ref([])
+const prdTemplates = ref([])
 const templateVisible = ref(false)
 const currentTemplateFile = ref('')
 const newTemplateName = ref('')
 const templateContent = ref('')
 const templateLoading = ref(false)
+const projectDirectoryTree = ref([])
+const directoryTreeProps = { label: 'label', children: 'children', disabled: 'disabled' }
 const prdVisible = ref(false)
 const currentApproval = ref(null)
 const currentCodeApproval = ref(null)
@@ -290,7 +309,7 @@ const form = reactive({
   initiator: 'admin',
   modelId: null,
   aiModelCode: 'default-open-model',
-  templateFile: 'default-code-template.md',
+  templateFile: 'default-prd-template.md',
   projectMode: 'scratch',
   codeLevel: 'module',
   generateFrontend: true,
@@ -309,20 +328,22 @@ const summaryCards = computed(() => [
 const loadAll = async () => {
   loading.value = true
   try {
-    const [summaryRes, pipelineRes, approvalRes, modelsRes, templatesRes] = await Promise.all([
+    const [summaryRes, pipelineRes, approvalRes, modelsRes, prdTemplatesRes, directoriesRes] = await Promise.all([
       api.getAutomationSummary(),
       api.getAutomationPipelines({ pageNum: 1, pageSize: 20 }),
       api.getAutomationApprovals({ pageNum: 1, pageSize: 20, status: 'PENDING' }),
       api.getModels({ pageNum: 1, pageSize: 100 }),
-      api.getAutomationCodeTemplates()
+      api.getAutomationPrdTemplates(),
+      api.getAutomationProjectDirectories()
     ])
     summary.value = summaryRes.data.data || {}
     pipelines.value = pipelineRes.data.data?.records || []
     approvals.value = approvalRes.data.data?.records || []
     models.value = modelsRes.data.data?.records || []
-    templates.value = templatesRes.data.data || []
-    if (!form.templateFile && templates.value.length) {
-      form.templateFile = templates.value[0].fileName
+    prdTemplates.value = prdTemplatesRes.data.data || []
+    projectDirectoryTree.value = directoriesRes.data.data ? [directoriesRes.data.data] : []
+    if (!form.templateFile && prdTemplates.value.length) {
+      form.templateFile = prdTemplates.value[0].fileName
     }
   } finally {
     loading.value = false
@@ -353,7 +374,7 @@ const createPipeline = async () => {
     initiator: 'admin',
     modelId: null,
     aiModelCode: 'default-open-model',
-    templateFile: templates.value[0]?.fileName || 'default-code-template.md',
+    templateFile: prdTemplates.value[0]?.fileName || 'default-prd-template.md',
     projectMode: 'scratch',
     codeLevel: 'module',
     generateFrontend: true,
@@ -371,10 +392,10 @@ const selectPipelineModel = (modelId) => {
 
 const openTemplateEditor = async () => {
   try {
-    if (!templates.value.length) {
+    if (!prdTemplates.value.length) {
       await loadAll()
     }
-    currentTemplateFile.value = form.templateFile || templates.value[0]?.fileName || 'default-code-template.md'
+    currentTemplateFile.value = form.templateFile || prdTemplates.value[0]?.fileName || 'default-prd-template.md'
     await loadTemplateContent(currentTemplateFile.value)
     templateVisible.value = true
   } catch (error) {
@@ -386,7 +407,7 @@ const loadTemplateContent = async (fileName) => {
   if (!fileName) return
   templateLoading.value = true
   try {
-    const res = await api.getAutomationCodeTemplate(fileName)
+    const res = await api.getAutomationPrdTemplate(fileName)
     templateContent.value = res.data.data?.content || ''
     currentTemplateFile.value = res.data.data?.fileName || fileName
     form.templateFile = currentTemplateFile.value
@@ -401,7 +422,7 @@ const saveTemplate = async () => {
   if (!currentTemplateFile.value) return
   templateLoading.value = true
   try {
-    await api.saveAutomationCodeTemplate(currentTemplateFile.value, templateContent.value)
+    await api.saveAutomationPrdTemplate(currentTemplateFile.value, templateContent.value)
     ElMessage.success(t('automation.templateSaved'))
     await loadAll()
     form.templateFile = currentTemplateFile.value
@@ -421,7 +442,7 @@ const createTemplate = async () => {
   const fileName = rawName.endsWith('.md') ? rawName : `${rawName}.md`
   templateLoading.value = true
   try {
-    await api.saveAutomationCodeTemplate(fileName, '# 新代码生成模板\n\n## 生成要求\n- \n')
+    await api.saveAutomationPrdTemplate(fileName, '# PRD Template\n\n## Background\n-\n\n## Acceptance Criteria\n-\n')
     newTemplateName.value = ''
     await loadAll()
     await loadTemplateContent(fileName)
@@ -448,6 +469,25 @@ const runStage = async (stage) => {
   ElMessage.success(t('automation.stageExecuted'))
   await openDetail(detail.pipeline)
   await loadAll()
+}
+
+const isPendingApproval = (approval) => approval?.status === 'PENDING'
+
+const isStageRunnable = (stage) => {
+  if (!stage || stage.stageKey === 'requirement_analysis' || stage.stageKey === 'code_generation') {
+    return false
+  }
+  const rejectedStage = detail.stages.find(item => item.status === 'REJECTED')
+  if (rejectedStage) {
+    return rejectedStage.id === stage.id
+  }
+  if (!['PENDING', 'RUNNING'].includes(stage.status)) {
+    return false
+  }
+  if (detail.pipeline?.currentStage && detail.pipeline.currentStage !== stage.stageKey) {
+    return false
+  }
+  return !detail.stages.some(item => item.stageOrder < stage.stageOrder && item.status !== 'SUCCESS')
 }
 
 const syncDetailPolling = () => {

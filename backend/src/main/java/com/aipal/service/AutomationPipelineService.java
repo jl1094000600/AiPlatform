@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -60,11 +61,19 @@ public class AutomationPipelineService {
     private static final int MAX_CODE_PREVIEW_CHARS = 200_000;
     private static final int MINIMAX_OUTPUT_MAX_TOKENS = 8192;
     private static final String DEFAULT_TEMPLATE_FILE = "default-code-template.md";
+    private static final String DEFAULT_PRD_TEMPLATE_FILE = "default-prd-template.md";
     private static final String DEFAULT_FRONTEND_OUTPUT_PATH = "front/src/generated";
     private static final String DEFAULT_BACKEND_OUTPUT_PATH = "backend/src/main/java/com/aipal/generated";
     private static final String JOB_TYPE_PRD = "PRD";
     private static final String JOB_TYPE_CODE = "CODE";
     private static final int MAX_RUNNING_GENERATION_JOBS = 2;
+    private static final int MAX_DIRECTORY_TREE_DEPTH = 8;
+    private static final Set<String> EXCLUDED_DIRECTORY_NAMES = Set.of(
+            ".git", ".idea", ".claude", "node_modules", "target", "dist", "build", ".cache", ".vite"
+    );
+    private static final Set<String> EXCLUDED_DIRECTORY_PATHS = Set.of(
+            "marketDoc/generated-code", "marketDoc/generated-prd"
+    );
 
     private final AutomationPipelineMapper pipelineMapper;
     private final AutomationStageRunMapper stageRunMapper;
@@ -92,7 +101,7 @@ public class AutomationPipelineService {
         pipeline.setRequirementSummary(request.getRequirementSummary());
         pipeline.setOwnerRole("project_manager");
         pipeline.setInitiator(request.getInitiator());
-        pipeline.setTemplateFile(resolveTemplateFile(request.getTemplateFile()));
+        pipeline.setTemplateFile(resolvePrdTemplateFile(request.getTemplateFile()));
         pipeline.setProjectMode(isBlank(request.getProjectMode()) ? "scratch" : request.getProjectMode().trim());
         pipeline.setCodeLevel(isBlank(request.getCodeLevel()) ? "module" : request.getCodeLevel().trim());
         pipeline.setGenerateFrontend(Boolean.FALSE.equals(request.getGenerateFrontend()) ? 0 : 1);
@@ -239,19 +248,25 @@ public class AutomationPipelineService {
     public AutomationStageRun runStage(Long stageId) {
         AutomationStageRun stage = requireStage(stageId);
         AutomationPipeline pipeline = requirePipeline(stage.getPipelineId());
+        validateStageCanRun(pipeline, stage);
         if (STAGE_REQUIREMENT_ANALYSIS.equals(stage.getStageKey())) {
             throw new IllegalStateException("Requirement analysis runs automatically when a pipeline is created");
         }
         if (STAGE_CODE_GENERATION.equals(stage.getStageKey())) {
-            return startCodeGeneration(stage.getPipelineId(), false);
-        }
-        if (STATUS_SUCCESS.equals(stage.getStatus()) || STATUS_WAITING_APPROVAL.equals(stage.getStatus())) {
-            return stage;
+            return startCodeGeneration(stage.getPipelineId(), STATUS_REJECTED.equals(stage.getStatus()));
         }
 
         LocalDateTime start = LocalDateTime.now();
+        pipeline.setStatus(STATUS_RUNNING);
+        pipeline.setCurrentStage(stage.getStageKey());
+        pipeline.setUpdateTime(start);
+        pipelineMapper.updateById(pipeline);
+
         stage.setStatus(STATUS_RUNNING);
         stage.setStartTime(start);
+        stage.setEndTime(null);
+        stage.setDurationMs(null);
+        stage.setErrorMessage(null);
         stage.setOutputSummary(buildAiOutput(stage));
         stage.setEndTime(LocalDateTime.now());
         stage.setDurationMs((int) Duration.between(start, stage.getEndTime()).toMillis());
@@ -270,23 +285,27 @@ public class AutomationPipelineService {
 
     @Transactional
     public AutomationApproval approve(Long approvalId, AutomationApprovalRequest request) {
+        AutomationApprovalRequest review = request == null ? new AutomationApprovalRequest() : request;
         AutomationApproval approval = approvalMapper.selectById(approvalId);
         if (approval == null) {
             throw new IllegalArgumentException("Approval does not exist: " + approvalId);
         }
-        String nextStatus = request.getStatus() == null ? STATUS_SUCCESS : request.getStatus().trim().toUpperCase();
+        if (!STATUS_PENDING.equals(approval.getStatus())) {
+            throw new IllegalStateException("Only pending approvals can be reviewed");
+        }
+        String nextStatus = review.getStatus() == null ? STATUS_SUCCESS : review.getStatus().trim().toUpperCase();
         if (!STATUS_SUCCESS.equals(nextStatus) && !STATUS_REJECTED.equals(nextStatus)) {
             throw new IllegalArgumentException("Approval status must be SUCCESS or REJECTED");
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (request.getArtifactContent() != null) {
+        if (review.getArtifactContent() != null) {
             AutomationStageRun editableStage = requireStage(approval.getStageRunId());
-            saveArtifact(editableStage, request.getArtifactContent());
+            saveArtifact(editableStage, review.getArtifactContent());
         }
         approval.setStatus(nextStatus);
-        approval.setComment(request.getComment());
-        approval.setReviewedBy(request.getReviewedBy());
+        approval.setComment(review.getComment());
+        approval.setReviewedBy(review.getReviewedBy());
         approval.setReviewedTime(now);
         approval.setUpdateTime(now);
         approvalMapper.updateById(approval);
@@ -362,26 +381,18 @@ public class AutomationPipelineService {
     public List<Map<String, Object>> listCodeTemplates() {
         try {
             ensureDefaultCodeTemplate();
-            List<Map<String, Object>> templates = new ArrayList<>();
-            try (var paths = Files.list(codeTemplateRoot())) {
-                paths.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().endsWith(".md"))
-                        .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                        .forEach(path -> {
-                            try {
-                                Map<String, Object> template = new LinkedHashMap<>();
-                                template.put("fileName", path.getFileName().toString());
-                                template.put("size", Files.size(path));
-                                template.put("updateTime", Files.getLastModifiedTime(path).toString());
-                                templates.add(template);
-                            } catch (IOException ignored) {
-                                // Skip unreadable templates; the editor will surface concrete read errors by file.
-                            }
-                        });
-            }
-            return templates;
+            return listMarkdownTemplates(codeTemplateRoot());
         } catch (IOException e) {
             throw new IllegalStateException("Failed to list code templates: " + e.getMessage(), e);
+        }
+    }
+
+    public List<Map<String, Object>> listPrdTemplates() {
+        try {
+            ensureDefaultPrdTemplate();
+            return listMarkdownTemplates(prdTemplateRoot());
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to list PRD templates: " + e.getMessage(), e);
         }
     }
 
@@ -412,6 +423,42 @@ public class AutomationPipelineService {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to save code template: " + e.getMessage(), e);
         }
+    }
+
+    public Map<String, Object> getPrdTemplate(String fileName) {
+        try {
+            ensureDefaultPrdTemplate();
+            Path path = resolvePrdTemplatePath(fileName);
+            if (!Files.isRegularFile(path)) {
+                throw new IllegalArgumentException("PRD template does not exist: " + fileName);
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("fileName", path.getFileName().toString());
+            result.put("content", Files.readString(path));
+            result.put("size", Files.size(path));
+            result.put("updateTime", Files.getLastModifiedTime(path).toString());
+            return result;
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read PRD template: " + e.getMessage(), e);
+        }
+    }
+
+    public Map<String, Object> savePrdTemplate(String fileName, String content) {
+        try {
+            Path path = resolvePrdTemplatePath(fileName);
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, content == null ? "" : content);
+            return getPrdTemplate(path.getFileName().toString());
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to save PRD template: " + e.getMessage(), e);
+        }
+    }
+
+    public Map<String, Object> getProjectDirectoryTree() {
+        Path root = Paths.get("").toAbsolutePath().normalize();
+        Map<String, Object> node = directoryNode(root, root.getFileName() == null ? root.toString() : root.getFileName().toString(), "", 0);
+        node.put("root", true);
+        return node;
     }
 
     public Map<String, Object> getReportSummary() {
@@ -496,8 +543,8 @@ public class AutomationPipelineService {
             snapshot.put("stageRunId", stage.getId());
             snapshot.put("requirementTitle", pipeline.getRequirementTitle());
             snapshot.put("projectName", pipeline.getProjectName());
-            snapshot.put("templateFile", pipeline.getTemplateFile());
-            snapshot.put("templateContent", readTemplateContent(pipeline.getTemplateFile()));
+            snapshot.put("templateFile", DEFAULT_TEMPLATE_FILE);
+            snapshot.put("templateContent", readTemplateContent(DEFAULT_TEMPLATE_FILE));
             snapshot.put("projectMode", pipeline.getProjectMode());
             snapshot.put("codeLevel", pipeline.getCodeLevel());
             snapshot.put("generateFrontend", pipeline.getGenerateFrontend());
@@ -515,6 +562,7 @@ public class AutomationPipelineService {
 
     private AutomationGenerationJob enqueueGenerationJob(AutomationPipeline pipeline, AutomationStageRun stage,
                                                          String jobType, String requestUserId, String contextSnapshot) {
+        supersedeQueuedGenerationJobs(pipeline.getId(), stage.getId(), jobType);
         AutomationGenerationJob job = new AutomationGenerationJob();
         job.setPipelineId(pipeline.getId());
         job.setStageRunId(stage.getId());
@@ -527,6 +575,33 @@ public class AutomationPipelineService {
         job.setUpdateTime(LocalDateTime.now());
         generationJobMapper.insert(job);
         return job;
+    }
+
+    private void supersedeQueuedGenerationJobs(Long pipelineId, Long stageRunId, String jobType) {
+        AutomationGenerationJob update = new AutomationGenerationJob();
+        update.setStatus(STATUS_BLOCKED);
+        update.setErrorMessage("Superseded by a newer generation request");
+        update.setUpdateTime(LocalDateTime.now());
+        generationJobMapper.update(update,
+                new LambdaUpdateWrapper<AutomationGenerationJob>()
+                        .eq(AutomationGenerationJob::getPipelineId, pipelineId)
+                        .eq(AutomationGenerationJob::getStageRunId, stageRunId)
+                        .eq(AutomationGenerationJob::getJobType, jobType)
+                        .eq(AutomationGenerationJob::getStatus, STATUS_QUEUED)
+        );
+    }
+
+    private boolean isLatestGenerationJob(AutomationGenerationJob job) {
+        AutomationGenerationJob latest = generationJobMapper.selectOne(
+                new LambdaQueryWrapper<AutomationGenerationJob>()
+                        .eq(AutomationGenerationJob::getPipelineId, job.getPipelineId())
+                        .eq(AutomationGenerationJob::getStageRunId, job.getStageRunId())
+                        .eq(AutomationGenerationJob::getJobType, job.getJobType())
+                        .orderByDesc(AutomationGenerationJob::getCreateTime)
+                        .orderByDesc(AutomationGenerationJob::getId)
+                        .last("LIMIT 1")
+        );
+        return latest == null || job.getId() == null || job.getId().equals(latest.getId());
     }
 
     private AutomationStageRun startCodeGeneration(Long pipelineId, boolean force) {
@@ -620,6 +695,9 @@ public class AutomationPipelineService {
     }
 
     private void processPrdGenerationJob(AutomationGenerationJob job) throws IOException {
+        if (!isLatestGenerationJob(job)) {
+            return;
+        }
         AutomationPipelineRequest request = objectMapper.readValue(job.getContextSnapshot(), AutomationPipelineRequest.class);
         AutomationPipeline pipeline = requirePipeline(job.getPipelineId());
         AutomationStageRun stage = requireStage(job.getStageRunId());
@@ -628,6 +706,9 @@ public class AutomationPipelineService {
     }
 
     private void completeCodeGeneration(AutomationGenerationJob job) throws IOException {
+        if (!isLatestGenerationJob(job)) {
+            return;
+        }
         Long pipelineId = job.getPipelineId();
         Long stageId = job.getStageRunId();
         LocalDateTime start = LocalDateTime.now();
@@ -938,6 +1019,7 @@ public class AutomationPipelineService {
     private String generatePrdContent(AutomationPipelineRequest request) {
         AiModel model = request.getModelId() == null ? null : modelMapper.selectById(request.getModelId());
         String fallback = buildFallbackPrd(request);
+        String templateContent = readPrdTemplateContent(request.getTemplateFile());
         if (model == null || model.getEndpoint() == null || model.getEndpoint().isBlank()
                 || model.getApiKey() == null || model.getApiKey().isBlank()) {
             return fallback;
@@ -953,7 +1035,7 @@ public class AutomationPipelineService {
                     "max_tokens", resolveMaxTokens(model),
                     "messages", List.of(
                             Map.of("role", "system", "content", "你是资深产品经理，请输出结构化 PRD，必须包含背景、目标、用户故事、功能需求、非功能需求、验收标准、风险。"),
-                            Map.of("role", "user", "content", buildPrdPrompt(request))
+                            Map.of("role", "user", "content", buildPrdPrompt(request, templateContent))
                     )
             );
             String response = RestClient.create()
@@ -972,8 +1054,8 @@ public class AutomationPipelineService {
         }
     }
 
-    private String buildPrdPrompt(AutomationPipelineRequest request) {
-        return """
+    private String buildPrdPrompt(AutomationPipelineRequest request, String templateContent) {
+        return "PRD Template:\n" + (templateContent == null ? "" : templateContent) + "\n\n" + """
                 产品线：%s
                 项目：%s
                 需求标题：%s
@@ -1080,6 +1162,38 @@ public class AutomationPipelineService {
         pipelineMapper.updateById(pipeline);
     }
 
+    private void validateStageCanRun(AutomationPipeline pipeline, AutomationStageRun stage) {
+        if (STATUS_COMPLETED.equals(pipeline.getStatus())) {
+            throw new IllegalStateException("Completed pipelines cannot be executed");
+        }
+        List<AutomationStageRun> stages = listStages(pipeline.getId());
+        AutomationStageRun rejectedStage = stages.stream()
+                .filter(item -> STATUS_REJECTED.equals(item.getStatus()))
+                .min(Comparator.comparing(AutomationStageRun::getStageOrder))
+                .orElse(null);
+        if (rejectedStage != null && !rejectedStage.getId().equals(stage.getId())) {
+            throw new IllegalStateException("Only the rejected stage can be modified while a pipeline is blocked");
+        }
+        if (!STATUS_REJECTED.equals(stage.getStatus())
+                && !STATUS_PENDING.equals(stage.getStatus())
+                && !STATUS_RUNNING.equals(stage.getStatus())) {
+            throw new IllegalStateException("Only pending or rejected stages can be executed");
+        }
+        if (!STATUS_REJECTED.equals(stage.getStatus())
+                && pipeline.getCurrentStage() != null
+                && !"done".equals(pipeline.getCurrentStage())
+                && !pipeline.getCurrentStage().equals(stage.getStageKey())) {
+            throw new IllegalStateException("Only the current stage can be executed");
+        }
+        boolean previousIncomplete = stages.stream()
+                .filter(item -> item.getStageOrder() != null && stage.getStageOrder() != null
+                        && item.getStageOrder() < stage.getStageOrder())
+                .anyMatch(item -> !STATUS_SUCCESS.equals(item.getStatus()));
+        if (previousIncomplete) {
+            throw new IllegalStateException("Previous stages must be approved before this stage can run");
+        }
+    }
+
     private List<AutomationStageRun> listStages(Long pipelineId) {
         return stageRunMapper.selectList(
                 new LambdaQueryWrapper<AutomationStageRun>()
@@ -1141,6 +1255,31 @@ public class AutomationPipelineService {
         return Paths.get("marketDoc", "code-templates").toAbsolutePath().normalize();
     }
 
+    private Path prdTemplateRoot() {
+        return Paths.get("marketDoc", "prd-templates").toAbsolutePath().normalize();
+    }
+
+    private List<Map<String, Object>> listMarkdownTemplates(Path root) throws IOException {
+        List<Map<String, Object>> templates = new ArrayList<>();
+        try (var paths = Files.list(root)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".md"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .forEach(path -> {
+                        try {
+                            Map<String, Object> template = new LinkedHashMap<>();
+                            template.put("fileName", path.getFileName().toString());
+                            template.put("size", Files.size(path));
+                            template.put("updateTime", Files.getLastModifiedTime(path).toString());
+                            templates.add(template);
+                        } catch (IOException ignored) {
+                            // Skip unreadable templates; the editor will surface concrete read errors by file.
+                        }
+                    });
+        }
+        return templates;
+    }
+
     private void ensureDefaultCodeTemplate() throws IOException {
         Path root = codeTemplateRoot();
         Files.createDirectories(root);
@@ -1161,6 +1300,38 @@ public class AutomationPipelineService {
                     ## 质量要求
                     - 代码应包含必要的输入校验和错误处理。
                     - 避免大文件、锁文件、二进制内容和无关依赖。
+                    """);
+        }
+    }
+
+    private void ensureDefaultPrdTemplate() throws IOException {
+        Path root = prdTemplateRoot();
+        Files.createDirectories(root);
+        Path defaultTemplate = root.resolve(DEFAULT_PRD_TEMPLATE_FILE);
+        if (!Files.exists(defaultTemplate)) {
+            Files.writeString(defaultTemplate, """
+                    # Default PRD Template
+
+                    ## Background
+                    Describe the business context and the user problem.
+
+                    ## Goals
+                    List measurable outcomes and boundaries.
+
+                    ## User Stories
+                    Capture roles, needs, and expected value.
+
+                    ## Functional Requirements
+                    Describe the product behavior in clear, testable terms.
+
+                    ## Non-functional Requirements
+                    Include reliability, security, performance, and maintainability needs.
+
+                    ## Acceptance Criteria
+                    Define how reviewers decide the requirement is ready for delivery.
+
+                    ## Risks
+                    List delivery, model, data, or compliance risks.
                     """);
         }
     }
@@ -1186,11 +1357,42 @@ public class AutomationPipelineService {
         return safeName;
     }
 
+    private Path resolvePrdTemplatePath(String fileName) {
+        String safeName = resolvePrdTemplateFile(fileName);
+        Path root = prdTemplateRoot();
+        Path path = root.resolve(safeName).normalize();
+        if (!path.startsWith(root)) {
+            throw new IllegalArgumentException("Invalid PRD template file: " + fileName);
+        }
+        return path;
+    }
+
+    private String resolvePrdTemplateFile(String fileName) {
+        if (isBlank(fileName)) {
+            return DEFAULT_PRD_TEMPLATE_FILE;
+        }
+        String safeName = normalizeRelativePath(fileName).trim();
+        if (safeName.contains("/") || safeName.contains("..") || !safeName.endsWith(".md")) {
+            throw new IllegalArgumentException("PRD template file must be a markdown file name");
+        }
+        return safeName;
+    }
+
     private String readTemplateContent(String fileName) {
         try {
             ensureDefaultCodeTemplate();
-            Path path = resolveTemplatePath(fileName);
-            return Files.isRegularFile(path) ? Files.readString(path) : Files.readString(resolveTemplatePath(DEFAULT_TEMPLATE_FILE));
+            Path path = resolveTemplatePath(DEFAULT_TEMPLATE_FILE);
+            return Files.readString(path);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private String readPrdTemplateContent(String fileName) {
+        try {
+            ensureDefaultPrdTemplate();
+            Path path = resolvePrdTemplatePath(fileName);
+            return Files.isRegularFile(path) ? Files.readString(path) : Files.readString(resolvePrdTemplatePath(DEFAULT_PRD_TEMPLATE_FILE));
         } catch (IOException e) {
             return "";
         }
@@ -1213,6 +1415,45 @@ public class AutomationPipelineService {
         pipeline.setFrontendOutputPath(snapshot.path("frontendOutputPath").asText(base.getFrontendOutputPath()));
         pipeline.setBackendOutputPath(snapshot.path("backendOutputPath").asText(base.getBackendOutputPath()));
         return pipeline;
+    }
+
+    private Map<String, Object> directoryNode(Path absolutePath, String label, String relativePath, int depth) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("label", label);
+        node.put("value", relativePath);
+        node.put("path", relativePath);
+        node.put("disabled", relativePath.isBlank());
+        node.put("children", depth >= MAX_DIRECTORY_TREE_DEPTH ? List.of() : listChildDirectories(absolutePath, depth + 1));
+        return node;
+    }
+
+    private List<Map<String, Object>> listChildDirectories(Path parent, int depth) {
+        if (!Files.isDirectory(parent)) {
+            return List.of();
+        }
+        Path projectRoot = Paths.get("").toAbsolutePath().normalize();
+        List<Map<String, Object>> children = new ArrayList<>();
+        try (var paths = Files.list(parent)) {
+            paths.filter(Files::isDirectory)
+                    .filter(path -> !shouldExcludeDirectory(projectRoot, path))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .forEach(path -> {
+                        String relativePath = normalizeRelativePath(projectRoot.relativize(path.toAbsolutePath().normalize()).toString());
+                        children.add(directoryNode(path, path.getFileName().toString(), relativePath, depth));
+                    });
+        } catch (IOException ignored) {
+            return List.of();
+        }
+        return children;
+    }
+
+    private boolean shouldExcludeDirectory(Path projectRoot, Path path) {
+        String name = path.getFileName() == null ? "" : path.getFileName().toString();
+        if (EXCLUDED_DIRECTORY_NAMES.contains(name)) {
+            return true;
+        }
+        String relativePath = normalizeRelativePath(projectRoot.relativize(path.toAbsolutePath().normalize()).toString());
+        return EXCLUDED_DIRECTORY_PATHS.contains(relativePath);
     }
 
     private String normalizeRelativePath(String path) {

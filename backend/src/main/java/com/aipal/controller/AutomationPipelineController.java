@@ -70,14 +70,34 @@ public class AutomationPipelineController {
         return Result.success(automationService.listCodeTemplates());
     }
 
+    @GetMapping("/prd-templates")
+    public Result<?> listPrdTemplates() {
+        return Result.success(automationService.listPrdTemplates());
+    }
+
     @GetMapping("/code-template")
     public Result<?> getCodeTemplate(@RequestParam String fileName) {
         return Result.success(automationService.getCodeTemplate(fileName));
     }
 
+    @GetMapping("/prd-template")
+    public Result<?> getPrdTemplate(@RequestParam String fileName) {
+        return Result.success(automationService.getPrdTemplate(fileName));
+    }
+
     @PutMapping("/code-template")
     public Result<?> saveCodeTemplate(@RequestParam String fileName, @RequestBody Map<String, String> body) {
         return Result.success(automationService.saveCodeTemplate(fileName, body == null ? "" : body.get("content")));
+    }
+
+    @PutMapping("/prd-template")
+    public Result<?> savePrdTemplate(@RequestParam String fileName, @RequestBody Map<String, String> body) {
+        return Result.success(automationService.savePrdTemplate(fileName, body == null ? "" : body.get("content")));
+    }
+
+    @GetMapping("/project-directories")
+    public Result<?> getProjectDirectories() {
+        return Result.success(automationService.getProjectDirectoryTree());
     }
 
     @GetMapping("/approvals")

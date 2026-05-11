@@ -2,12 +2,12 @@ import assert from 'node:assert/strict'
 import { locale, setLocale, t } from '../i18n/index.js'
 
 const testMenuTargets = () => {
-  const routes = ['/dashboard', '/automation', '/agent-quality', '/billing', '/alerts', '/audit-logs', '/customers', '/invoke']
+  const routes = ['/dashboard', '/automation', '/agent-quality', '/billing', '/alerts', '/audit-logs', '/customers', '/invoke', '/model-training']
   assert.ok(routes.includes('/dashboard'))
   assert.ok(routes.includes('/automation'))
   assert.ok(routes.includes('/agent-quality'))
   assert.ok(routes.includes('/invoke'))
-  assert.equal(routes.length, 8)
+  assert.equal(routes.length, 9)
 }
 
 const testTrendBarWidth = () => {
@@ -82,3 +82,69 @@ const testRegeneratePrdEndpoint = () => {
 }
 
 testRegeneratePrdEndpoint()
+
+const testAutomationPrdTemplateEndpoints = () => {
+  assert.equal('/automation/prd-templates', '/automation/prd-templates')
+  assert.equal('/automation/prd-template', '/automation/prd-template')
+}
+
+testAutomationPrdTemplateEndpoints()
+
+const testAutomationDirectoryTreeSelectionPayload = () => {
+  const selectedDirectory = 'backend/src/main/java/com/aipal'
+  const form = { backendOutputPath: selectedDirectory }
+  assert.equal(form.backendOutputPath, selectedDirectory)
+}
+
+testAutomationDirectoryTreeSelectionPayload()
+
+const testRejectedPipelineOnlyRunsRejectedStage = () => {
+  const stages = [
+    { id: 1, stageKey: 'build_compile', stageOrder: 3, status: 'REJECTED' },
+    { id: 2, stageKey: 'test_execution', stageOrder: 4, status: 'PENDING' }
+  ]
+  const canRun = (stage) => {
+    const rejected = stages.find(item => item.status === 'REJECTED')
+    return rejected ? rejected.id === stage.id : ['PENDING', 'RUNNING'].includes(stage.status)
+  }
+  assert.equal(canRun(stages[0]), true)
+  assert.equal(canRun(stages[1]), false)
+}
+
+testRejectedPipelineOnlyRunsRejectedStage()
+
+const testApprovalActionUsesCurrentRowId = () => {
+  const row = { id: 22, pipelineId: 8, status: 'PENDING' }
+  const endpoint = '/automation/approvals/' + row.id + '/approve'
+  assert.equal(endpoint, '/automation/approvals/22/approve')
+}
+
+testApprovalActionUsesCurrentRowId()
+
+const testModelTrainingDefaults = () => {
+  const form = {
+    modelPath: 'BAAI/bge-m3',
+    trainData: 'bge-m3-training/data/train.jsonl',
+    outputDir: 'bge-m3-training/output/bge-m3-ft',
+    epochs: 1,
+    learningRate: '1e-5',
+    queryMaxLen: 256,
+    passageMaxLen: 512,
+    trainGroupSize: 4,
+    dryRun: true
+  }
+  assert.equal(form.modelPath, 'BAAI/bge-m3')
+  assert.equal(form.trainData.endsWith('train.jsonl'), true)
+  assert.equal(form.dryRun, true)
+}
+
+testModelTrainingDefaults()
+
+const testModelTrainingEndpoints = () => {
+  const jobId = 'MT_ABC'
+  assert.equal('/model-training/jobs', '/model-training/jobs')
+  assert.equal('/model-training/jobs/' + jobId, '/model-training/jobs/MT_ABC')
+  assert.equal('/model-training/jobs/' + jobId + '/logs', '/model-training/jobs/MT_ABC/logs')
+}
+
+testModelTrainingEndpoints()

@@ -88,6 +88,20 @@ export default {
     return api.delete('/models/' + id)
   },
 
+  // Model training APIs
+  createModelTrainingJob(data) {
+    return api.post('/model-training/jobs', data)
+  },
+  getModelTrainingJobs() {
+    return api.get('/model-training/jobs')
+  },
+  getModelTrainingJob(id) {
+    return api.get('/model-training/jobs/' + id)
+  },
+  getModelTrainingLogs(id) {
+    return api.get('/model-training/jobs/' + id + '/logs')
+  },
+
   // Dataset APIs
   getDatasets(params) {
     return api.get('/datasets', { params })
@@ -316,11 +330,23 @@ export default {
   getAutomationCodeTemplates() {
     return api.get('/automation/code-templates')
   },
+  getAutomationPrdTemplates() {
+    return api.get('/automation/prd-templates')
+  },
   getAutomationCodeTemplate(fileName) {
     return api.get('/automation/code-template', { params: { fileName } })
   },
+  getAutomationPrdTemplate(fileName) {
+    return api.get('/automation/prd-template', { params: { fileName } })
+  },
   saveAutomationCodeTemplate(fileName, content) {
     return api.put('/automation/code-template', { content }, { params: { fileName } })
+  },
+  saveAutomationPrdTemplate(fileName, content) {
+    return api.put('/automation/prd-template', { content }, { params: { fileName } })
+  },
+  getAutomationProjectDirectories() {
+    return api.get('/automation/project-directories')
   },
   getAutomationApprovals(params) {
     return api.get('/automation/approvals', { params })
