@@ -25,4 +25,8 @@ public class AutomationPipelineRequest {
     private Boolean autoDeployEnabled;
     private Long deployProfileId;
     private String deployProfileSnapshot;
+    private Boolean codeQualityEnabled;
+    private Long codeQualityStandardId;
+    private String codeQualityStandardSnapshot;
+    private String codeQualityGateSnapshot;
 }

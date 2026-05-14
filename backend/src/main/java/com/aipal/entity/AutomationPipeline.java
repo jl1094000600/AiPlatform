@@ -33,6 +33,10 @@ public class AutomationPipeline {
     private Integer autoDeployEnabled;
     private Long deployProfileId;
     private String deployProfileSnapshot;
+    private Integer codeQualityEnabled;
+    private Long codeQualityStandardId;
+    private String codeQualityStandardSnapshot;
+    private String codeQualityGateSnapshot;
     private String status;
     private String currentStage;
     private Integer totalStages;

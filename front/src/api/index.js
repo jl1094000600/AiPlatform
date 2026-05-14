@@ -429,5 +429,29 @@ export default {
   },
   getAutomationDeployRuns(pipelineId) {
     return api.get('/automation/pipelines/' + pipelineId + '/deploy-runs')
+  },
+  getCodeQualityStandards(params) {
+    return api.get('/code-quality/standards', { params })
+  },
+  getEnabledCodeQualityStandards() {
+    return api.get('/code-quality/standards/enabled')
+  },
+  getCodeQualityStandard(id) {
+    return api.get('/code-quality/standards/' + id)
+  },
+  createCodeQualityStandard(data) {
+    return api.post('/code-quality/standards', data)
+  },
+  updateCodeQualityStandard(id, data) {
+    return api.put('/code-quality/standards/' + id, data)
+  },
+  deleteCodeQualityStandard(id) {
+    return api.delete('/code-quality/standards/' + id)
+  },
+  getAutomationCodeQualityRuns(pipelineId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/code-quality-runs')
+  },
+  getAutomationCodeQualityIssues(runId) {
+    return api.get('/automation/code-quality-runs/' + runId + '/issues')
   }
 }

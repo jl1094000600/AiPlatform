@@ -235,3 +235,49 @@
 - backend-dev：研究SpringAI并实现A2A
 - project-manager：制定开发计划
 - ui-designer：设计v2.0界面（待功能稳定）
+
+---
+
+## 2026-05-12 自动化流水线部署能力进度
+
+### 当前状态
+- Docker / Jenkins 自动部署能力已完成主体实现。
+- 自动部署默认关闭，未选择部署配置时保持现有流水线行为。
+- 前端生产构建已通过。
+- 后端测试受当前机器 Maven/JDK 缺失影响，暂未执行。
+
+### 已完成内容
+- 新增部署配置管理，支持 `DOCKER` / `JENKINS`。
+- 新增部署执行记录，保存命令日志、退出码、镜像/容器、Jenkins build、健康检查结果。
+- 流水线创建支持 `autoDeployEnabled` 和 `deployProfileId`。
+- 代码审核通过后，开启自动部署时自动执行构建、测试、部署、健康检查阶段。
+- Docker 支持 `docker build/run` 和 `docker compose up -d`。
+- Jenkins 支持触发参数化构建、crumb、队列轮询、build 结果轮询。
+- 前端新增“部署配置”页面、侧边栏入口、流水线创建弹窗自动部署开关。
+- 流水线详情支持查看部署执行记录和日志。
+- 补充数据库自动建表/补列，降低旧库升级风险。
+
+### 验证记录
+- ✅ `front`: `npm.cmd run build`
+- ⚠️ `backend`: `mvn.cmd test` 未执行成功，原因是当前环境找不到 `mvn.cmd`。
+- ⚠️ `backend`: `javac` 未执行成功，原因是当前环境未配置 JDK。
+
+### 待验证
+1. 安装或配置 Java/Maven 后执行 `mvn test`。
+2. 后端启动后验证部署配置 CRUD。
+3. 验证关闭自动部署的流水线仍走原逻辑。
+4. 验证 Docker 自动部署流水线。
+5. 验证 Jenkins 自动部署流水线。
+
+---
+
+## 2026-05-13 开发进度完整归档
+
+### 归档文件
+- `docs/archive/2026-05-13-development-progress-archive.md`
+
+### 归档结论
+- 当前功能主体已经完成到可进入联调验证阶段。
+- 已覆盖模块包括自动化流水线、Skill 管理、RAG 知识库、用户记忆、成本计费、模型训练、Docker/Jenkins 自动部署与首页概况增强。
+- 前端构建已通过；后端 `mvn test` 需要在具备 Java/Maven 的环境中补充执行。
+- 下一步重点是环境联调、数据库兼容校验、Redis/Chroma 服务验证，以及 Docker/Jenkins 自动部署真实链路回归。

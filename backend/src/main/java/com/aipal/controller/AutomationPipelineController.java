@@ -8,6 +8,7 @@ import com.aipal.dto.AutomationPipelineRequest;
 import com.aipal.service.AutomationDeployProfileService;
 import com.aipal.service.AutomationDeploymentExecutionService;
 import com.aipal.service.AutomationPipelineService;
+import com.aipal.service.CodeQualityService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -29,6 +30,7 @@ public class AutomationPipelineController {
     private final AutomationPipelineService automationService;
     private final AutomationDeployProfileService deployProfileService;
     private final AutomationDeploymentExecutionService deploymentExecutionService;
+    private final CodeQualityService codeQualityService;
     private final JwtConfig jwtConfig;
 
     @GetMapping("/pipelines")
@@ -52,6 +54,16 @@ public class AutomationPipelineController {
     @GetMapping("/pipelines/{id}/deploy-runs")
     public Result<?> getDeployRuns(@PathVariable Long id) {
         return Result.success(deploymentExecutionService.listRuns(id));
+    }
+
+    @GetMapping("/pipelines/{id}/code-quality-runs")
+    public Result<?> getCodeQualityRuns(@PathVariable Long id) {
+        return Result.success(codeQualityService.listRuns(id));
+    }
+
+    @GetMapping("/code-quality-runs/{runId}/issues")
+    public Result<?> getCodeQualityIssues(@PathVariable Long runId) {
+        return Result.success(codeQualityService.listIssues(runId));
     }
 
     @GetMapping("/deploy-profiles")

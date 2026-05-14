@@ -18,6 +18,7 @@ const routes = [
       { path: 'agent-quality', name: 'AgentQuality', component: () => import('../views/AgentQualityMonitor.vue') },
       { path: 'rag', name: 'RagKnowledge', component: () => import('../views/RagKnowledge.vue') },
       { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue') },
+      { path: 'code-quality', name: 'CodeQualityStandards', component: () => import('../views/CodeQualityStandards.vue') },
       { path: 'deploy-profiles', name: 'DeployProfiles', component: () => import('../views/DeployProfileManagement.vue') },
       { path: 'skills', name: 'Skills', component: () => import('../views/SkillManagement.vue') },
       { path: 'memories', name: 'UserMemories', component: () => import('../views/UserMemoryManagement.vue') },

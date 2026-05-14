@@ -70,6 +70,10 @@
           <el-tag type="success">自动部署</el-tag>
           <span>部署配置 ID：{{ detail.pipeline.deployProfileId || '-' }}</span>
         </div>
+        <div v-if="detail.pipeline.codeQualityEnabled === 1" class="deploy-badge">
+          <el-tag type="warning">代码测评</el-tag>
+          <span>标准 ID：{{ detail.pipeline.codeQualityStandardId || '-' }}</span>
+        </div>
         <div class="stage-list">
           <div v-for="stage in detail.stages" :key="stage.id" class="stage-item">
             <div>
@@ -111,6 +115,21 @@
               <span v-if="run.healthMessage">健康检查：{{ run.healthMessage }}</span>
             </div>
             <pre>{{ run.commandLog || run.errorMessage || '-' }}</pre>
+          </div>
+        </div>
+        <div v-if="codeQualityRuns.length" class="quality-runs">
+          <h4>代码质量测评</h4>
+          <div v-for="run in codeQualityRuns" :key="run.id" class="quality-run">
+            <div class="quality-run-head">
+              <strong>评分 {{ run.overallScore ?? 0 }}</strong>
+              <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
+            </div>
+            <div class="quality-metrics">
+              <span>模型：{{ run.modelCode || '-' }}</span>
+              <span>Token：{{ run.totalTokens || 0 }}</span>
+              <span>耗时：{{ run.durationMs || 0 }} ms</span>
+            </div>
+            <p>{{ run.summary || run.errorMessage || '-' }}</p>
           </div>
         </div>
       </div>
@@ -160,6 +179,19 @@
               :key="profile.id"
               :label="profile.profileName + ' / ' + profile.deployType + ' / ' + profile.environmentName"
               :value="profile.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Code Quality">
+          <el-switch v-model="form.codeQualityEnabled" active-text="Enabled" inactive-text="Off" />
+        </el-form-item>
+        <el-form-item v-if="form.codeQualityEnabled" label="Code Quality Standard" required>
+          <el-select v-model="form.codeQualityStandardId" filterable clearable placeholder="Select a code quality standard" style="width: 100%">
+            <el-option
+              v-for="standard in codeQualityStandards"
+              :key="standard.id"
+              :label="standard.standardName + ' / ' + standard.standardCode"
+              :value="standard.id"
             />
           </el-select>
         </el-form-item>
@@ -325,6 +357,8 @@ const models = ref([])
 const skills = ref([])
 const deployProfiles = ref([])
 const deployRuns = ref([])
+const codeQualityStandards = ref([])
+const codeQualityRuns = ref([])
 const prdTemplates = ref([])
 const templateVisible = ref(false)
 const currentTemplateFile = ref('')
@@ -366,6 +400,8 @@ const form = reactive({
   skillId: null,
   autoDeployEnabled: false,
   deployProfileId: null,
+  codeQualityEnabled: false,
+  codeQualityStandardId: null,
   templateFile: 'default-prd-template.md',
   projectMode: 'scratch',
   codeLevel: 'module',
@@ -385,13 +421,14 @@ const summaryCards = computed(() => [
 const loadAll = async () => {
   loading.value = true
   try {
-    const [summaryRes, pipelineRes, approvalRes, modelsRes, skillsRes, deployProfilesRes, prdTemplatesRes, directoriesRes] = await Promise.all([
+    const [summaryRes, pipelineRes, approvalRes, modelsRes, skillsRes, deployProfilesRes, qualityStandardsRes, prdTemplatesRes, directoriesRes] = await Promise.all([
       api.getAutomationSummary(),
       api.getAutomationPipelines({ pageNum: 1, pageSize: 20 }),
       api.getAutomationApprovals({ pageNum: 1, pageSize: 20, status: 'PENDING' }),
       api.getModels({ pageNum: 1, pageSize: 100 }),
       api.getEnabledSkills(),
       api.getEnabledAutomationDeployProfiles(),
+      api.getEnabledCodeQualityStandards(),
       api.getAutomationPrdTemplates(),
       api.getAutomationProjectDirectories()
     ])
@@ -401,6 +438,7 @@ const loadAll = async () => {
     models.value = modelsRes.data.data?.records || []
     skills.value = skillsRes.data.data || []
     deployProfiles.value = deployProfilesRes.data.data || []
+    codeQualityStandards.value = qualityStandardsRes.data.data || []
     prdTemplates.value = prdTemplatesRes.data.data || []
     projectDirectoryTree.value = directoriesRes.data.data ? [directoriesRes.data.data] : []
     if (!form.templateFile && prdTemplates.value.length) {
@@ -428,6 +466,10 @@ const createPipeline = async () => {
     ElMessage.warning('开启自动部署时请选择部署配置')
     return
   }
+  if (form.codeQualityEnabled && !form.codeQualityStandardId) {
+    ElMessage.warning('Please select a code quality standard')
+    return
+  }
   await api.createAutomationPipeline(form)
   ElMessage.success(t('automation.created'))
   createVisible.value = false
@@ -442,6 +484,8 @@ const createPipeline = async () => {
     skillId: null,
     autoDeployEnabled: false,
     deployProfileId: null,
+    codeQualityEnabled: false,
+    codeQualityStandardId: null,
     templateFile: prdTemplates.value[0]?.fileName || 'default-prd-template.md',
     projectMode: 'scratch',
     codeLevel: 'module',
@@ -527,10 +571,15 @@ const openDetail = async (row, keepDrawer = true) => {
   const res = await api.getAutomationPipeline(row.id)
   Object.assign(detail, res.data.data || { pipeline: null, stages: [], approvals: [] })
   if (detail.pipeline?.id) {
-    const deployRes = await api.getAutomationDeployRuns(detail.pipeline.id)
+    const [deployRes, qualityRes] = await Promise.all([
+      api.getAutomationDeployRuns(detail.pipeline.id),
+      api.getAutomationCodeQualityRuns(detail.pipeline.id)
+    ])
     deployRuns.value = deployRes.data?.data || []
+    codeQualityRuns.value = qualityRes.data?.data || []
   } else {
     deployRuns.value = []
+    codeQualityRuns.value = []
   }
   if (keepDrawer) {
     detailVisible.value = true
@@ -741,6 +790,12 @@ onUnmounted(stopDetailPolling)
 .deploy-run-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .deploy-run-meta { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
 .deploy-run pre { max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; line-height: 1.5; color: #111827; }
+.quality-runs { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.quality-runs h4 { margin: 0; font-size: 15px; }
+.quality-run { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; background: #f8fafc; }
+.quality-run-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.quality-metrics { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+.quality-run p { margin: 0; color: #374151; line-height: 1.5; }
 .prd-meta { color: var(--text-muted); margin-bottom: 12px; font-size: 13px; word-break: break-all; }
 .code-meta { display: flex; flex-direction: column; gap: 6px; color: var(--text-muted); font-size: 13px; margin-bottom: 12px; word-break: break-all; }
 .code-generating { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }
