@@ -1,0 +1,16 @@
+package com.aipal.agent.intent.dto;
+
+import lombok.Data;
+
+import java.util.List;
+import java.util.Map;
+
+@Data
+public class HeartbeatRequest {
+    private String agentCode;
+    private String instanceId;
+    private Integer healthScore;
+    private String endpoint;
+    private List<String> capabilities;
+    private Map<String, Object> metadata;
+}

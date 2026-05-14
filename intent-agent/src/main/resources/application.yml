@@ -1,0 +1,51 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: intent-agent
+  ai:
+    openai:
+      api-key: dummy-key-for-init
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: Jl19951106
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    com.aipal.agent.intent: debug
+
+agent:
+  code: intent-agent
+  name: Intent Recognition Agent
+  category: intent-recognition
+  description: Classifies user intent and returns routing hints for downstream agents
+  instance-id: ${AGENT_INSTANCE_ID:intent-001}
+  endpoint: http://localhost:8083
+  heartbeat-interval: 30000
+  platform:
+    registry-url: http://localhost:8080/api/v1/registry/agents
+    heartbeat-url: http://localhost:8080/api/v1/heartbeat/report
+    a2a-url: http://localhost:8080/api/v1/a2a/message
