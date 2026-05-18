@@ -34,6 +34,7 @@ public class RagService {
     private final RagIngestionRecordMapper recordMapper;
     private final AiModelMapper modelMapper;
     private final RagChunker chunker;
+    private final RagHybridChunker hybridChunker;
     private final ObjectMapper objectMapper;
 
     public RagIngestionResponse ingest(RagIngestionRequest request) {
@@ -45,12 +46,15 @@ public class RagService {
 
         int chunkSize = request.getChunkSize() == null ? DEFAULT_CHUNK_SIZE : request.getChunkSize();
         int chunkOverlap = request.getChunkOverlap() == null ? DEFAULT_CHUNK_OVERLAP : request.getChunkOverlap();
-        List<String> chunks = chunker.chunk(request.getContent(), chunkSize, chunkOverlap);
+        String chunkMode = normalizeChunkMode(request.getChunkMode());
+        AiModel semanticModel = resolveSemanticModel(request, chunkMode);
+        ChunkPlan chunkPlan = createChunks(request, chunkSize, chunkOverlap, chunkMode, semanticModel);
+        List<String> chunks = chunkPlan.chunks();
         if (chunks.isEmpty()) {
             throw new IllegalArgumentException("Document content is required");
         }
 
-        RagIngestionRecord record = createRecord(request, model, chunkSize, chunkOverlap, chunks.size());
+        RagIngestionRecord record = createRecord(request, model, semanticModel, chunkPlan, chunkSize, chunkOverlap, chunks.size());
         recordMapper.insert(record);
 
         try {
@@ -177,14 +181,56 @@ public class RagService {
         if (chunkOverlap < 0 || chunkOverlap >= chunkSize) {
             throw new IllegalArgumentException("Chunk overlap must be >= 0 and less than chunk size");
         }
+        normalizeChunkMode(request.getChunkMode());
     }
 
-    private RagIngestionRecord createRecord(RagIngestionRequest request, AiModel model, int chunkSize, int chunkOverlap, int chunkCount) {
+    private ChunkPlan createChunks(RagIngestionRequest request, int chunkSize, int chunkOverlap,
+                                   String chunkMode, AiModel semanticModel) {
+        if ("HYBRID".equals(chunkMode)) {
+            RagHybridChunker.HybridChunkResult result = hybridChunker.chunk(
+                    request.getContent(),
+                    request.getContentType(),
+                    chunkSize,
+                    chunkOverlap,
+                    semanticModel
+            );
+            return new ChunkPlan(result.chunks(), chunkMode, result.contentType(), result.semanticUsed());
+        }
+        List<String> chunks = chunker.chunk(request.getContent(), chunkSize, chunkOverlap);
+        String contentType = hybridChunker.normalizeContentType(request.getContentType(), request.getContent());
+        return new ChunkPlan(chunks, chunkMode, contentType, false);
+    }
+
+    private AiModel resolveSemanticModel(RagIngestionRequest request, String chunkMode) {
+        if (!"HYBRID".equals(chunkMode) || request.getSemanticModelId() == null) {
+            return null;
+        }
+        AiModel semanticModel = modelMapper.selectById(request.getSemanticModelId());
+        if (semanticModel == null || semanticModel.getStatus() == null || semanticModel.getStatus() != 1) {
+            throw new IllegalArgumentException("Semantic chunking model is not available");
+        }
+        return semanticModel;
+    }
+
+    private String normalizeChunkMode(String value) {
+        String mode = isBlank(value) ? "FIXED" : value.trim().toUpperCase();
+        if (!"FIXED".equals(mode) && !"HYBRID".equals(mode)) {
+            throw new IllegalArgumentException("Chunk mode must be FIXED or HYBRID");
+        }
+        return mode;
+    }
+
+    private RagIngestionRecord createRecord(RagIngestionRequest request, AiModel model, AiModel semanticModel,
+                                            ChunkPlan chunkPlan, int chunkSize, int chunkOverlap, int chunkCount) {
         RagIngestionRecord record = new RagIngestionRecord();
         record.setCollectionName(request.getCollectionName().trim());
         record.setDocumentTitle(isBlank(request.getDocumentTitle()) ? "Untitled Document" : request.getDocumentTitle().trim());
         record.setEmbeddingModelId(model.getId());
         record.setEmbeddingModelCode(model.getModelCode());
+        record.setChunkMode(chunkPlan.mode());
+        record.setContentType(chunkPlan.contentType());
+        record.setSemanticModelId(semanticModel == null ? null : semanticModel.getId());
+        record.setSemanticModelCode(semanticModel == null ? null : semanticModel.getModelCode());
         record.setChromaUrl(normalizeBaseUrl(request.getChromaUrl()));
         record.setChunkSize(chunkSize);
         record.setChunkOverlap(chunkOverlap);
@@ -247,6 +293,11 @@ public class RagService {
             metadata.put("documentTitle", record.getDocumentTitle());
             metadata.put("chunkIndex", i);
             metadata.put("source", "AIPlatform");
+            metadata.put("chunkMode", record.getChunkMode());
+            metadata.put("contentType", record.getContentType());
+            if (!isBlank(record.getSemanticModelCode())) {
+                metadata.put("semanticModelCode", record.getSemanticModelCode());
+            }
             metadatas.add(metadata);
         }
         payload.put("ids", ids);
@@ -422,5 +473,8 @@ public class RagService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private record ChunkPlan(List<String> chunks, String mode, String contentType, boolean semanticUsed) {
     }
 }

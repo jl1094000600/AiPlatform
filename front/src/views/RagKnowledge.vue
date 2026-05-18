@@ -37,6 +37,44 @@
           </el-form-item>
 
           <div class="form-grid">
+            <el-form-item :label="t('rag.chunkMode')">
+              <el-radio-group v-model="form.chunkMode" class="mode-control">
+                <el-radio-button
+                  v-for="option in chunkModeOptions"
+                  :key="option.value"
+                  :label="option.value"
+                >
+                  {{ option.label }}
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item :label="t('rag.contentType')">
+              <el-select v-model="form.contentType" style="width: 100%">
+                <el-option :label="t('rag.contentAuto')" value="AUTO" />
+                <el-option :label="t('rag.contentDocument')" value="DOCUMENT" />
+                <el-option :label="t('rag.contentCode')" value="CODE" />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <el-form-item v-if="form.chunkMode === 'HYBRID'" :label="t('rag.semanticModel')">
+            <el-select
+              v-model="form.semanticModelId"
+              clearable
+              filterable
+              style="width: 100%"
+              :placeholder="t('rag.semanticModelPlaceholder')"
+            >
+              <el-option
+                v-for="model in semanticModels"
+                :key="model.id"
+                :label="`${model.modelName} / ${model.modelCode}`"
+                :value="model.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <div class="form-grid">
             <el-form-item :label="t('rag.chromaUrl')">
               <el-input v-model="form.chromaUrl" placeholder="http://localhost:9000" />
             </el-form-item>
@@ -79,6 +117,8 @@
           <el-table-column prop="collectionName" :label="t('rag.collection')" min-width="150" />
           <el-table-column prop="documentTitle" :label="t('rag.documentTitle')" min-width="180" />
           <el-table-column prop="embeddingModelCode" :label="t('rag.model')" min-width="150" />
+          <el-table-column prop="chunkMode" :label="t('rag.chunkMode')" width="110" />
+          <el-table-column prop="contentType" :label="t('rag.contentType')" width="110" />
           <el-table-column prop="chunkCount" :label="t('rag.chunks')" width="90" />
           <el-table-column :label="t('common.status')" width="110">
             <template #default="{ row }">
@@ -164,11 +204,18 @@ const documentsLoading = ref(false)
 const documents = ref([])
 const documentsTotal = ref(0)
 const currentCollection = ref(null)
+const chunkModeOptions = computed(() => [
+  { label: t('rag.chunkModeFixed'), value: 'FIXED' },
+  { label: t('rag.chunkModeHybrid'), value: 'HYBRID' }
+])
 
 const form = reactive({
   collectionName: 'default_knowledge',
   documentTitle: '',
   embeddingModelId: null,
+  chunkMode: 'FIXED',
+  contentType: 'AUTO',
+  semanticModelId: null,
   chromaUrl: 'http://localhost:9000',
   chunkSize: 800,
   chunkOverlap: 100,
@@ -182,6 +229,10 @@ const embeddingModels = computed(() => {
     return text.includes('embed') || text.includes('bge') || text.includes('bgem3') || text.includes('m3')
   })
   return preferred.length ? preferred : enabled
+})
+
+const semanticModels = computed(() => {
+  return models.value.filter(model => model.status === 1)
 })
 
 const loadModels = async () => {
@@ -356,6 +407,18 @@ onMounted(loadPageData)
 }
 
 .number-grid :deep(.el-input-number) {
+  width: 100%;
+}
+
+.mode-control {
+  width: 100%;
+}
+
+.mode-control :deep(.el-radio-button) {
+  flex: 1;
+}
+
+.mode-control :deep(.el-radio-button__inner) {
   width: 100%;
 }
 

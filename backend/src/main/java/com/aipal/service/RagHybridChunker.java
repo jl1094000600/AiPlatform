@@ -19,9 +19,11 @@ import java.util.regex.Pattern;
 public class RagHybridChunker {
     private static final int MAX_CANDIDATES_FOR_MODEL = 80;
     private static final int MAX_MODEL_TEXT_CHARS = 24_000;
+    private static final int TITLE_MAX_LENGTH = 120;
     private static final Pattern CODE_LINE_PATTERN = Pattern.compile(
             "^\\s*(package\\s+|import\\s+|public\\s+|private\\s+|protected\\s+|class\\s+|interface\\s+|enum\\s+|@\\w+|def\\s+|function\\s+|const\\s+|let\\s+|var\\s+|if\\s*\\(|for\\s*\\(|while\\s*\\(|try\\s*\\{|catch\\s*\\()"
     );
+    private static final Pattern MARKDOWN_TABLE_SEPARATOR = Pattern.compile("^\\s*\\|?\\s*:?-{3,}:?\\s*(\\|\\s*:?-{3,}:?\\s*)+\\|?\\s*$");
 
     private final RagChunker fixedChunker;
     private final ObjectMapper objectMapper;
@@ -63,21 +65,149 @@ public class RagHybridChunker {
         List<String> segments = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         String[] lines = content.split("\\R", -1);
-        for (String line : lines) {
+        String articleTitle = detectArticleTitle(lines);
+        String currentHeading = articleTitle;
+        String lastStandaloneLine = null;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
             String trimmed = line.trim();
-            boolean heading = trimmed.matches("^#{1,6}\\s+.+") || trimmed.matches("^\\d+(\\.\\d+)*\\s+.+");
+            boolean heading = isHeading(trimmed);
             boolean blank = trimmed.isEmpty();
             if (heading && !current.isEmpty()) {
-                flush(segments, current);
+                flushDocumentSegment(segments, current, articleTitle, currentHeading);
+            }
+            if (heading) {
+                currentHeading = cleanHeading(trimmed);
+            }
+            if (isTableStart(lines, i)) {
+                flushDocumentSegment(segments, current, articleTitle, currentHeading);
+                TableBlock table = readTable(lines, i);
+                String tableTitle = detectTableTitle(lastStandaloneLine, currentHeading);
+                segments.add(withContext(articleTitle, currentHeading, tableTitle, table.text()));
+                i = table.endIndex();
+                lastStandaloneLine = null;
+                continue;
             }
             if (blank) {
-                flush(segments, current);
+                flushDocumentSegment(segments, current, articleTitle, currentHeading);
                 continue;
             }
             current.append(line).append('\n');
+            if (isStandaloneTitleCandidate(trimmed)) {
+                lastStandaloneLine = cleanHeading(trimmed);
+            }
         }
-        flush(segments, current);
+        flushDocumentSegment(segments, current, articleTitle, currentHeading);
         return segments;
+    }
+
+    private void flushDocumentSegment(List<String> segments, StringBuilder current, String articleTitle, String currentHeading) {
+        String value = current.toString().trim();
+        if (!value.isBlank()) {
+            segments.add(withContext(articleTitle, currentHeading, null, value));
+        }
+        current.setLength(0);
+    }
+
+    private String detectArticleTitle(String[] lines) {
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if (isHeading(trimmed) || isStandaloneTitleCandidate(trimmed) || isLikelyArticleTitle(trimmed)) {
+                return cleanHeading(trimmed);
+            }
+            return null;
+        }
+        return null;
+    }
+
+    private boolean isHeading(String value) {
+        return !isBlank(value) && (value.matches("^#{1,6}\\s+.+")
+                || value.matches("^\\d+(\\.\\d+)*[、.\\s]+.+")
+                || value.matches("^第[一二三四五六七八九十百千万0-9]+[章节篇部分]\\s*.+")
+                || value.matches("^[一二三四五六七八九十]+[、.]\\s*.+"));
+    }
+
+    private boolean isStandaloneTitleCandidate(String value) {
+        if (isBlank(value) || value.length() > TITLE_MAX_LENGTH || isTableLine(value)) {
+            return false;
+        }
+        if (value.endsWith("。") || value.endsWith(".") || value.endsWith("；") || value.endsWith(";")) {
+            return false;
+        }
+        return isHeading(value)
+                || value.matches("^(表|Table)\\s*\\d*[:：]?.+")
+                || value.matches(".+(表|清单|明细|统计|汇总|对比|列表)[:：]?$");
+    }
+
+    private boolean isLikelyArticleTitle(String value) {
+        if (isBlank(value) || value.length() > TITLE_MAX_LENGTH || isTableLine(value)) {
+            return false;
+        }
+        return !value.matches(".*[。；;!?！？].*");
+    }
+
+    private String cleanHeading(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.trim()
+                .replaceFirst("^#{1,6}\\s+", "")
+                .replaceFirst("^\\d+(\\.\\d+)*[、.\\s]+", "")
+                .trim();
+    }
+
+    private boolean isTableStart(String[] lines, int index) {
+        if (index < 0 || index >= lines.length || !isTableLine(lines[index])) {
+            return false;
+        }
+        if (index + 1 >= lines.length) {
+            return false;
+        }
+        String next = lines[index + 1].trim();
+        return isTableLine(next) || MARKDOWN_TABLE_SEPARATOR.matcher(next).matches();
+    }
+
+    private TableBlock readTable(String[] lines, int start) {
+        StringBuilder table = new StringBuilder();
+        int end = start;
+        for (int i = start; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (!isTableLine(trimmed) && !MARKDOWN_TABLE_SEPARATOR.matcher(trimmed).matches()) {
+                break;
+            }
+            table.append(lines[i]).append('\n');
+            end = i;
+        }
+        return new TableBlock(table.toString().trim(), end);
+    }
+
+    private String detectTableTitle(String previousLine, String currentHeading) {
+        String previous = cleanHeading(previousLine);
+        if (!isBlank(previous) && isStandaloneTitleCandidate(previous)) {
+            return previous;
+        }
+        return cleanHeading(currentHeading);
+    }
+
+    private String withContext(String articleTitle, String sectionTitle, String tableTitle, String content) {
+        StringBuilder builder = new StringBuilder();
+        if (!isBlank(articleTitle)) {
+            builder.append("文章标题：").append(articleTitle).append('\n');
+        }
+        if (!isBlank(sectionTitle) && !sectionTitle.equals(articleTitle)) {
+            builder.append("章节标题：").append(sectionTitle).append('\n');
+        }
+        if (!isBlank(tableTitle)) {
+            builder.append("表格标题：").append(tableTitle).append('\n');
+        }
+        if (!builder.isEmpty()) {
+            builder.append('\n');
+        }
+        builder.append(content.trim());
+        return builder.toString().trim();
     }
 
     private List<String> splitCode(String content) {
@@ -164,6 +294,8 @@ public class RagHybridChunker {
                 Target max chunk size: %d characters.
                 Merge or split these ordered candidate segments into semantically complete RAG chunks.
                 Preserve the source language and original wording as much as possible.
+                If a candidate contains article, section, or table title context, keep that context with the related content.
+                Never separate a table title or table header from its table rows unless the table is too large; for large tables, repeat the title and header in every table chunk.
                 Return JSON only in this exact shape:
                 {"chunks":["chunk text 1","chunk text 2"]}
 
@@ -222,7 +354,7 @@ public class RagHybridChunker {
             }
             if (value.length() > chunkSize) {
                 flushSized(result, current, chunkSize, overlap);
-                result.addAll(fixedChunker.chunk(value, chunkSize, overlap));
+                result.addAll(splitLargeValue(value, chunkSize, overlap));
                 continue;
             }
             int nextSize = current.isEmpty() ? value.length() : current.length() + 2 + value.length();
@@ -241,9 +373,111 @@ public class RagHybridChunker {
     private void flushSized(List<String> result, StringBuilder current, int chunkSize, int overlap) {
         String value = current.toString().trim();
         if (!value.isBlank()) {
-            result.addAll(fixedChunker.chunk(value, chunkSize, overlap));
+            result.addAll(splitLargeValue(value, chunkSize, overlap));
         }
         current.setLength(0);
+    }
+
+    private List<String> splitLargeValue(String value, int chunkSize, int overlap) {
+        if (looksLikeTableSegment(value)) {
+            List<String> tableChunks = splitTableWithContext(value, chunkSize);
+            if (!tableChunks.isEmpty()) {
+                return tableChunks;
+            }
+        }
+        return fixedChunker.chunk(value, chunkSize, overlap);
+    }
+
+    private List<String> splitTableWithContext(String value, int chunkSize) {
+        String[] lines = value.split("\\R");
+        int firstTableLine = firstTableLine(lines);
+        if (firstTableLine < 0) {
+            return List.of();
+        }
+
+        List<String> context = new ArrayList<>();
+        for (int i = 0; i < firstTableLine; i++) {
+            String line = lines[i].trim();
+            if (!line.isBlank()) {
+                context.add(line);
+            }
+        }
+
+        List<String> header = new ArrayList<>();
+        header.add(lines[firstTableLine]);
+        int rowStart = firstTableLine + 1;
+        if (rowStart < lines.length && MARKDOWN_TABLE_SEPARATOR.matcher(lines[rowStart].trim()).matches()) {
+            header.add(lines[rowStart]);
+            rowStart++;
+        }
+
+        String prefix = tablePrefix(String.join("\n", context), String.join("\n", header));
+        List<String> chunks = new ArrayList<>();
+        StringBuilder current = new StringBuilder(prefix);
+        int prefixLength = prefix.length();
+        for (int i = rowStart; i < lines.length; i++) {
+            String row = lines[i].trim();
+            if (row.isBlank()) {
+                continue;
+            }
+            if (row.length() + prefixLength + 1 > chunkSize) {
+                if (current.length() > prefixLength) {
+                    chunks.add(current.toString().trim());
+                    current = new StringBuilder(prefix);
+                }
+                chunks.addAll(fixedChunker.chunk(prefix + "\n" + row, chunkSize, 0));
+                continue;
+            }
+            int nextSize = current.length() + 1 + row.length();
+            if (nextSize > chunkSize && current.length() > prefixLength) {
+                chunks.add(current.toString().trim());
+                current = new StringBuilder(prefix);
+            }
+            current.append('\n').append(row);
+        }
+        if (current.length() > prefixLength) {
+            chunks.add(current.toString().trim());
+        }
+        return chunks;
+    }
+
+    private String tablePrefix(String prefix, String headerText) {
+        return (prefix.isBlank() ? "" : prefix + "\n") + headerText;
+    }
+
+    private boolean looksLikeTableSegment(String value) {
+        String[] lines = value.split("\\R");
+        int tableLines = 0;
+        for (String line : lines) {
+            if (isTableLine(line.trim()) || MARKDOWN_TABLE_SEPARATOR.matcher(line.trim()).matches()) {
+                tableLines++;
+            }
+        }
+        return tableLines >= 2;
+    }
+
+    private int firstTableLine(String[] lines) {
+        for (int i = 0; i < lines.length; i++) {
+            if (isTableLine(lines[i].trim())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isTableLine(String value) {
+        if (isBlank(value)) {
+            return false;
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("|") && trimmed.chars().filter(ch -> ch == '|').count() >= 2) {
+            return true;
+        }
+        if (trimmed.contains("\t") && trimmed.split("\\t", -1).length >= 3) {
+            return true;
+        }
+        return trimmed.chars().filter(ch -> ch == ',').count() >= 2
+                && !trimmed.matches(".*[。；;!?！？].*");
     }
 
     private boolean looksLikeCode(String content) {
@@ -277,5 +511,8 @@ public class RagHybridChunker {
     }
 
     public record HybridChunkResult(List<String> chunks, String contentType, boolean semanticUsed) {
+    }
+
+    private record TableBlock(String text, int endIndex) {
     }
 }
