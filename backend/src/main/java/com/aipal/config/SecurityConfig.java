@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/model-training/**").permitAll()
                 .requestMatchers("/api/v1/registry/agents/**").permitAll()
                 .requestMatchers("/api/v1/monitor/**").permitAll()
+                .requestMatchers("/api/v1/agent-graph/**").permitAll()
                 .requestMatchers("/api/v1/heartbeat/**").permitAll()
                 .requestMatchers("/api/v1/business-dashboard/**").permitAll()
                 .requestMatchers("/api/v1/billing/**").permitAll()

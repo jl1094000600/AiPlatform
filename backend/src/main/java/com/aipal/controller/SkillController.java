@@ -1,6 +1,7 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.dto.SkillGenerateRequest;
 import com.aipal.dto.SkillRequest;
 import com.aipal.dto.SkillResponse;
 import com.aipal.service.SkillService;
@@ -34,6 +35,11 @@ public class SkillController {
     @GetMapping("/enabled")
     public Result<List<SkillResponse>> listEnabledSkills() {
         return Result.success(skillService.listEnabledSkills());
+    }
+
+    @PostMapping("/generate")
+    public Result<SkillRequest> generateSkill(@RequestBody SkillGenerateRequest request) {
+        return Result.success(skillService.generateSkillDraft(request));
     }
 
     @GetMapping("/{id}")

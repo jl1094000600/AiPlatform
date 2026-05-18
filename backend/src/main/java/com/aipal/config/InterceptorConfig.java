@@ -37,6 +37,7 @@ public class InterceptorConfig implements HandlerInterceptor {
             path.startsWith("/api/v1/registry/agents/") ||
             path.equals("/api/v1/monitor/agent-graph") ||
             path.startsWith("/api/v1/monitor/") ||
+            path.startsWith("/api/v1/agent-graph/") ||
             path.startsWith("/api/v1/business-dashboard/") ||
             path.startsWith("/api/v1/billing/") ||
             path.startsWith("/api/v1/alerts/") ||

@@ -5,9 +5,14 @@
         <h2>Skill 管理</h2>
         <p>维护可复用的生成约束、提示词和 Java 可读取的函数元数据。</p>
       </div>
-      <el-button type="primary" @click="openDialog()">
-        <Plus class="btn-icon" /> 新建 Skill
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="openAiDialog">
+          <MagicStick class="btn-icon" /> AI 生成 Skill
+        </el-button>
+        <el-button type="primary" @click="openDialog()">
+          <Plus class="btn-icon" /> 新建 Skill
+        </el-button>
+      </div>
     </div>
 
     <section class="panel">
@@ -47,6 +52,70 @@
         />
       </div>
     </section>
+
+    <el-dialog
+      v-model="aiDialogVisible"
+      title="AI 生成 Skill"
+      width="640px"
+      :close-on-click-modal="false"
+    >
+      <el-form :model="aiForm" label-position="top" class="ai-generate-form">
+        <el-alert
+          title="描述你希望 Skill 帮你完成的任务，系统会生成名称、提示词和函数元数据草案。生成后仍需要你检查并保存。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-form-item label="想让 Skill 做什么" required>
+          <el-input
+            v-model="aiForm.requirement"
+            type="textarea"
+            :rows="5"
+            maxlength="500"
+            show-word-limit
+            placeholder="例如：根据客户沟通记录生成拜访纪要，并给出下一步跟进建议"
+          />
+        </el-form-item>
+        <el-form-item label="使用场景">
+          <el-input
+            v-model="aiForm.scenario"
+            maxlength="200"
+            show-word-limit
+            placeholder="例如：销售跟进、客服质检、代码评审"
+          />
+        </el-form-item>
+        <el-form-item label="协助模型">
+          <el-select
+            v-model="aiForm.modelCode"
+            clearable
+            filterable
+            placeholder="可选，未选择时使用本地草案模板"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="model in enabledModels"
+              :key="model.modelCode"
+              :label="`${model.modelName || model.modelCode}（${model.modelCode}）`"
+              :value="model.modelCode"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="函数元数据">
+          <el-switch
+            v-model="aiForm.includeFunction"
+            active-text="生成函数草案"
+            inactive-text="仅生成提示词"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="generating" @click="handleGenerateSkill">
+          生成草案
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="dialogVisible"
@@ -111,17 +180,21 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus } from '@element-plus/icons-vue'
+import { Delete, Edit, MagicStick, Plus } from '@element-plus/icons-vue'
 import api from '../api'
 
 const loading = ref(false)
 const dialogVisible = ref(false)
+const aiDialogVisible = ref(false)
+const generating = ref(false)
 const enabled = ref(true)
 const skills = ref([])
+const enabledModels = ref([])
 const pageNum = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const form = reactive(defaultForm())
+const aiForm = reactive(defaultAiForm())
 
 function defaultForm() {
   return {
@@ -132,6 +205,15 @@ function defaultForm() {
     status: 1,
     promptContent: '',
     functionDefinitions: []
+  }
+}
+
+function defaultAiForm() {
+  return {
+    requirement: '',
+    scenario: '',
+    modelCode: '',
+    includeFunction: true
   }
 }
 
@@ -160,6 +242,67 @@ const openDialog = (skill = null) => {
   }))
   enabled.value = form.status !== 0
   dialogVisible.value = true
+}
+
+const openAiDialog = () => {
+  Object.assign(aiForm, defaultAiForm())
+  aiDialogVisible.value = true
+  loadEnabledModels()
+}
+
+const loadEnabledModels = async () => {
+  try {
+    const res = await api.getModels({ pageNum: 1, pageSize: 100, status: 1 })
+    enabledModels.value = (res.data.data?.records || []).filter(model => model.status === 1)
+  } catch (error) {
+    enabledModels.value = []
+  }
+}
+
+const applyGeneratedSkill = (draft) => {
+  Object.assign(form, {
+    ...defaultForm(),
+    ...draft,
+    id: null,
+    status: draft?.status ?? 1
+  })
+  form.functionDefinitions = normalizeFunctions(draft?.functionDefinitions)
+  enabled.value = form.status !== 0
+  dialogVisible.value = true
+}
+
+const normalizeFunctions = (functions = []) => {
+  return functions.map(item => ({
+    name: item.name || '',
+    description: item.description || '',
+    parametersJson: item.parametersJson || '',
+    returnSchema: item.returnSchema || '',
+    javaSnippet: item.javaSnippet || '',
+    enabled: item.enabled !== false
+  }))
+}
+
+const handleGenerateSkill = async () => {
+  if (!aiForm.requirement.trim()) {
+    ElMessage.warning('请描述想让 Skill 完成的任务')
+    return
+  }
+  generating.value = true
+  try {
+    const res = await api.generateSkillDraft({
+      requirement: aiForm.requirement.trim(),
+      scenario: aiForm.scenario.trim(),
+      modelCode: aiForm.modelCode,
+      includeFunction: aiForm.includeFunction
+    })
+    applyGeneratedSkill(res.data.data || {})
+    aiDialogVisible.value = false
+    ElMessage.success('已生成 Skill 草案，请检查后保存')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || 'Skill 草案生成失败')
+  } finally {
+    generating.value = false
+  }
 }
 
 const addFunction = () => {
@@ -251,6 +394,12 @@ onMounted(loadSkills)
   color: var(--text-muted);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .btn-icon {
   width: 16px;
   height: 16px;
@@ -271,6 +420,12 @@ onMounted(loadSkills)
 
 .skill-form {
   padding-top: 4px;
+}
+
+.ai-generate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .form-grid {

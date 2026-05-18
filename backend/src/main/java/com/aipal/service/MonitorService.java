@@ -6,9 +6,11 @@ import com.aipal.dto.AgentGraphResponse;
 import com.aipal.dto.ExecutionChainNode;
 import com.aipal.dto.ExecutionChainResponse;
 import com.aipal.entity.A2ATask;
+import com.aipal.entity.AgentGraphEdgeConfig;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
 import com.aipal.mapper.A2ATaskMapper;
+import com.aipal.mapper.AgentGraphEdgeConfigMapper;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -28,6 +31,7 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
     private final AiAgentMapper agentMapper;
     private final AgentHeartbeatMapper heartbeatMapper;
     private final A2ATaskMapper a2aTaskMapper;
+    private final AgentGraphEdgeConfigMapper edgeConfigMapper;
 
     public AgentGraphResponse getAgentGraph() {
         // Get all agents
@@ -66,9 +70,36 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
             nodes.add(node);
         }
 
-        // Build edges from A2A tasks - use source_agent_id -> target_agent_id
+        Map<String, AgentGraphEdge> edgeMap = new LinkedHashMap<>();
+
+        List<AgentGraphEdgeConfig> configuredEdges = edgeConfigMapper.selectList(
+                new LambdaQueryWrapper<AgentGraphEdgeConfig>()
+                        .eq(AgentGraphEdgeConfig::getEnabled, 1)
+        );
+        for (AgentGraphEdgeConfig config : configuredEdges) {
+            AgentGraphEdge edge = new AgentGraphEdge();
+            edge.setEdgeId(config.getId());
+            edge.setSource(config.getSourceAgentId());
+            edge.setTarget(config.getTargetAgentId());
+            edge.setSourceAgentCode(config.getSourceAgentCode());
+            edge.setTargetAgentCode(config.getTargetAgentCode());
+            edge.setEdgeSource("CONFIGURED");
+            edge.setEdgeType(config.getEdgeType());
+            edge.setTriggerIntent(config.getTriggerIntent());
+            edge.setEnabled(config.getEnabled());
+            edge.setSuitabilityLevel(config.getSuitabilityLevel());
+            edge.setSuitabilityScore(config.getSuitabilityScore());
+            edge.setSuitabilityMessage(config.getSuitabilityMessage());
+            edge.setCallCount(0L);
+            edge.setAvgResponseTime(0.0);
+            edgeMap.put(edgeKey(config.getSourceAgentId(), config.getTargetAgentId()), edge);
+        }
+
+        // Build runtime edges from A2A tasks - use source_agent_id -> target_agent_id
         List<A2ATask> tasks = a2aTaskMapper.selectList(
                 new LambdaQueryWrapper<A2ATask>()
+                        .isNotNull(A2ATask::getSourceAgentId)
+                        .isNotNull(A2ATask::getTargetAgentId)
                         .orderByDesc(A2ATask::getCreateTime)
                         .last("LIMIT 5000")
         );
@@ -77,15 +108,24 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
         Map<String, List<A2ATask>> tasksByPair = tasks.stream()
                 .collect(Collectors.groupingBy(t -> t.getSourceAgentId() + "_" + t.getTargetAgentId()));
 
-        List<AgentGraphEdge> edges = new ArrayList<>();
         for (Map.Entry<String, List<A2ATask>> entry : tasksByPair.entrySet()) {
             List<A2ATask> pairTasks = entry.getValue();
             if (pairTasks.isEmpty()) continue;
 
             A2ATask firstTask = pairTasks.get(0);
-            AgentGraphEdge edge = new AgentGraphEdge();
-            edge.setSource(firstTask.getSourceAgentId());
-            edge.setTarget(firstTask.getTargetAgentId());
+            String key = edgeKey(firstTask.getSourceAgentId(), firstTask.getTargetAgentId());
+            AgentGraphEdge edge = edgeMap.get(key);
+            if (edge == null) {
+                edge = new AgentGraphEdge();
+                edge.setSource(firstTask.getSourceAgentId());
+                edge.setTarget(firstTask.getTargetAgentId());
+                edge.setEdgeSource("RUNTIME");
+                edge.setEdgeType("OBSERVED");
+                edge.setEnabled(1);
+                edgeMap.put(key, edge);
+            } else {
+                edge.setEdgeSource("CONFIGURED_RUNTIME");
+            }
             edge.setCallCount((long) pairTasks.size());
 
             // Calculate avg response time from duration (endTime - startTime)
@@ -102,14 +142,16 @@ public class MonitorService extends ServiceImpl<A2ATaskMapper, A2ATask> {
                     .max(LocalDateTime::compareTo)
                     .orElse(null);
             edge.setLastCallTime(lastCall);
-
-            edges.add(edge);
         }
 
         AgentGraphResponse response = new AgentGraphResponse();
         response.setNodes(nodes);
-        response.setEdges(edges);
+        response.setEdges(new ArrayList<>(edgeMap.values()));
         return response;
+    }
+
+    private String edgeKey(Long sourceAgentId, Long targetAgentId) {
+        return sourceAgentId + "_" + targetAgentId;
     }
 
     public ExecutionChainResponse getExecutionChain(String taskId, String sessionId) {

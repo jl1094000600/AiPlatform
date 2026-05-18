@@ -12,6 +12,9 @@
           <el-radio-button label="online">在线</el-radio-button>
           <el-radio-button label="offline">离线</el-radio-button>
         </el-radio-group>
+        <el-button :type="linkMode ? 'success' : 'default'" @click="toggleLinkMode" class="link-mode-btn">
+          {{ linkMode ? 'Exit Link Mode' : 'Link Mode' }}
+        </el-button>
         <el-button type="primary" @click="loadGraphData" class="refresh-btn">
           <Refresh class="btn-icon" /> 刷新
         </el-button>
@@ -48,6 +51,15 @@
       </div>
 
       <div ref="chartRef" class="chart-container"></div>
+      <svg v-if="pendingConnection" class="connection-overlay">
+        <line
+          :x1="pendingConnection.startX"
+          :y1="pendingConnection.startY"
+          :x2="pendingConnection.currentX"
+          :y2="pendingConnection.currentY"
+          class="draft-line"
+        />
+      </svg>
 
       <!-- Empty State -->
       <div v-if="!graphLoading && graphData.nodes.length === 0" class="empty-state">
@@ -128,6 +140,18 @@
           <span class="detail-value mono">{{ selectedEdge.callCount || 0 }}</span>
         </div>
         <div class="detail-item">
+          <span class="detail-label">Relation</span>
+          <span class="detail-value mono">{{ selectedEdge.edgeSource || '-' }} / {{ selectedEdge.edgeType || '-' }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Trigger Intent</span>
+          <span class="detail-value mono">{{ selectedEdge.triggerIntent || '-' }}</span>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Fit</span>
+          <span class="detail-value mono">{{ selectedEdge.suitabilityLevel || '-' }} {{ selectedEdge.suitabilityScore || '' }}</span>
+        </div>
+        <div class="detail-item">
           <span class="detail-label">调用频率</span>
           <span class="detail-value">{{ selectedEdge.frequency || 0 }}次/分钟</span>
         </div>
@@ -140,7 +164,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { Refresh, Download, FullScreen, Close, ZoomIn, ZoomOut, RefreshRight } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import api from '../api'
 
 const chartRef = ref(null)
@@ -162,6 +186,8 @@ const zoomLevel = ref(100)
 const activeCallChains = ref([])
 const graphLoading = ref(false)
 const graphError = ref(null)
+const linkMode = ref(false)
+const pendingConnection = ref(null)
 
 const nodeCount = computed(() => {
   return statusFilter.value === 'all'
@@ -198,6 +224,106 @@ const formatTime = (time) => {
 
 const getNodeColor = (status) => {
   return statusColors[status] || statusColors.offline
+}
+
+const toggleLinkMode = () => {
+  linkMode.value = !linkMode.value
+  pendingConnection.value = null
+  updateChart()
+  ElMessage.info(linkMode.value ? 'Drag from one node to another to create a relation.' : 'Link mode closed.')
+}
+
+const pointFromEvent = (event) => {
+  const raw = event?.event || event
+  return {
+    x: raw?.offsetX ?? 0,
+    y: raw?.offsetY ?? 0
+  }
+}
+
+const startConnection = (params) => {
+  if (!linkMode.value || params.dataType !== 'node') return
+  const point = pointFromEvent(params.event)
+  pendingConnection.value = {
+    source: params.data,
+    startX: point.x,
+    startY: point.y,
+    currentX: point.x,
+    currentY: point.y
+  }
+}
+
+const moveConnection = (event) => {
+  if (!pendingConnection.value) return
+  const point = pointFromEvent(event)
+  pendingConnection.value.currentX = point.x
+  pendingConnection.value.currentY = point.y
+}
+
+const finishConnection = async (params) => {
+  if (!pendingConnection.value || params.dataType !== 'node') return
+  const source = pendingConnection.value.source
+  const target = params.data
+  pendingConnection.value = null
+
+  if (!source.id || !target.id) {
+    ElMessage.warning('只能连接已注册的 Agent。')
+    return
+  }
+
+  if (source.id === target.id) {
+    ElMessage.warning('不能将 Agent 连接到自身。')
+    return
+  }
+
+  try {
+    ElMessage.info('正在评估关联适配度...')
+    const evalRes = await api.evaluateAgentGraphEdge({
+      sourceAgentId: source.id,
+      targetAgentId: target.id
+    })
+    if (evalRes.data.code !== 200) {
+      ElMessage.warning(evalRes.data.message || '关联适配度评估失败。')
+      return
+    }
+
+    const evaluation = evalRes.data.data || {}
+    const createRes = await api.createAgentGraphEdge({
+      sourceAgentId: source.id,
+      targetAgentId: target.id,
+      edgeType: evaluation.recommendedEdgeType || 'ROUTE',
+      triggerIntent: evaluation.recommendedTriggerIntent || 'agent_route',
+      enabled: 1
+    })
+    if (createRes.data.code !== 200) {
+      ElMessage.error(createRes.data.message || '创建关联失败。')
+      return
+    }
+
+    showRelationFit(source, target, evaluation)
+    await loadGraphData()
+  } catch (e) {
+    ElMessage.error(e.message || '创建关联失败。')
+  }
+}
+
+const showRelationFit = (source, target, evaluation) => {
+  const level = evaluation.level || 'UNKNOWN'
+  const score = evaluation.score ?? '-'
+  const type = level === 'HIGH' ? 'success' : level === 'MEDIUM' ? 'warning' : 'error'
+  const levelText = {
+    HIGH: '高适配度',
+    MEDIUM: '中等适配度',
+    LOW: '低适配度',
+    UNKNOWN: '未知适配度'
+  }[level] || '未知适配度'
+  const reasons = (evaluation.reasons || []).slice(0, 2).join(' ')
+  ElNotification({
+    title: `${source.name} -> ${target.name}`,
+    message: `${levelText}（${score}/100）。${evaluation.message || ''} ${reasons}`,
+    type,
+    duration: 5200
+  })
 }
 
 const loadGraphData = async () => {
@@ -340,16 +466,27 @@ const updateChart = () => {
     const isActive = activeCallChains.value.some(
       chain => chain.source === edge.source && chain.target === edge.target
     )
+    const isConfigured = edge.edgeSource === 'CONFIGURED' || edge.edgeSource === 'CONFIGURED_RUNTIME'
+    const lineWidth = isConfigured
+      ? Math.max(3, Math.ceil(((edge.callCount || 1) / maxCallCount) * 5))
+      : Math.max(2, Math.ceil(((edge.callCount || 1) / maxCallCount) * 4))
     return {
       source: edge.source,
       target: edge.target,
       lineStyle: {
-        width: Math.max(2, Math.ceil((edge.callCount / maxCallCount) * 6)),
+        width: lineWidth,
+        type: isConfigured ? 'solid' : 'dashed',
         color: isActive
           ? { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [
               { offset: 0, color: '#00ff88' },
               { offset: 0.5, color: '#00f0ff' },
               { offset: 1, color: '#00ff88' }
+            ] }
+          : isConfigured
+          ? { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [
+              { offset: 0, color: '#10b981' },
+              { offset: 0.5, color: '#22d3ee' },
+              { offset: 1, color: '#10b981' }
             ] }
           : { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [
               { offset: 0, color: '#8b5cf6' },
@@ -359,6 +496,13 @@ const updateChart = () => {
         opacity: 0.7,
         curveness: 0.2
       },
+      edgeId: edge.edgeId,
+      edgeSource: edge.edgeSource,
+      edgeType: edge.edgeType,
+      triggerIntent: edge.triggerIntent,
+      suitabilityLevel: edge.suitabilityLevel,
+      suitabilityScore: edge.suitabilityScore,
+      suitabilityMessage: edge.suitabilityMessage,
       callCount: edge.callCount,
       frequency: edge.frequency
     }
@@ -393,8 +537,8 @@ const updateChart = () => {
     series: [{
       type: 'graph',
       layout: 'force',
-      roam: true,
-      draggable: true,
+      roam: !linkMode.value,
+      draggable: !linkMode.value,
       force: {
         repulsion: 350,
         edgeLength: 150,
@@ -402,6 +546,8 @@ const updateChart = () => {
         gravity: 0.1
       },
       symbol: 'circle',
+      edgeSymbol: ['none', 'arrow'],
+      edgeSymbolSize: 8,
       data: nodes,
       edges: edges,
       label: {
@@ -433,6 +579,7 @@ const initChart = () => {
 
   // Double-click to show agent detail
   chart.on('dblclick', (params) => {
+    if (linkMode.value) return
     if (params.dataType === 'node') {
       selectedNode.value = {
         id: params.data.id,
@@ -446,6 +593,7 @@ const initChart = () => {
   })
 
   chart.on('click', (params) => {
+    if (linkMode.value) return
     if (params.dataType === 'node') {
       selectedNode.value = {
         id: params.data.id,
@@ -463,6 +611,7 @@ const initChart = () => {
 
   // Right-click context menu
   chart.on('contextmenu', (params) => {
+    if (linkMode.value) return
     if (params.dataType === 'node') {
       selectedNode.value = {
         id: params.data.id,
@@ -473,6 +622,13 @@ const initChart = () => {
       }
       nodeDrawerVisible.value = true
     }
+  })
+
+  chart.on('mousedown', startConnection)
+  chart.on('mouseup', finishConnection)
+  chart.getZr().on('mousemove', moveConnection)
+  chart.getZr().on('globalout', () => {
+    pendingConnection.value = null
   })
 
   window.addEventListener('resize', () => chart?.resize())
@@ -604,6 +760,13 @@ onUnmounted(() => {
   border-color: var(--accent-green);
 }
 
+.link-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+}
+
 .btn-icon {
   width: 14px;
   height: 14px;
@@ -724,6 +887,20 @@ onUnmounted(() => {
 .chart-container {
   width: 100%;
   height: 100%;
+}
+
+.connection-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.draft-line {
+  stroke: #22d3ee;
+  stroke-width: 3;
+  stroke-dasharray: 8 6;
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.8));
 }
 
 /* Detail Panel */

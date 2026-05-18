@@ -61,6 +61,15 @@ export default {
   getAgentGraph() {
     return api.get('/monitor/agent-graph')
   },
+  evaluateAgentGraphEdge(data) {
+    return api.post('/agent-graph/edges/evaluate', data)
+  },
+  createAgentGraphEdge(data) {
+    return api.post('/agent-graph/edges', data)
+  },
+  deleteAgentGraphEdge(edgeId) {
+    return api.delete('/agent-graph/edges/' + edgeId)
+  },
   getRealtimeData() {
     return api.get('/monitor/realtime')
   },
@@ -123,6 +132,9 @@ export default {
   },
   getSkill(id) {
     return api.get('/skills/' + id)
+  },
+  generateSkillDraft(data) {
+    return api.post('/skills/generate', data, { timeout: 60000 })
   },
   createSkill(data) {
     return api.post('/skills', data)

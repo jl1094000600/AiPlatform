@@ -3,7 +3,9 @@ package com.aipal.service;
 import cn.hutool.core.util.IdUtil;
 import com.aipal.dto.A2AMessage;
 import com.aipal.entity.A2ATask;
+import com.aipal.entity.AiAgent;
 import com.aipal.mapper.A2ATaskMapper;
+import com.aipal.mapper.AiAgentMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -34,6 +36,7 @@ public class A2AMessageService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final ObjectMapper objectMapper;
     private final A2ATaskMapper a2aTaskMapper;
+    private final AiAgentMapper aiAgentMapper;
     private final Map<String, CompletableFuture<A2AMessage>> pendingResponses = new ConcurrentHashMap<>();
     private final Map<String, Function<A2AMessage, A2AMessage>> agentHandlers = new ConcurrentHashMap<>();
 
@@ -118,7 +121,11 @@ public class A2AMessageService {
         try {
             return Long.parseLong(agentIdentifier);
         } catch (NumberFormatException e) {
-            return null;
+            AiAgent agent = aiAgentMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiAgent>()
+                            .eq(AiAgent::getAgentCode, agentIdentifier)
+            );
+            return agent != null ? agent.getId() : null;
         }
     }
 

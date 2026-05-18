@@ -1,6 +1,7 @@
 package com.aipal.service;
 
 import com.aipal.dto.SkillFunctionDefinition;
+import com.aipal.dto.SkillGenerateRequest;
 import com.aipal.dto.SkillRequest;
 import com.aipal.dto.SkillResponse;
 import com.aipal.entity.AiSkill;
@@ -80,6 +81,33 @@ class SkillServiceTest {
         SkillService service = new SkillService(mapper);
 
         assertThrows(IllegalArgumentException.class, () -> service.requireEnabledSkillSnapshot(3L));
+    }
+
+    @Test
+    void generatesSkillDraftFromRequirement() {
+        SkillService service = new SkillService(mock(AiSkillMapper.class));
+        SkillGenerateRequest request = new SkillGenerateRequest();
+        request.setRequirement("生成客户拜访纪要");
+        request.setScenario("销售跟进");
+        request.setIncludeFunction(true);
+
+        SkillRequest draft = service.generateSkillDraft(request);
+
+        assertEquals(1, draft.getStatus());
+        assertEquals(true, draft.getSkillCode().startsWith("AI_SKILL_"));
+        assertEquals(true, draft.getSkillName().contains("Skill"));
+        assertEquals(true, draft.getPromptContent().contains("生成客户拜访纪要"));
+        assertEquals(1, draft.getFunctionDefinitions().size());
+        assertEquals("generateSkillContent", draft.getFunctionDefinitions().get(0).getName());
+    }
+
+    @Test
+    void rejectsBlankSkillDraftRequirement() {
+        SkillService service = new SkillService(mock(AiSkillMapper.class));
+        SkillGenerateRequest request = new SkillGenerateRequest();
+        request.setRequirement(" ");
+
+        assertThrows(IllegalArgumentException.class, () -> service.generateSkillDraft(request));
     }
 
     private SkillRequest request(String name, String parametersJson) {

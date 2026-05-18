@@ -71,6 +71,8 @@ public class A2ACommunicationService {
                     Object msgObj = record.getValue().get("message");
                     if (msgObj == null) continue;
 
+
+
                     try {
                         A2AMessage message = objectMapper.readValue(msgObj.toString(), A2AMessage.class);
                         handleMessage(message);
