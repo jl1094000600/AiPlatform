@@ -133,6 +133,7 @@ public class AutomationPipelineService {
         pipeline.setCodeQualityStandardId(codeQualityEnabled ? qualitySnapshot.standardId() : null);
         pipeline.setCodeQualityStandardSnapshot(codeQualityEnabled ? qualitySnapshot.standardSnapshot() : null);
         pipeline.setCodeQualityGateSnapshot(codeQualityEnabled ? qualitySnapshot.gateSnapshot() : null);
+        pipeline.setQualityModelCode(codeQualityEnabled ? resolveQualityModelCode(request) : null);
         List<StageDefinition> definitions = stageDefinitions(codeQualityEnabled);
         pipeline.setStatus(STATUS_RUNNING);
         pipeline.setCurrentStage(definitions.get(0).key());
@@ -151,6 +152,7 @@ public class AutomationPipelineService {
         request.setCodeQualityStandardId(pipeline.getCodeQualityStandardId());
         request.setCodeQualityStandardSnapshot(pipeline.getCodeQualityStandardSnapshot());
         request.setCodeQualityGateSnapshot(pipeline.getCodeQualityGateSnapshot());
+        request.setQualityModelCode(pipeline.getQualityModelCode());
 
         AutomationStageRun firstStage = null;
         for (StageDefinition definition : definitions) {
@@ -160,7 +162,9 @@ public class AutomationPipelineService {
             stage.setStageName(definition.name());
             stage.setStageOrder(definition.order());
             stage.setExecutorType("AI");
-            stage.setAiModelCode(resolveModelCode(request));
+            stage.setAiModelCode(STAGE_CODE_QUALITY_EVALUATION.equals(definition.key())
+                    ? pipeline.getQualityModelCode()
+                    : resolveModelCode(request));
             stage.setStatus(definition.order() == 1 ? STATUS_QUEUED : STATUS_PENDING);
             boolean autoDeployStage = autoDeployEnabled && deploymentExecutionService.isDeploymentStage(definition.key());
             stage.setExecutorType(autoDeployStage ? "DEPLOY" : "AI");
@@ -575,7 +579,7 @@ public class AutomationPipelineService {
 
         String prdContent = generatePrdContent(request, job);
         saveArtifact(stage, prdContent);
-        stage.setOutputSummary("PRD generated: " + stage.getArtifactPath());
+        stage.setOutputSummary("PRD 已生成：" + stage.getArtifactPath());
         stage.setEndTime(LocalDateTime.now());
         stage.setDurationMs((int) Duration.between(start, stage.getEndTime()).toMillis());
         stage.setStatus(STATUS_WAITING_APPROVAL);
@@ -620,6 +624,7 @@ public class AutomationPipelineService {
         snapshot.put("codeQualityStandardId", pipeline.getCodeQualityStandardId());
         snapshot.put("codeQualityStandardSnapshot", pipeline.getCodeQualityStandardSnapshot());
         snapshot.put("codeQualityGateSnapshot", pipeline.getCodeQualityGateSnapshot());
+        snapshot.put("qualityModelCode", pipeline.getQualityModelCode());
         snapshot.put("prdContent", readStageArtifact(prdStage));
         snapshot.put("aiModelCode", stage.getAiModelCode());
             return enqueueGenerationJob(pipeline, stage, JOB_TYPE_CODE, resolvePipelineRequestUserId(pipeline),
@@ -851,12 +856,8 @@ public class AutomationPipelineService {
         stage.setArtifactContent(manifest);
         boolean qualityEnabled = isCodeQualityEnabled(pipeline);
         stage.setOutputSummary(qualityEnabled
-                ? "Code generation finished with " + files.size() + " files. Waiting for code quality evaluation."
-                : "Code generation finished with " + files.size() + " files. Waiting for architect review.");
-        stage.setOutputSummary("代码生成完成，共 " + files.size() + " 个文件，等待架构师审核。");
-        stage.setOutputSummary(qualityEnabled
-                ? "Code generation finished with " + files.size() + " files. Waiting for code quality evaluation."
-                : "Code generation finished with " + files.size() + " files. Waiting for architect review.");
+                ? "代码生成完成，共 " + files.size() + " 个文件，等待代码质量评估。"
+                : "代码生成完成，共 " + files.size() + " 个文件，等待架构师审核。");
         stage.setStatus(qualityEnabled ? STATUS_SUCCESS : STATUS_WAITING_APPROVAL);
         stage.setEndTime(LocalDateTime.now());
         stage.setDurationMs((int) Duration.between(start, stage.getEndTime()).toMillis());
@@ -1404,12 +1405,15 @@ public class AutomationPipelineService {
         qualityStage.setEndTime(null);
         qualityStage.setDurationMs(null);
         qualityStage.setErrorMessage(null);
-        qualityStage.setOutputSummary("Code quality evaluation is running.");
+        qualityStage.setOutputSummary("代码质量评估正在运行。");
         qualityStage.setUpdateTime(start);
         stageRunMapper.updateById(qualityStage);
 
+        String qualityModelCode = !isBlank(qualityStage.getAiModelCode())
+                ? qualityStage.getAiModelCode()
+                : pipeline.getQualityModelCode();
         AiModel model = modelMapper.selectOne(new LambdaQueryWrapper<AiModel>()
-                .eq(codeStage.getAiModelCode() != null, AiModel::getModelCode, codeStage.getAiModelCode())
+                .eq(AiModel::getModelCode, qualityModelCode)
                 .last("LIMIT 1"));
         CodeQualityService.EvaluationOutcome outcome = codeQualityService.evaluate(pipeline, qualityStage, codeStage, model);
         LocalDateTime now = LocalDateTime.now();
@@ -1419,8 +1423,8 @@ public class AutomationPipelineService {
         qualityStage.setArtifactContent(codeQualityArtifact(outcome));
         qualityStage.setErrorMessage(outcome.passed() ? null : outcome.message());
         qualityStage.setOutputSummary(outcome.passed()
-                ? "Code quality passed. Score: " + safeScore(outcome.run().getOverallScore())
-                : "Code quality blocked. " + (outcome.message() == null ? "" : outcome.message()));
+                ? "代码质量评估通过，评分：" + safeScore(outcome.run().getOverallScore())
+                : "代码质量评估未通过。" + (outcome.message() == null ? "" : outcome.message()));
         qualityStage.setStatus(outcome.passed() ? STATUS_SUCCESS : STATUS_BLOCKED);
         qualityStage.setUpdateTime(now);
         stageRunMapper.updateById(qualityStage);
@@ -1428,7 +1432,7 @@ public class AutomationPipelineService {
         if (outcome.passed()) {
             codeStage = requireStage(codeStage.getId());
             codeStage.setStatus(STATUS_WAITING_APPROVAL);
-            codeStage.setOutputSummary("Code quality passed. Waiting for architect review.");
+            codeStage.setOutputSummary("代码质量评估通过，等待架构师审核。");
             codeStage.setUpdateTime(now);
             stageRunMapper.updateById(codeStage);
             pipeline.setStatus(STATUS_RUNNING);
@@ -1731,6 +1735,7 @@ public class AutomationPipelineService {
                 ? base.getCodeQualityStandardId() : snapshot.path("codeQualityStandardId").asLong());
         pipeline.setCodeQualityStandardSnapshot(snapshot.path("codeQualityStandardSnapshot").asText(base.getCodeQualityStandardSnapshot()));
         pipeline.setCodeQualityGateSnapshot(snapshot.path("codeQualityGateSnapshot").asText(base.getCodeQualityGateSnapshot()));
+        pipeline.setQualityModelCode(snapshot.path("qualityModelCode").asText(base.getQualityModelCode()));
         return pipeline;
     }
 
@@ -1901,10 +1906,13 @@ public class AutomationPipelineService {
         if (Boolean.TRUE.equals(request.getCodeQualityEnabled()) && request.getCodeQualityStandardId() == null) {
             throw new IllegalArgumentException("codeQualityStandardId is required when code quality is enabled");
         }
+        if (Boolean.TRUE.equals(request.getCodeQualityEnabled()) && isBlank(request.getQualityModelCode())) {
+            throw new IllegalArgumentException("qualityModelCode is required when code quality is enabled");
+        }
     }
 
     private String inputForStage(AutomationPipelineRequest request, StageDefinition definition) {
-        return definition.name() + " input for " + request.getRequirementTitle();
+        return stageIntro(definition.key(), request.getRequirementTitle());
     }
 
     private String resolveModelCode(AutomationPipelineRequest request) {
@@ -1918,9 +1926,30 @@ public class AutomationPipelineService {
                 ? "default-open-model" : request.getAiModelCode();
     }
 
+    private String resolveQualityModelCode(AutomationPipelineRequest request) {
+        if (isBlank(request.getQualityModelCode())) {
+            throw new IllegalArgumentException("qualityModelCode is required when code quality is enabled");
+        }
+        return request.getQualityModelCode().trim();
+    }
+
     private String buildAiOutput(AutomationStageRun stage) {
-        return "AI generated " + stage.getStageName()
-                + " result. Human review is required before the pipeline advances.";
+        return stage.getStageName() + "已完成，流水线进入人工审核或下一阶段处理。";
+    }
+
+    private String stageIntro(String stageKey, String requirementTitle) {
+        String title = isBlank(requirementTitle) ? "当前需求" : requirementTitle;
+        return switch (stageKey) {
+            case "requirement_analysis" -> "梳理「" + title + "」的业务目标、范围、验收标准与交付约束，生成 PRD 供审核。";
+            case "code_generation" -> "根据已通过的 PRD 为「" + title + "」生成前后端代码与必要的工程文件。";
+            case "code_quality_evaluation" -> "依据代码质量标准检查生成结果，识别风险、阻塞项和需要修复的问题。";
+            case "build_compile" -> "对生成代码执行构建与编译检查，确认项目结构、依赖和基础语法可用。";
+            case "test_execution" -> "执行测试验证核心流程，确认主要功能符合 PRD 和质量门禁要求。";
+            case "deployment_release" -> "按部署配置发布构建产物，并记录镜像、容器或流水线执行结果。";
+            case "operations_monitoring" -> "观察部署后的运行状态、健康检查和异常信息，确认服务可持续运行。";
+            case "delivery_report" -> "汇总需求、代码、测试、部署和审核结果，形成最终交付报告。";
+            default -> "处理「" + title + "」的流水线阶段任务。";
+        };
     }
 
     private String reviewerFor(String stageKey) {
@@ -1950,17 +1979,17 @@ public class AutomationPipelineService {
 
     private List<StageDefinition> stageDefinitions(boolean codeQualityEnabled) {
         List<StageDefinition> stages = new ArrayList<>();
-        stages.add(new StageDefinition("requirement_analysis", "Requirement Analysis", 1));
-        stages.add(new StageDefinition("code_generation", "Code Generation", 2));
+        stages.add(new StageDefinition("requirement_analysis", "需求分析", 1));
+        stages.add(new StageDefinition("code_generation", "代码生成", 2));
         int order = 3;
         if (codeQualityEnabled) {
-            stages.add(new StageDefinition("code_quality_evaluation", "Code Quality Evaluation", order++));
+            stages.add(new StageDefinition("code_quality_evaluation", "代码质量评估", order++));
         }
-        stages.add(new StageDefinition("build_compile", "Build Compile", order++));
-        stages.add(new StageDefinition("test_execution", "Test Execution", order++));
-        stages.add(new StageDefinition("deployment_release", "Deployment Release", order++));
-        stages.add(new StageDefinition("operations_monitoring", "Operations Monitoring", order++));
-        stages.add(new StageDefinition("delivery_report", "Delivery Report", order));
+        stages.add(new StageDefinition("build_compile", "构建编译", order++));
+        stages.add(new StageDefinition("test_execution", "测试执行", order++));
+        stages.add(new StageDefinition("deployment_release", "部署发布", order++));
+        stages.add(new StageDefinition("operations_monitoring", "运维监控", order++));
+        stages.add(new StageDefinition("delivery_report", "交付报告", order));
         return stages;
     }
 

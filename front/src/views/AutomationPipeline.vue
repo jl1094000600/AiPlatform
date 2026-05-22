@@ -25,7 +25,9 @@
         <el-table-column prop="requirementTitle" :label="t('automation.requirement')" min-width="220" />
         <el-table-column prop="productLine" :label="t('automation.product')" width="140" />
         <el-table-column prop="projectName" :label="t('automation.project')" width="150" />
-        <el-table-column prop="currentStage" :label="t('automation.currentStage')" width="180" />
+        <el-table-column :label="t('automation.currentStage')" width="180">
+          <template #default="{ row }">{{ stageDisplayName(row.currentStage) }}</template>
+        </el-table-column>
         <el-table-column prop="status" :label="t('common.status')" width="130">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)">{{ statusText(row.status) }}</el-tag>
@@ -40,7 +42,9 @@
     <section class="panel approvals-panel">
       <div class="panel-title">{{ t('automation.reviewQueue') }}</div>
       <el-table :data="approvals" stripe>
-        <el-table-column prop="approvalType" :label="t('automation.stage')" min-width="180" />
+        <el-table-column :label="t('automation.stage')" min-width="180">
+          <template #default="{ row }">{{ stageDisplayName(row.approvalType) }}</template>
+        </el-table-column>
         <el-table-column prop="reviewerRole" :label="t('automation.reviewerRole')" width="150" />
         <el-table-column prop="status" :label="t('common.status')" width="120">
           <template #default="{ row }">{{ statusText(row.status) }}</template>
@@ -66,6 +70,19 @@
       <div v-if="detail.pipeline" class="detail">
         <h3>{{ detail.pipeline.requirementTitle }}</h3>
         <p>{{ detail.pipeline.requirementSummary || t('automation.noSummary') }}</p>
+        <div class="detail-overview">
+          <div class="detail-overview-head">
+            <h4>概况说明</h4>
+            <el-tag :type="statusType(detail.pipeline.status)">{{ statusText(detail.pipeline.status) }}</el-tag>
+          </div>
+          <p>{{ pipelineOverviewText }}</p>
+          <div class="overview-grid">
+            <div v-for="item in detailOverviewItems" :key="item.label">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+        </div>
         <div v-if="detail.pipeline.autoDeployEnabled === 1" class="deploy-badge">
           <el-tag type="success">自动部署</el-tag>
           <span>部署配置 ID：{{ detail.pipeline.deployProfileId || '-' }}</span>
@@ -73,12 +90,13 @@
         <div v-if="detail.pipeline.codeQualityEnabled === 1" class="deploy-badge">
           <el-tag type="warning">代码测评</el-tag>
           <span>标准 ID：{{ detail.pipeline.codeQualityStandardId || '-' }}</span>
+          <span>评估模型：{{ detail.pipeline.qualityModelCode || '-' }}</span>
         </div>
         <div class="stage-list">
           <div v-for="stage in detail.stages" :key="stage.id" class="stage-item">
             <div>
-              <strong>{{ stage.stageOrder }}. {{ stage.stageName }}</strong>
-              <span>{{ stage.outputSummary || stage.inputSummary }}</span>
+              <strong>{{ stage.stageOrder }}. {{ stageDisplayName(stage) }}</strong>
+              <span>{{ stageSummary(stage) }}</span>
             </div>
             <div class="stage-actions">
               <el-tag :type="statusType(stage.status)">{{ statusText(stage.status) }}</el-tag>
@@ -96,7 +114,7 @@
                 v-else-if="isStageRunnable(stage)"
                 size="small"
                 @click="runStage(stage)"
-              >{{ t('automation.run') }}</el-button>
+              >{{ stageRunButtonText(stage) }}</el-button>
             </div>
           </div>
         </div>
@@ -118,10 +136,13 @@
           </div>
         </div>
         <div v-if="codeQualityRuns.length" class="quality-runs">
-          <h4>代码质量测评</h4>
+          <div class="quality-title">
+            <h4>代码质量测评</h4>
+            <el-button v-if="qualityStage" size="small" @click="rerunQualityEvaluation">重新评估</el-button>
+          </div>
           <div v-for="run in codeQualityRuns" :key="run.id" class="quality-run">
             <div class="quality-run-head">
-              <strong>评分 {{ run.overallScore ?? 0 }}</strong>
+              <strong>评分 {{ run.overallScore ?? 0 }} / 100</strong>
               <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
             </div>
             <div class="quality-metrics">
@@ -129,7 +150,27 @@
               <span>Token：{{ run.totalTokens || 0 }}</span>
               <span>耗时：{{ run.durationMs || 0 }} ms</span>
             </div>
+            <div class="quality-score-grid">
+              <div v-for="metric in qualityMetricItems(run)" :key="metric.key" class="quality-score-item">
+                <div>
+                  <span>{{ metric.label }}</span>
+                  <strong>{{ metric.value }}</strong>
+                </div>
+                <el-progress :percentage="metric.value" :show-text="false" />
+              </div>
+            </div>
             <p>{{ run.summary || run.errorMessage || '-' }}</p>
+            <div v-if="qualityIssues(run).length" class="quality-issues">
+              <div v-for="issue in qualityIssues(run)" :key="issue.id || issue.title" class="quality-issue">
+                <el-tag size="small" :type="severityType(issue.severity)">{{ issue.severity || 'MAJOR' }}</el-tag>
+                <div>
+                  <strong>{{ issue.title }}</strong>
+                  <span>{{ issue.filePath || '-' }}{{ issue.lineStart ? `:${issue.lineStart}` : '' }}</span>
+                  <p>{{ issue.description || '-' }}</p>
+                  <small v-if="issue.suggestion">建议：{{ issue.suggestion }}</small>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -192,6 +233,16 @@
               :key="standard.id"
               :label="standard.standardName + ' / ' + standard.standardCode"
               :value="standard.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="form.codeQualityEnabled" label="代码评估模型" required>
+          <el-select v-model="form.qualityModelCode" filterable clearable placeholder="选择用于代码质量评估的模型" style="width: 100%">
+            <el-option
+              v-for="model in models"
+              :key="model.id"
+              :label="model.modelName + ' / ' + model.modelCode"
+              :value="model.modelCode"
             />
           </el-select>
         </el-form-item>
@@ -402,6 +453,7 @@ const form = reactive({
   deployProfileId: null,
   codeQualityEnabled: false,
   codeQualityStandardId: null,
+  qualityModelCode: '',
   templateFile: 'default-prd-template.md',
   projectMode: 'scratch',
   codeLevel: 'module',
@@ -417,6 +469,146 @@ const summaryCards = computed(() => [
   { label: t('automation.waitingReview'), value: summary.value.waitingApprovals || 0 },
   { label: t('automation.stagePassRate'), value: (summary.value.stagePassRate || 0) + '%' }
 ])
+
+const stageNameMap = {
+  requirement_analysis: '需求分析',
+  code_generation: '代码生成',
+  code_quality_evaluation: '代码质量评估',
+  build_compile: '构建编译',
+  test_execution: '测试执行',
+  deployment_release: '部署发布',
+  operations_monitoring: '运维监控',
+  delivery_report: '交付报告'
+}
+
+const legacyStageNameMap = {
+  'Requirement Analysis': '需求分析',
+  'Code Generation': '代码生成',
+  'Code Quality Evaluation': '代码质量评估',
+  'Build Compile': '构建编译',
+  'Test Execution': '测试执行',
+  'Deployment Release': '部署发布',
+  'Operations Monitoring': '运维监控',
+  'Delivery Report': '交付报告'
+}
+
+const stageIntroMap = {
+  requirement_analysis: '梳理业务目标、范围、验收标准与交付约束，生成 PRD 并等待产品审核。',
+  code_generation: '根据已确认的 PRD 生成工程代码、目录结构和必要配置。',
+  code_quality_evaluation: '检查生成代码的质量、风险和门禁结果，决定是否进入后续交付。',
+  build_compile: '执行构建和编译检查，确认依赖、语法和工程结构可用。',
+  test_execution: '运行测试并验证核心流程，确认功能符合需求说明。',
+  deployment_release: '按部署配置发布产物，并记录部署执行结果。',
+  operations_monitoring: '观察运行状态、健康检查和异常信息，确认服务稳定。',
+  delivery_report: '汇总需求、代码、测试、部署和审核结果，形成交付说明。'
+}
+
+const stageKeyOf = (stage) => {
+  if (!stage) return ''
+  return typeof stage === 'string' ? stage : (stage.stageKey || stage.currentStage || stage.approvalType || '')
+}
+
+const stageDisplayName = (stage) => {
+  const key = stageKeyOf(stage)
+  if (stageNameMap[key]) return stageNameMap[key]
+  if (typeof stage === 'object' && legacyStageNameMap[stage.stageName]) {
+    return legacyStageNameMap[stage.stageName]
+  }
+  return legacyStageNameMap[key] || key || '-'
+}
+
+const localizeStageSummary = (stage, text) => {
+  const key = stageKeyOf(stage)
+  const title = detail.pipeline?.requirementTitle || '当前需求'
+  if (!text) return stageIntroMap[key] || '等待流水线调度处理。'
+  if (text === `${legacyStageNameMap[stage?.stageName] || stage?.stageName} input for ${title}`) {
+    return stageIntroMap[key] || text
+  }
+  if (text.includes(' input for ')) {
+    return stageIntroMap[key] || text
+  }
+  if (text.startsWith('PRD generated:')) {
+    return `PRD 已生成：${text.replace('PRD generated:', '').trim()}`
+  }
+  if (text.startsWith('Code generation finished with')) {
+    const count = text.match(/with\s+(\d+)\s+files/)?.[1] || '-'
+    return text.includes('quality evaluation')
+      ? `代码生成完成，共 ${count} 个文件，等待代码质量评估。`
+      : `代码生成完成，共 ${count} 个文件，等待架构师审核。`
+  }
+  if (text.startsWith('AI generated')) {
+    return `${stageDisplayName(stage)}已完成，流水线进入人工审核或下一阶段处理。`
+  }
+  return text
+}
+
+const stageSummary = (stage) => localizeStageSummary(stage, stage.outputSummary || stage.inputSummary)
+
+const detailOverviewItems = computed(() => {
+  if (!detail.pipeline) return []
+  const passed = detail.pipeline.passedStages || 0
+  const total = detail.pipeline.totalStages || detail.stages.length || 0
+  return [
+    { label: '产品线', value: detail.pipeline.productLine || '-' },
+    { label: '项目', value: detail.pipeline.projectName || '-' },
+    { label: '当前阶段', value: stageDisplayName(detail.pipeline.currentStage) },
+    { label: '整体进度', value: `${passed} / ${total}` }
+  ]
+})
+
+const pipelineOverviewText = computed(() => {
+  if (!detail.pipeline) return ''
+  const currentStage = stageDisplayName(detail.pipeline.currentStage)
+  const waitingReview = detail.approvals?.filter(item => item.status === 'PENDING').length || 0
+  const reviewText = waitingReview ? `当前有 ${waitingReview} 个事项等待审核。` : '当前没有待审核事项。'
+  return `该流水线围绕「${detail.pipeline.requirementTitle}」推进自动化交付，当前处于「${currentStage}」阶段。${reviewText}`
+})
+
+const qualityStage = computed(() => detail.stages.find(stage => stage.stageKey === 'code_quality_evaluation'))
+
+const qualityMetricLabels = {
+  prdAlignment: '需求符合度',
+  runnable: '可运行性',
+  security: '安全性',
+  architecture: '架构合理性',
+  maintainability: '可维护性',
+  readability: '可读性',
+  testability: '测试完整性',
+  performance: '性能风险'
+}
+
+const parseJsonObject = (value) => {
+  if (!value) return {}
+  if (typeof value === 'object') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return {}
+  }
+}
+
+const qualityMetricItems = (run) => {
+  const metrics = parseJsonObject(run.metricsJson)
+  return Object.entries(qualityMetricLabels).map(([key, label]) => ({
+    key,
+    label,
+    value: Math.max(0, Math.min(100, Number(metrics[key] ?? 0)))
+  }))
+}
+
+const severityOrder = { BLOCKER: 1, CRITICAL: 2, MAJOR: 3, MINOR: 4, INFO: 5 }
+const qualityIssues = (run) => [...(run.issues || [])].sort((a, b) => {
+  const left = severityOrder[a.severity] || 9
+  const right = severityOrder[b.severity] || 9
+  return left - right
+})
+
+const severityType = (severity) => {
+  if (severity === 'BLOCKER' || severity === 'CRITICAL') return 'danger'
+  if (severity === 'MAJOR') return 'warning'
+  if (severity === 'MINOR') return 'info'
+  return 'success'
+}
 
 const loadAll = async () => {
   loading.value = true
@@ -467,7 +659,11 @@ const createPipeline = async () => {
     return
   }
   if (form.codeQualityEnabled && !form.codeQualityStandardId) {
-    ElMessage.warning('Please select a code quality standard')
+    ElMessage.warning('请选择代码质量标准')
+    return
+  }
+  if (form.codeQualityEnabled && !form.qualityModelCode) {
+    ElMessage.warning('请选择代码评估模型')
     return
   }
   await api.createAutomationPipeline(form)
@@ -486,6 +682,7 @@ const createPipeline = async () => {
     deployProfileId: null,
     codeQualityEnabled: false,
     codeQualityStandardId: null,
+    qualityModelCode: '',
     templateFile: prdTemplates.value[0]?.fileName || 'default-prd-template.md',
     projectMode: 'scratch',
     codeLevel: 'module',
@@ -500,6 +697,9 @@ const createPipeline = async () => {
 const selectPipelineModel = (modelId) => {
   const model = models.value.find(item => item.id === modelId)
   form.aiModelCode = model?.modelCode || 'default-open-model'
+  if (!form.qualityModelCode) {
+    form.qualityModelCode = model?.modelCode || ''
+  }
 }
 
 const openTemplateEditor = async () => {
@@ -576,7 +776,15 @@ const openDetail = async (row, keepDrawer = true) => {
       api.getAutomationCodeQualityRuns(detail.pipeline.id)
     ])
     deployRuns.value = deployRes.data?.data || []
-    codeQualityRuns.value = qualityRes.data?.data || []
+    const runs = qualityRes.data?.data || []
+    codeQualityRuns.value = await Promise.all(runs.map(async run => {
+      try {
+        const issueRes = await api.getAutomationCodeQualityIssues(run.id)
+        return { ...run, issues: issueRes.data?.data || [] }
+      } catch {
+        return { ...run, issues: [] }
+      }
+    }))
   } else {
     deployRuns.value = []
     codeQualityRuns.value = []
@@ -592,6 +800,17 @@ const runStage = async (stage) => {
   ElMessage.success(t('automation.stageExecuted'))
   await openDetail(detail.pipeline)
   await loadAll()
+}
+
+const rerunQualityEvaluation = async () => {
+  if (!qualityStage.value) return
+  await runStage(qualityStage.value)
+}
+
+const stageRunButtonText = (stage) => {
+  return stage?.stageKey === 'code_quality_evaluation' && codeQualityRuns.value.length
+    ? '重新评估'
+    : t('automation.run')
 }
 
 const isPendingApproval = (approval) => approval?.status === 'PENDING'
@@ -779,6 +998,14 @@ onUnmounted(stopDetailPolling)
 .approvals-panel { margin-top: 16px; }
 .detail h3 { margin-bottom: 8px; }
 .detail p { color: var(--text-muted); margin-bottom: 16px; }
+.detail-overview { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 14px; background: #f8fafc; }
+.detail-overview-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.detail-overview h4 { margin: 0; font-size: 15px; }
+.detail-overview p { margin: 0 0 10px; line-height: 1.6; color: #475569; }
+.overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.overview-grid div { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; background: #ffffff; }
+.overview-grid span { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 4px; }
+.overview-grid strong { color: #111827; font-size: 13px; word-break: break-word; }
 .deploy-badge { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--text-muted); font-size: 13px; }
 .stage-list { display: flex; flex-direction: column; gap: 10px; }
 .stage-item { display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; }
@@ -791,11 +1018,22 @@ onUnmounted(stopDetailPolling)
 .deploy-run-meta { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
 .deploy-run pre { max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; line-height: 1.5; color: #111827; }
 .quality-runs { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.quality-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .quality-runs h4 { margin: 0; font-size: 15px; }
 .quality-run { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; background: #f8fafc; }
 .quality-run-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .quality-metrics { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
 .quality-run p { margin: 0; color: #374151; line-height: 1.5; }
+.quality-score-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.quality-score-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; background: #ffffff; }
+.quality-score-item div { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--text-muted); font-size: 12px; }
+.quality-score-item strong { color: #111827; }
+.quality-issues { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.quality-issue { display: grid; grid-template-columns: auto 1fr; gap: 8px; border: 1px solid #fee2e2; border-radius: 6px; padding: 8px; background: #fff7f7; }
+.quality-issue div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.quality-issue strong { color: #111827; font-size: 13px; }
+.quality-issue span, .quality-issue small { color: var(--text-muted); font-size: 12px; word-break: break-all; }
+.quality-issue p { margin: 0; color: #374151; font-size: 12px; }
 .prd-meta { color: var(--text-muted); margin-bottom: 12px; font-size: 13px; word-break: break-all; }
 .code-meta { display: flex; flex-direction: column; gap: 6px; color: var(--text-muted); font-size: 13px; margin-bottom: 12px; word-break: break-all; }
 .code-generating { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }

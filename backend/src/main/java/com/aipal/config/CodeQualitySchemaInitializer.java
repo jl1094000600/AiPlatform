@@ -118,13 +118,15 @@ public class CodeQualitySchemaInitializer {
                     "ALTER TABLE automation_pipeline ADD COLUMN code_quality_standard_snapshot MEDIUMTEXT DEFAULT NULL");
             addColumnIfMissing(connection, statement, "automation_pipeline", "code_quality_gate_snapshot",
                     "ALTER TABLE automation_pipeline ADD COLUMN code_quality_gate_snapshot MEDIUMTEXT DEFAULT NULL");
+            addColumnIfMissing(connection, statement, "automation_pipeline", "quality_model_code",
+                    "ALTER TABLE automation_pipeline ADD COLUMN quality_model_code VARCHAR(64) DEFAULT NULL");
             statement.executeUpdate("""
                     INSERT INTO code_quality_standard
                         (standard_code, standard_name, description, language, framework, status, gate_config)
                     SELECT 'JAVA_SPRING_VUE_STANDARD', 'Java/Spring/Vue 默认代码标准',
                            '用于评估生成代码的安全性、可维护性、可读性、架构分层、PRD 对齐度和可测试性。',
                            'GENERAL', 'Spring Boot / Vue', 1,
-                           '{"overallScoreMin":80,"blockerMax":0,"criticalMax":0,"majorMax":5,"securityScoreMin":0}'
+                           '{"overallScoreMin":80,"blockerMax":0,"criticalMax":0,"majorMax":5,"securityScoreMin":0,"prdAlignmentMin":75}'
                     WHERE NOT EXISTS (
                         SELECT 1 FROM code_quality_standard WHERE standard_code = 'JAVA_SPRING_VUE_STANDARD'
                     )

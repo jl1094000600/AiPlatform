@@ -90,3 +90,4 @@ ALTER TABLE automation_pipeline ADD COLUMN code_quality_enabled TINYINT NOT NULL
 ALTER TABLE automation_pipeline ADD COLUMN code_quality_standard_id BIGINT DEFAULT NULL;
 ALTER TABLE automation_pipeline ADD COLUMN code_quality_standard_snapshot MEDIUMTEXT DEFAULT NULL;
 ALTER TABLE automation_pipeline ADD COLUMN code_quality_gate_snapshot MEDIUMTEXT DEFAULT NULL;
+ALTER TABLE automation_pipeline ADD COLUMN quality_model_code VARCHAR(64) DEFAULT NULL;

@@ -168,7 +168,7 @@ public class CodeQualityService {
             if (codeContext.isBlank()) {
                 throw new IllegalStateException("Generated code is empty");
             }
-            String systemPrompt = "You are a strict senior code reviewer. Return pure JSON only.";
+            String systemPrompt = "你是严格的资深代码质量评审专家。只返回纯 JSON，不要输出 Markdown、解释或代码围栏。";
             String userPrompt = buildEvaluationPrompt(pipeline, run, codeContext);
             ModelCallResult modelResult = callModel(model, systemPrompt, userPrompt);
             JsonNode result = parseModelJson(modelResult.content());
@@ -291,44 +291,53 @@ public class CodeQualityService {
 
     private String buildEvaluationPrompt(AutomationPipeline pipeline, AutomationCodeQualityRun run, String codeContext) {
         return """
-                Evaluate the generated code according to the code quality standard and gate.
-                Project: %s
-                Requirement: %s
-                Pipeline ID: %s
+                请按照代码质量标准和质量门禁评估以下生成代码。
+                要求：
+                1. 评估语言必须使用中文。
+                2. JSON 字段名必须保持英文，方便系统解析。
+                3. summary、issues.title、issues.description、issues.suggestion 必须使用中文。
+                4. 如果缺少测试、权限校验、异常处理、PRD 覆盖或架构分层问题，请明确指出。
+                5. 不要因为代码片段不完整而直接给 0 分，应基于可见内容客观评分。
 
-                Code quality standard snapshot:
+                项目：%s
+                需求：%s
+                流水线 ID：%s
+
+                代码质量标准快照：
                 %s
 
-                Gate config:
+                质量门禁：
                 %s
 
-                Generated code:
+                生成代码：
                 %s
 
-                Return JSON only with this shape:
+                只返回如下 JSON 结构：
                 {
                   "overallScore": 0-100,
                   "passed": true,
-                  "summary": "short review summary",
+                  "summary": "中文评估摘要",
                   "metrics": {
+                    "prdAlignment": 0-100,
+                    "runnable": 0-100,
                     "security": 0-100,
+                    "architecture": 0-100,
                     "maintainability": 0-100,
                     "readability": 0-100,
-                    "architecture": 0-100,
-                    "prdAlignment": 0-100,
-                    "testability": 0-100
+                    "testability": 0-100,
+                    "performance": 0-100
                   },
                   "issues": [
                     {
                       "ruleCode": "RULE-001",
                       "severity": "BLOCKER|CRITICAL|MAJOR|MINOR|INFO",
-                      "category": "security|maintainability|readability|architecture|prdAlignment|testability",
+                      "category": "prdAlignment|runnable|security|architecture|maintainability|readability|testability|performance",
                       "filePath": "relative/path",
                       "lineStart": 1,
                       "lineEnd": 1,
-                      "title": "short title",
-                      "description": "what is wrong",
-                      "suggestion": "how to fix"
+                      "title": "中文问题标题",
+                      "description": "中文问题说明",
+                      "suggestion": "中文修复建议"
                     }
                   ]
                 }
@@ -492,21 +501,25 @@ public class CodeQualityService {
         int critical = countSeverity(issues, "CRITICAL");
         int major = countSeverity(issues, "MAJOR");
         int security = metricValue(run.getMetricsJson(), "security");
+        int prdAlignment = metricValue(run.getMetricsJson(), "prdAlignment");
         List<String> failures = new ArrayList<>();
         if (run.getOverallScore() == null || run.getOverallScore() < gate.overallScoreMin()) {
-            failures.add("overall score is lower than " + gate.overallScoreMin());
+            failures.add("总分低于门禁要求 " + gate.overallScoreMin());
         }
         if (blocker > gate.blockerMax()) {
-            failures.add("BLOCKER issues exceed " + gate.blockerMax());
+            failures.add("BLOCKER 问题数量超过 " + gate.blockerMax());
         }
         if (critical > gate.criticalMax()) {
-            failures.add("CRITICAL issues exceed " + gate.criticalMax());
+            failures.add("CRITICAL 问题数量超过 " + gate.criticalMax());
         }
         if (major > gate.majorMax()) {
-            failures.add("MAJOR issues exceed " + gate.majorMax());
+            failures.add("MAJOR 问题数量超过 " + gate.majorMax());
         }
         if (security < gate.securityScoreMin()) {
-            failures.add("security score is lower than " + gate.securityScoreMin());
+            failures.add("安全分低于门禁要求 " + gate.securityScoreMin());
+        }
+        if (prdAlignment < gate.prdAlignmentMin()) {
+            failures.add("需求符合度低于门禁要求 " + gate.prdAlignmentMin());
         }
         if (failures.isEmpty()) {
             return new GateDecision(true, null);
@@ -523,10 +536,11 @@ public class CodeQualityService {
                     toInt(map.get("blockerMax"), 0),
                     toInt(map.get("criticalMax"), 0),
                     toInt(map.get("majorMax"), 5),
-                    toInt(map.get("securityScoreMin"), 0)
+                    toInt(map.get("securityScoreMin"), 0),
+                    toInt(firstPresent(map, "prdAlignmentMin", "prdAlignmentScoreMin"), 75)
             );
         } catch (Exception e) {
-            return new GateConfig(80, 0, 0, 5, 0);
+            return new GateConfig(80, 0, 0, 5, 0, 75);
         }
     }
 
@@ -541,7 +555,7 @@ public class CodeQualityService {
     private String normalizeGateConfig(String value) {
         if (isBlank(value)) {
             return """
-                    {"overallScoreMin":80,"blockerMax":0,"criticalMax":0,"majorMax":5,"securityScoreMin":0}
+                    {"overallScoreMin":80,"blockerMax":0,"criticalMax":0,"majorMax":5,"securityScoreMin":0,"prdAlignmentMin":75}
                     """.trim();
         }
         try {
@@ -610,6 +624,15 @@ public class CodeQualityService {
         return fallback;
     }
 
+    private Object firstPresent(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            if (map.containsKey(key)) {
+                return map.get(key);
+            }
+        }
+        return null;
+    }
+
     private String blankToNull(String value) {
         return isBlank(value) ? null : value.trim();
     }
@@ -632,7 +655,8 @@ public class CodeQualityService {
     private record GateDecision(boolean passed, String message) {
     }
 
-    private record GateConfig(int overallScoreMin, int blockerMax, int criticalMax, int majorMax, int securityScoreMin) {
+    private record GateConfig(int overallScoreMin, int blockerMax, int criticalMax, int majorMax,
+                              int securityScoreMin, int prdAlignmentMin) {
     }
 
     private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {

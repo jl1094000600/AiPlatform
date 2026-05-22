@@ -13,6 +13,7 @@ public class AutomationPipelineRequest {
     private String initiatorUsername;
     private Long modelId;
     private String aiModelCode;
+    private String qualityModelCode;
     private String templateFile;
     private String projectMode;
     private String codeLevel;

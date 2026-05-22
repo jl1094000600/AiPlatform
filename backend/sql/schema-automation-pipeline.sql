@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS automation_pipeline (
     code_quality_standard_id BIGINT DEFAULT NULL,
     code_quality_standard_snapshot MEDIUMTEXT DEFAULT NULL,
     code_quality_gate_snapshot MEDIUMTEXT DEFAULT NULL,
+    quality_model_code VARCHAR(64) DEFAULT NULL,
     status             VARCHAR(32)  NOT NULL DEFAULT 'RUNNING',
     current_stage      VARCHAR(64)  DEFAULT 'requirement_analysis',
     total_stages       INT          NOT NULL DEFAULT 7,
