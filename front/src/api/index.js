@@ -465,5 +465,77 @@ export default {
   },
   getAutomationCodeQualityIssues(runId) {
     return api.get('/automation/code-quality-runs/' + runId + '/issues')
+  },
+  getAiOutputGovernanceRecords(params) {
+    return api.get('/ai-output-governance/records', { params })
+  },
+  getAiOutputGovernanceRecord(id) {
+    return api.get('/ai-output-governance/records/' + id)
+  },
+  getAiOutputGovernancePolicyTemplates(params) {
+    return api.get('/ai-output-governance/policy-templates', { params })
+  },
+  getEnabledAiOutputGovernancePolicyTemplates() {
+    return api.get('/ai-output-governance/policy-templates/enabled')
+  },
+  createAiOutputGovernancePolicyTemplate(data) {
+    return api.post('/ai-output-governance/policy-templates', data)
+  },
+  updateAiOutputGovernancePolicyTemplate(id, data) {
+    return api.put('/ai-output-governance/policy-templates/' + id, data)
+  },
+  deleteAiOutputGovernancePolicyTemplate(id) {
+    return api.delete('/ai-output-governance/policy-templates/' + id)
+  },
+  getPromptEngineeringPrompts(params) {
+    return api.get('/prompt-engineering/prompts', { params })
+  },
+  getPromptEngineeringPrompt(id) {
+    return api.get('/prompt-engineering/prompts/' + id)
+  },
+  createPromptEngineeringPrompt(data) {
+    return api.post('/prompt-engineering/prompts', data)
+  },
+  updatePromptEngineeringPrompt(id, data) {
+    return api.put('/prompt-engineering/prompts/' + id, data)
+  },
+  deletePromptEngineeringPrompt(id) {
+    return api.delete('/prompt-engineering/prompts/' + id)
+  },
+  getPromptEngineeringVersions(promptId) {
+    return api.get('/prompt-engineering/prompts/' + promptId + '/versions')
+  },
+  createPromptEngineeringVersion(promptId, data) {
+    return api.post('/prompt-engineering/prompts/' + promptId + '/versions', data)
+  },
+  getPromptEngineeringTestCases(promptId) {
+    return api.get('/prompt-engineering/prompts/' + promptId + '/test-cases')
+  },
+  createPromptEngineeringTestCase(promptId, data) {
+    return api.post('/prompt-engineering/prompts/' + promptId + '/test-cases', data)
+  },
+  updatePromptEngineeringTestCase(promptId, caseId, data) {
+    return api.put('/prompt-engineering/prompts/' + promptId + '/test-cases/' + caseId, data)
+  },
+  deletePromptEngineeringTestCase(promptId, caseId) {
+    return api.delete('/prompt-engineering/prompts/' + promptId + '/test-cases/' + caseId)
+  },
+  evaluatePromptEngineeringVersion(versionId, data) {
+    return api.post('/prompt-engineering/versions/' + versionId + '/evaluate', data)
+  },
+  getPromptEngineeringEvalRuns(versionId) {
+    return api.get('/prompt-engineering/versions/' + versionId + '/eval-runs')
+  },
+  getPromptEngineeringEvalResults(runId) {
+    return api.get('/prompt-engineering/eval-runs/' + runId + '/results')
+  },
+  optimizePromptEngineeringVersion(versionId, data) {
+    return api.post('/prompt-engineering/versions/' + versionId + '/optimize', data)
+  },
+  getPromptEngineeringOptimizeRuns(versionId) {
+    return api.get('/prompt-engineering/versions/' + versionId + '/optimize-runs')
+  },
+  publishPromptEngineeringVersion(versionId) {
+    return api.post('/prompt-engineering/versions/' + versionId + '/publish')
   }
 }

@@ -53,7 +53,7 @@ class AutomationPipelineServiceTest {
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, modelMapper, mock(SkillService.class), mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -102,7 +102,7 @@ class AutomationPipelineServiceTest {
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, modelMapper, skillService, mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -143,7 +143,7 @@ class AutomationPipelineServiceTest {
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, modelMapper, mock(SkillService.class), mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), codeQualityService, mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), codeQualityService, mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -181,6 +181,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
@@ -207,6 +208,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
@@ -230,6 +232,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
@@ -255,6 +258,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "RUNNING");
@@ -282,6 +286,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "BLOCKED");
@@ -308,6 +313,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationApproval approval = new AutomationApproval();
@@ -330,6 +336,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
 
@@ -358,6 +365,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AutomationGenerationJob stale = generationJob(1L);
@@ -384,6 +392,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
                 mock(UserMemoryService.class)
         );
         AiModel model = new AiModel();

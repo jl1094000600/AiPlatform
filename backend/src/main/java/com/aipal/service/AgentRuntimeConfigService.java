@@ -68,6 +68,10 @@ public class AgentRuntimeConfigService {
         config.setTemperature(request.getTemperature() != null ? request.getTemperature() : DEFAULT_TEMPERATURE);
         config.setInputField(nonBlank(request.getInputField(), DEFAULT_INPUT_FIELD));
         config.setExpectedField(nonBlank(request.getExpectedField(), DEFAULT_EXPECTED_FIELD));
+        config.setPromptId(request.getPromptId() != null ? request.getPromptId() : existing == null ? null : existing.getPromptId());
+        config.setPromptVersionId(request.getPromptVersionId() != null ? request.getPromptVersionId() : existing == null ? null : existing.getPromptVersionId());
+        config.setSystemPrompt(request.getSystemPrompt() != null ? request.getSystemPrompt() : existing == null ? null : existing.getSystemPrompt());
+        config.setUserPromptTemplate(request.getUserPromptTemplate() != null ? request.getUserPromptTemplate() : existing == null ? null : existing.getUserPromptTemplate());
         config.setEnabled(request.getEnabled() != null ? request.getEnabled() : 1);
         config.setUpdateTime(now);
 
@@ -80,6 +84,16 @@ public class AgentRuntimeConfigService {
         fillDefaults(config);
         enrichModelCode(config);
         return config;
+    }
+
+    public AiAgentRuntimeConfig attachPrompt(Long agentId, Long promptId, Long promptVersionId,
+                                             String systemPrompt, String userPromptTemplate) {
+        AiAgentRuntimeConfig config = getOrDefaultByAgentId(agentId);
+        config.setPromptId(promptId);
+        config.setPromptVersionId(promptVersionId);
+        config.setSystemPrompt(systemPrompt);
+        config.setUserPromptTemplate(userPromptTemplate);
+        return saveForAgent(agentId, config);
     }
 
     public AiAgentRuntimeConfig getEnabledByAgentCode(String agentCode) {

@@ -85,6 +85,8 @@ const navItems = computed(() => [
   { path: '/dashboard', label: t('nav.overview'), icon: DataAnalysis },
   { path: '/automation', label: t('nav.automation'), icon: Promotion },
   { path: '/code-quality', label: t('nav.codeQuality'), icon: Finished },
+  { path: '/ai-output-governance', label: 'AI产出治理', icon: Connection },
+  { path: '/prompt-engineering', label: '提示词工程', icon: MagicStick },
   { path: '/deploy-profiles', label: t('nav.deployProfiles'), icon: SetUp },
   { path: '/skills', label: t('nav.skills'), icon: MagicStick },
   { path: '/memories', label: t('nav.memories'), icon: Tickets },

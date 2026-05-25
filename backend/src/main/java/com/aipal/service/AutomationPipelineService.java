@@ -86,6 +86,7 @@ public class AutomationPipelineService {
     private final AutomationDeployProfileService deployProfileService;
     private final AutomationDeploymentExecutionService deploymentExecutionService;
     private final CodeQualityService codeQualityService;
+    private final AiOutputGovernanceService outputGovernanceService;
     private final UserMemoryService userMemoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -207,12 +208,14 @@ public class AutomationPipelineService {
             throw new IllegalArgumentException("Approval does not exist: " + approvalId);
         }
         AutomationStageRun stage = requireStage(approval.getStageRunId());
-        return Map.of(
-                "approval", approval,
-                "stage", stage,
-                "artifactPath", stage.getArtifactPath() == null ? "" : stage.getArtifactPath(),
-                "content", stage.getArtifactContent() == null ? "" : stage.getArtifactContent()
-        );
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("approval", approval);
+        document.put("stage", stage);
+        document.put("artifactPath", stage.getArtifactPath() == null ? "" : stage.getArtifactPath());
+        document.put("content", stage.getArtifactContent() == null ? "" : stage.getArtifactContent());
+        document.put("governanceRecords", outputGovernanceService.listStageRecords(stage.getPipelineId(), stage.getId()));
+        document.put("governanceBlocked", outputGovernanceService.hasBlockingRecords(stage.getPipelineId(), stage.getId()));
+        return document;
     }
 
     @Transactional
@@ -364,6 +367,11 @@ public class AutomationPipelineService {
             AutomationStageRun editableStage = requireStage(approval.getStageRunId());
             saveArtifact(editableStage, review.getArtifactContent());
         }
+        AutomationStageRun stage = requireStage(approval.getStageRunId());
+        if (STATUS_SUCCESS.equals(nextStatus)
+                && outputGovernanceService.hasBlockingRecords(stage.getPipelineId(), stage.getId())) {
+            throw new IllegalStateException("当前阶段存在被治理策略阻塞的 AI 产出，请修复后重新生成或重新评估后再审批通过");
+        }
         approval.setStatus(nextStatus);
         approval.setComment(review.getComment());
         approval.setReviewedBy(review.getReviewedBy());
@@ -371,10 +379,10 @@ public class AutomationPipelineService {
         approval.setUpdateTime(now);
         approvalMapper.updateById(approval);
 
-        AutomationStageRun stage = requireStage(approval.getStageRunId());
         stage.setStatus(STATUS_SUCCESS.equals(nextStatus) ? STATUS_SUCCESS : STATUS_REJECTED);
         stage.setUpdateTime(now);
         stageRunMapper.updateById(stage);
+        outputGovernanceService.markStageReviewed(stage.getPipelineId(), stage.getId(), STATUS_SUCCESS.equals(nextStatus));
         refreshPipelineProgress(stage.getPipelineId());
         if (STATUS_SUCCESS.equals(nextStatus) && STAGE_REQUIREMENT_ANALYSIS.equals(stage.getStageKey())) {
             startCodeGeneration(stage.getPipelineId(), true);
@@ -585,6 +593,12 @@ public class AutomationPipelineService {
         stage.setStatus(STATUS_WAITING_APPROVAL);
         stage.setUpdateTime(LocalDateTime.now());
         stageRunMapper.updateById(stage);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("approvalRequired", true);
+        metadata.put("contentLength", prdContent == null ? 0 : prdContent.length());
+        metadata.put("requirementTitle", pipeline.getRequirementTitle());
+        recordAutomationGovernance(pipeline, stage, job, "PRD", stage.getArtifactPath(),
+                stage.getOutputSummary(), stage.getAiModelCode(), metadata);
         createApproval(pipeline, stage);
         appendPipelineMemory(pipeline, stage, job, "PRD", request.getRequirementSummary(), prdContent);
     }
@@ -866,6 +880,13 @@ public class AutomationPipelineService {
         stageRunMapper.updateById(stage);
         job.setArtifactPath(stage.getArtifactPath());
         AutomationPipeline latestPipeline = requirePipeline(pipelineId);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("fileCount", files.size());
+        metadata.put("manifestLength", manifest == null ? 0 : manifest.length());
+        metadata.put("codeQualityEnabled", qualityEnabled);
+        metadata.put("projectMode", pipeline.getProjectMode());
+        recordAutomationGovernance(latestPipeline, stage, job, "CODE", stage.getArtifactPath(),
+                stage.getOutputSummary(), stage.getAiModelCode(), metadata);
         if (qualityEnabled) {
             runCodeQualityEvaluation(latestPipeline);
         } else {
@@ -1428,6 +1449,7 @@ public class AutomationPipelineService {
         qualityStage.setStatus(outcome.passed() ? STATUS_SUCCESS : STATUS_BLOCKED);
         qualityStage.setUpdateTime(now);
         stageRunMapper.updateById(qualityStage);
+        recordCodeQualityGovernance(pipeline, qualityStage, outcome);
 
         if (outcome.passed()) {
             codeStage = requireStage(codeStage.getId());
@@ -1448,6 +1470,29 @@ public class AutomationPipelineService {
             pipelineMapper.updateById(pipeline);
         }
         return qualityStage;
+    }
+
+    private void recordAutomationGovernance(AutomationPipeline pipeline, AutomationStageRun stage,
+                                            AutomationGenerationJob job, String artifactType,
+                                            String artifactPath, String artifactSummary,
+                                            String modelCode, Map<String, Object> metadata) {
+        try {
+            outputGovernanceService.recordAutomationOutput(pipeline, stage, job, artifactType,
+                    artifactPath, artifactSummary, modelCode, metadata);
+        } catch (Exception ignored) {
+            // Governance records are observability data and should not interrupt delivery execution.
+        }
+    }
+
+    private void recordCodeQualityGovernance(AutomationPipeline pipeline, AutomationStageRun stage,
+                                             CodeQualityService.EvaluationOutcome outcome) {
+        try {
+            int issueCount = outcome.issues() == null ? 0 : outcome.issues().size();
+            outputGovernanceService.recordCodeQualityOutput(pipeline, stage, outcome.run(), issueCount,
+                    outcome.passed(), outcome.message());
+        } catch (Exception ignored) {
+            // Governance records are observability data and should not interrupt delivery execution.
+        }
     }
 
     private String codeQualityArtifact(CodeQualityService.EvaluationOutcome outcome) {

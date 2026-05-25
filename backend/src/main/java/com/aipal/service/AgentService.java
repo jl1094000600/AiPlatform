@@ -183,6 +183,9 @@ public class AgentService {
             result.put("message", "Agent调用成功");
             result.put("agentName", agent.getAgentName());
             result.put("modelCode", agent.getModelCode());
+            AiAgentRuntimeConfig runtimeConfig = runtimeConfigService.getOrDefaultByAgentId(agentId);
+            result.put("promptId", runtimeConfig.getPromptId());
+            result.put("promptVersionId", runtimeConfig.getPromptVersionId());
 
             record.setResponseTime(LocalDateTime.now());
             record.setDurationMs(100);
@@ -190,6 +193,9 @@ public class AgentService {
             record.setOutputTokens(200);
             record.setTotalTokens(300);
             record.setStatusCode(200);
+            record.setModelId(runtimeConfig.getModelId());
+            record.setRequestParams(String.valueOf(params));
+            record.setResponseResult(String.valueOf(result));
 
             return result;
         } catch (Exception e) {

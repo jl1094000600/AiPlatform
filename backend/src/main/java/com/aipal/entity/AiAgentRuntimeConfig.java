@@ -22,6 +22,10 @@ public class AiAgentRuntimeConfig {
     private Double temperature;
     private String inputField;
     private String expectedField;
+    private Long promptId;
+    private Long promptVersionId;
+    private String systemPrompt;
+    private String userPromptTemplate;
     private Integer enabled;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
