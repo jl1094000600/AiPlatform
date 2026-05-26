@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.SysUser;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.UserService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
+    @RequirePermission("member:manage")
     public Result<Page<SysUser>> listUsers(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -22,22 +24,26 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("member:manage")
     public Result<SysUser> getUser(@PathVariable Long id) {
         return Result.success(userService.getUserById(id));
     }
 
     @PostMapping
+    @RequirePermission("member:manage")
     public Result<Boolean> createUser(@RequestBody SysUser user) {
         return Result.success(userService.saveUser(user));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("member:manage")
     public Result<Boolean> updateUser(@PathVariable Long id, @RequestBody SysUser user) {
         user.setId(id);
         return Result.success(userService.updateUser(user));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("member:manage")
     public Result<Boolean> deleteUser(@PathVariable Long id) {
         return Result.success(userService.deleteUser(id));
     }

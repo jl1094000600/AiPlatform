@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.entity.Workflow;
 import com.aipal.entity.WorkflowExecution;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.WorkflowExecutionService;
 import com.aipal.mapper.WorkflowMapper;
 import jakarta.validation.Valid;
@@ -29,6 +30,7 @@ public class WorkflowController {
      * 创建编排配置
      */
     @PostMapping
+    @RequirePermission("workflow:manage")
     public ResponseEntity<Workflow> createWorkflow(@Valid @RequestBody Workflow workflow) {
         Workflow saved = workflowMapper.insert(workflow) > 0 ? workflow : null;
         if (saved != null) {
@@ -41,6 +43,7 @@ public class WorkflowController {
      * 获取编排列表
      */
     @GetMapping
+    @RequirePermission("workflow:manage")
     public ResponseEntity<List<Workflow>> listWorkflows() {
         List<Workflow> workflows = workflowMapper.selectList(null);
         return ResponseEntity.ok(workflows);
@@ -50,6 +53,7 @@ public class WorkflowController {
      * 获取编排详情
      */
     @GetMapping("/{workflowId}")
+    @RequirePermission("workflow:manage")
     public ResponseEntity<Workflow> getWorkflow(@PathVariable Long workflowId) {
         Workflow workflow = workflowMapper.selectById(workflowId);
         if (workflow == null) {
@@ -62,6 +66,7 @@ public class WorkflowController {
      * 触发编排执行
      */
     @PostMapping("/{workflowId}/trigger")
+    @RequirePermission("workflow:manage")
     public ResponseEntity<String> triggerWorkflow(
             @PathVariable Long workflowId,
             @RequestParam(defaultValue = "MANUAL") String triggerType,
@@ -74,6 +79,7 @@ public class WorkflowController {
      * 获取编排执行状态
      */
     @GetMapping("/executions/{executionId}")
+    @RequirePermission("workflow:manage")
     public ResponseEntity<WorkflowExecution> getExecution(@PathVariable String executionId) {
         WorkflowExecution execution = executionService.getExecution(executionId);
         if (execution == null) {
@@ -86,6 +92,7 @@ public class WorkflowController {
      * 取消执行
      */
     @PostMapping("/executions/{executionId}/cancel")
+    @RequirePermission("workflow:manage")
     public ResponseEntity<Void> cancelExecution(@PathVariable String executionId) {
         executionService.cancelExecution(executionId);
         return ResponseEntity.noContent().build();

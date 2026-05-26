@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.AiModel;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.ModelService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ public class ModelController {
     private final ModelService modelService;
 
     @GetMapping
+    @RequirePermission("model:list")
     public Result<Page<AiModel>> listModels(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -21,22 +23,26 @@ public class ModelController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("model:list")
     public Result<AiModel> getModel(@PathVariable Long id) {
         return Result.success(modelService.getModelById(id));
     }
 
     @PostMapping
+    @RequirePermission("model:create")
     public Result<Boolean> createModel(@RequestBody AiModel model) {
         return Result.success(modelService.saveModel(model));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("model:update")
     public Result<Boolean> updateModel(@PathVariable Long id, @RequestBody AiModel model) {
         model.setId(id);
         return Result.success(modelService.updateModel(model));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("model:delete")
     public Result<Boolean> deleteModel(@PathVariable Long id) {
         return Result.success(modelService.deleteModel(id));
     }

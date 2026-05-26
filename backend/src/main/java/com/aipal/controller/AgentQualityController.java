@@ -5,6 +5,7 @@ import com.aipal.dto.AgentQualityEvaluationRequest;
 import com.aipal.dto.AgentQualitySummary;
 import com.aipal.entity.AiAgentQualityResult;
 import com.aipal.entity.AiAgentQualityRun;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.AgentQualityService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -26,21 +27,25 @@ public class AgentQualityController {
     private final AgentQualityService qualityService;
 
     @GetMapping("/summary")
+    @RequirePermission("agent:list")
     public Result<List<AgentQualitySummary>> getSummary() {
         return Result.success(qualityService.getSummary());
     }
 
     @GetMapping("/trends")
+    @RequirePermission("agent:list")
     public Result<List<AiAgentQualityRun>> getTrends(@RequestParam(required = false) Long agentId) {
         return Result.success(qualityService.getTrends(agentId));
     }
 
     @PostMapping("/evaluations")
+    @RequirePermission("agent:update")
     public Result<AiAgentQualityRun> runEvaluation(@RequestBody AgentQualityEvaluationRequest request) {
         return Result.success(qualityService.runEvaluation(request));
     }
 
     @GetMapping("/evaluations")
+    @RequirePermission("agent:list")
     public Result<Page<AiAgentQualityRun>> listEvaluations(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -49,6 +54,7 @@ public class AgentQualityController {
     }
 
     @GetMapping("/evaluations/{runId}/results")
+    @RequirePermission("agent:list")
     public Result<List<AiAgentQualityResult>> listResults(@PathVariable Long runId) {
         return Result.success(qualityService.listResults(runId));
     }

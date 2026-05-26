@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.CodeQualityStandardRequest;
 import com.aipal.dto.CodeQualityStandardResponse;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.CodeQualityService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class CodeQualityController {
     private final CodeQualityService codeQualityService;
 
     @GetMapping("/standards")
+    @RequirePermission("code-quality:list")
     public Result<Page<CodeQualityStandardResponse>> listStandards(@RequestParam(defaultValue = "1") int pageNum,
                                                                    @RequestParam(defaultValue = "20") int pageSize,
                                                                    @RequestParam(required = false) Integer status) {
@@ -32,27 +34,32 @@ public class CodeQualityController {
     }
 
     @GetMapping("/standards/enabled")
+    @RequirePermission("code-quality:list")
     public Result<List<CodeQualityStandardResponse>> listEnabledStandards() {
         return Result.success(codeQualityService.listEnabledStandards());
     }
 
     @GetMapping("/standards/{id}")
+    @RequirePermission("code-quality:list")
     public Result<CodeQualityStandardResponse> getStandard(@PathVariable Long id) {
         return Result.success(codeQualityService.getStandard(id));
     }
 
     @PostMapping("/standards")
+    @RequirePermission("code-quality:manage")
     public Result<CodeQualityStandardResponse> createStandard(@RequestBody CodeQualityStandardRequest request) {
         return Result.success(codeQualityService.createStandard(request));
     }
 
     @PutMapping("/standards/{id}")
+    @RequirePermission("code-quality:manage")
     public Result<CodeQualityStandardResponse> updateStandard(@PathVariable Long id,
                                                               @RequestBody CodeQualityStandardRequest request) {
         return Result.success(codeQualityService.updateStandard(id, request));
     }
 
     @DeleteMapping("/standards/{id}")
+    @RequirePermission("code-quality:manage")
     public Result<Boolean> deleteStandard(@PathVariable Long id) {
         return Result.success(codeQualityService.deleteStandard(id));
     }

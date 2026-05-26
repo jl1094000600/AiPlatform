@@ -5,6 +5,7 @@ import com.aipal.config.JwtConfig;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.AgentRuntimeConfigService;
 import com.aipal.service.AgentService;
 import com.aipal.service.AgentVersionService;
@@ -26,6 +27,7 @@ public class AgentController {
     private final JwtConfig jwtConfig;
 
     @GetMapping
+    @RequirePermission("agent:list")
     public Result<Page<AiAgent>> listAgents(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -36,47 +38,56 @@ public class AgentController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("agent:list")
     public Result<AiAgent> getAgent(@PathVariable Long id) {
         return Result.success(agentService.getAgentById(id));
     }
 
     @PostMapping
+    @RequirePermission("agent:create")
     public Result<Boolean> createAgent(@RequestBody AiAgent agent) {
         return Result.success(agentService.saveAgent(agent));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("agent:update")
     public Result<Boolean> updateAgent(@PathVariable Long id, @RequestBody AiAgent agent) {
         agent.setId(id);
         return Result.success(agentService.updateAgent(agent));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("agent:delete")
     public Result<Boolean> deleteAgent(@PathVariable Long id) {
         return Result.success(agentService.deleteAgent(id));
     }
 
     @PostMapping("/{id}/publish")
+    @RequirePermission("agent:update")
     public Result<Boolean> publishAgent(@PathVariable Long id) {
         return Result.success(agentService.publish(id));
     }
 
     @PostMapping("/{id}/offline")
+    @RequirePermission("agent:update")
     public Result<Boolean> offlineAgent(@PathVariable Long id) {
         return Result.success(agentService.offline(id));
     }
 
     @PostMapping("/{id}/rollback")
+    @RequirePermission("agent:update")
     public Result<Boolean> rollbackAgent(@PathVariable Long id) {
         return Result.success(agentVersionService.rollbackToPreviousVersion(id));
     }
 
     @GetMapping("/{id}/versions")
+    @RequirePermission("agent:list")
     public Result<List<AiAgentVersion>> getVersions(@PathVariable Long id) {
         return Result.success(agentVersionService.getVersionsByAgentId(id));
     }
 
     @PostMapping("/{id}/call")
+    @RequirePermission("agent:invoke")
     public Result<?> callAgent(@PathVariable Long id,
                                @RequestBody(required = false) Object params,
                                HttpServletRequest request) {
@@ -111,11 +122,13 @@ public class AgentController {
     }
 
     @GetMapping("/{id}/runtime-config")
+    @RequirePermission("agent:list")
     public Result<AiAgentRuntimeConfig> getRuntimeConfig(@PathVariable Long id) {
         return Result.success(runtimeConfigService.getOrDefaultByAgentId(id));
     }
 
     @PutMapping("/{id}/runtime-config")
+    @RequirePermission("agent:update")
     public Result<AiAgentRuntimeConfig> updateRuntimeConfig(
             @PathVariable Long id,
             @RequestBody AiAgentRuntimeConfig config) {

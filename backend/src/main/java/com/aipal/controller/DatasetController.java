@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.DatasetImportRequest;
 import com.aipal.entity.AiDataset;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.DatasetService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +22,7 @@ public class DatasetController {
     private final DatasetService datasetService;
 
     @GetMapping
+    @RequirePermission("rag:list")
     public Result<?> listDatasets(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -31,11 +33,13 @@ public class DatasetController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("rag:list")
     public Result<AiDataset> getDataset(@PathVariable Long id) {
         return Result.success(datasetService.getDatasetById(id));
     }
 
     @PostMapping("/import")
+    @RequirePermission("rag:create")
     public Result<AiDataset> importDataset(
             @RequestParam String datasetName,
             @RequestParam(required = false) String description,
@@ -52,21 +56,25 @@ public class DatasetController {
     }
 
     @PostMapping("/generate")
+    @RequirePermission("rag:create")
     public Result<AiDataset> generateDataset(@RequestBody DatasetImportRequest request) {
         return Result.success(datasetService.generateDataset(request));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("rag:update")
     public Result<Boolean> updateDataset(@RequestBody AiDataset dataset) {
         return Result.success(datasetService.updateDataset(dataset));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("rag:delete")
     public Result<Boolean> deleteDataset(@PathVariable Long id) {
         return Result.success(datasetService.deleteDataset(id));
     }
 
     @GetMapping("/formats")
+    @RequirePermission("rag:list")
     public Result<List<String>> getSupportedFormats() {
         return Result.success(datasetService.getSupportedFormats());
     }

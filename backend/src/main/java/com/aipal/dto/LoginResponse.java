@@ -13,5 +13,10 @@ public class LoginResponse {
     private Long userId;
     private String username;
     private String realName;
+    private AuthTenant tenant;
+    private List<AuthTenant> tenants;
     private List<String> roles;
+    private List<String> permissions;
+    private List<AuthMenu> menus;
+    private Boolean platformAdmin;
 }

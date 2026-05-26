@@ -9,8 +9,11 @@ import java.time.LocalDateTime;
 public class SysAuditLog {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private Long userId;
     private String username;
+    private String permissionCode;
+    private String requestPath;
     private String operation;
     private String resourceType;
     private Long resourceId;

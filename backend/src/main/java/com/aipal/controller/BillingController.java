@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.BillingBudget;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.BillingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -20,6 +21,7 @@ public class BillingController {
     private final BillingService billingService;
 
     @GetMapping("/usage")
+    @RequirePermission("billing:view")
     public Result<?> usage(
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
@@ -32,6 +34,7 @@ public class BillingController {
     }
 
     @GetMapping("/cost-trends")
+    @RequirePermission("billing:view")
     public Result<?> costTrends(
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
@@ -44,22 +47,26 @@ public class BillingController {
     }
 
     @GetMapping("/budgets")
+    @RequirePermission("billing:view")
     public Result<?> budgets(@RequestParam(defaultValue = "1") int pageNum,
                              @RequestParam(defaultValue = "20") int pageSize) {
         return Result.success(billingService.listBudgets(pageNum, pageSize));
     }
 
     @PostMapping("/budgets")
+    @RequirePermission("billing:view")
     public Result<Boolean> createBudget(@RequestBody BillingBudget budget) {
         return Result.success(billingService.saveBudget(budget));
     }
 
     @PutMapping("/budgets/{id}")
+    @RequirePermission("billing:view")
     public Result<Boolean> updateBudget(@PathVariable Long id, @RequestBody BillingBudget budget) {
         return Result.success(billingService.updateBudget(id, budget));
     }
 
     @GetMapping("/bills/export")
+    @RequirePermission("billing:view")
     public ResponseEntity<byte[]> exportBill(
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,

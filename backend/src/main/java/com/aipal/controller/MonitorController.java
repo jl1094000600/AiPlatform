@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.AgentGraphResponse;
 import com.aipal.entity.MonCallRecord;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.CallRecordService;
 import com.aipal.service.MonitorService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -22,6 +23,7 @@ public class MonitorController {
     private final MonitorService monitorService;
 
     @GetMapping("/records")
+    @RequirePermission("monitor:view")
     public Result<Page<MonCallRecord>> listRecords(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -32,6 +34,7 @@ public class MonitorController {
     }
 
     @GetMapping("/call-records")
+    @RequirePermission("monitor:view")
     public Result<Page<MonCallRecord>> listCallRecords(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -42,16 +45,19 @@ public class MonitorController {
     }
 
     @GetMapping("/traces/{traceId}")
+    @RequirePermission("monitor:view")
     public Result<MonCallRecord> getTrace(@PathVariable String traceId) {
         return Result.success(callRecordService.getByTraceId(traceId));
     }
 
     @GetMapping("/recent")
+    @RequirePermission("monitor:view")
     public Result<?> getRecentRecords(@RequestParam(defaultValue = "100") int limit) {
         return Result.success(callRecordService.getRecentRecords(limit));
     }
 
     @GetMapping("/statistics")
+    @RequirePermission("monitor:view")
     public Result<Map<String, Object>> getStatistics(
             @RequestParam(required = false) Long agentId,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
@@ -64,6 +70,7 @@ public class MonitorController {
     }
 
     @GetMapping("/realtime")
+    @RequirePermission("monitor:view")
     public Result<Map<String, Object>> getRealtimeData() {
         Map<String, Object> realtime = new HashMap<>();
         realtime.put("onlineAgents", callRecordService.countOnlineAgents());
@@ -73,16 +80,19 @@ public class MonitorController {
     }
 
     @GetMapping("/agent-graph")
+    @RequirePermission("graph:manage")
     public Result<AgentGraphResponse> getAgentGraph() {
         return Result.success(monitorService.getAgentGraph());
     }
 
     @GetMapping("/execution-chain")
+    @RequirePermission("monitor:view")
     public Result<?> getExecutionChain(@RequestParam(required = false) String taskId, @RequestParam(required = false) String sessionId) {
         return Result.success(monitorService.getExecutionChain(taskId, sessionId));
     }
 
     @GetMapping("/graph/export")
+    @RequirePermission("graph:manage")
     public Result<AgentGraphResponse> exportGraph() {
         return Result.success(monitorService.getAgentGraph());
     }

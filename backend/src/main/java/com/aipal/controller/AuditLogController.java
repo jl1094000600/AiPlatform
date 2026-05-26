@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.SysAuditLog;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.AuditLogService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class AuditLogController {
     private final AuditLogService auditLogService;
 
     @GetMapping
+    @RequirePermission("audit:view")
     public Result<Page<SysAuditLog>> listAuditLogs(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -32,11 +34,13 @@ public class AuditLogController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("audit:view")
     public Result<SysAuditLog> getAuditLog(@PathVariable Long id) {
         return Result.success(auditLogService.getAuditLogById(id));
     }
 
     @GetMapping("/export")
+    @RequirePermission("audit:view")
     public ResponseEntity<byte[]> exportAuditLogs(
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) String operation,

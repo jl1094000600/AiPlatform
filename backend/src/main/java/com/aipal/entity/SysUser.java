@@ -15,6 +15,8 @@ public class SysUser {
     private String email;
     private String phone;
     private String department;
+    private Long defaultTenantId;
+    private Integer platformAdmin;
     private Integer status;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

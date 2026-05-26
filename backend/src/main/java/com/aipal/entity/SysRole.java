@@ -9,8 +9,10 @@ import java.time.LocalDateTime;
 public class SysRole {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private String roleCode;
     private String roleName;
+    private String roleScope;
     private String description;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

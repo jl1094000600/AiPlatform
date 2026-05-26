@@ -4,6 +4,7 @@ import com.aipal.common.Result;
 import com.aipal.dto.SkillGenerateRequest;
 import com.aipal.dto.SkillRequest;
 import com.aipal.dto.SkillResponse;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.SkillService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class SkillController {
     private final SkillService skillService;
 
     @GetMapping
+    @RequirePermission("skill:list")
     public Result<Page<SkillResponse>> listSkills(@RequestParam(defaultValue = "1") int pageNum,
                                                   @RequestParam(defaultValue = "20") int pageSize,
                                                   @RequestParam(required = false) Integer status) {
@@ -33,31 +35,37 @@ public class SkillController {
     }
 
     @GetMapping("/enabled")
+    @RequirePermission("skill:list")
     public Result<List<SkillResponse>> listEnabledSkills() {
         return Result.success(skillService.listEnabledSkills());
     }
 
     @PostMapping("/generate")
+    @RequirePermission("skill:create")
     public Result<SkillRequest> generateSkill(@RequestBody SkillGenerateRequest request) {
         return Result.success(skillService.generateSkillDraft(request));
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("skill:list")
     public Result<SkillResponse> getSkill(@PathVariable Long id) {
         return Result.success(skillService.getSkill(id));
     }
 
     @PostMapping
+    @RequirePermission("skill:create")
     public Result<SkillResponse> createSkill(@RequestBody SkillRequest request) {
         return Result.success(skillService.createSkill(request));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("skill:update")
     public Result<SkillResponse> updateSkill(@PathVariable Long id, @RequestBody SkillRequest request) {
         return Result.success(skillService.updateSkill(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("skill:delete")
     public Result<Boolean> deleteSkill(@PathVariable Long id) {
         return Result.success(skillService.deleteSkill(id));
     }

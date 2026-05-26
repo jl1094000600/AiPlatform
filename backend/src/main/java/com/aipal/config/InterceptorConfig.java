@@ -1,11 +1,14 @@
 package com.aipal.config;
 
 import com.aipal.common.TraceContext;
+import com.aipal.security.TenantContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
+
+import java.util.HashSet;
 
 @Configuration
 @RequiredArgsConstructor
@@ -22,38 +25,10 @@ public class InterceptorConfig implements HandlerInterceptor {
         TraceContext.setTraceId(traceId);
 
         String path = request.getRequestURI();
-        // Allow public endpoints without authentication
-        if (path.equals("/api/v1/agents") ||
-            path.startsWith("/api/v1/agents/") ||
-            path.startsWith("/api/v1/agent-config/") ||
-            path.startsWith("/api/v1/agent-quality/") ||
-            path.equals("/api/v1/datasets") ||
-            path.startsWith("/api/v1/datasets/") ||
-            path.equals("/api/v1/models") ||
-            path.startsWith("/api/v1/models/") ||
+        if (path.equals("/api/v1/auth/login") ||
+            path.equals("/api/v1/auth/register") ||
             path.equals("/api/v1/heartbeat/report") ||
             path.startsWith("/api/v1/heartbeat/") ||
-            path.equals("/api/v1/registry/agents") ||
-            path.startsWith("/api/v1/registry/agents/") ||
-            path.equals("/api/v1/monitor/agent-graph") ||
-            path.startsWith("/api/v1/monitor/") ||
-            path.startsWith("/api/v1/agent-graph/") ||
-            path.startsWith("/api/v1/business-dashboard/") ||
-            path.startsWith("/api/v1/billing/") ||
-            path.startsWith("/api/v1/alerts/") ||
-            path.equals("/api/v1/audit-logs") ||
-            path.startsWith("/api/v1/audit-logs/") ||
-            path.equals("/api/v1/customers") ||
-            path.startsWith("/api/v1/customers/") ||
-            path.equals("/api/v1/invocations") ||
-            path.startsWith("/api/v1/invocations/") ||
-            path.startsWith("/api/v1/automation/") ||
-            path.startsWith("/api/v1/rag/") ||
-            path.equals("/api/v1/skills") ||
-            path.startsWith("/api/v1/skills/") ||
-            path.equals("/api/v1/user-memories") ||
-            path.startsWith("/api/v1/user-memories/") ||
-            path.startsWith("/api/v1/auth/") ||
             path.equals("/doc.html") ||
             path.startsWith("/webjars/") ||
             path.startsWith("/swagger-resources/") ||
@@ -76,6 +51,15 @@ public class InterceptorConfig implements HandlerInterceptor {
             response.getWriter().write("{\"code\":401,\"message\":\"Invalid token\"}");
             return false;
         }
+        TenantContext.set(new TenantContext.Context(
+                jwtConfig.getUserIdFromToken(token),
+                jwtConfig.getUsernameFromToken(token),
+                jwtConfig.getTenantIdFromToken(token),
+                jwtConfig.getTenantCodeFromToken(token),
+                jwtConfig.isPlatformAdminFromToken(token),
+                new HashSet<>(jwtConfig.getRolesFromToken(token)),
+                new HashSet<>(jwtConfig.getPermissionsFromToken(token))
+        ));
 
         return true;
     }
@@ -83,5 +67,6 @@ public class InterceptorConfig implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
         TraceContext.clear();
+        TenantContext.clear();
     }
 }

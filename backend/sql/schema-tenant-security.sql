@@ -1,0 +1,46 @@
+CREATE TABLE IF NOT EXISTS sys_tenant (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_code VARCHAR(64) NOT NULL,
+    tenant_name VARCHAR(128) NOT NULL,
+    contact_name VARCHAR(128) DEFAULT NULL,
+    contact_email VARCHAR(128) DEFAULT NULL,
+    status TINYINT NOT NULL DEFAULT 1,
+    expire_time DATETIME DEFAULT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_tenant_code (tenant_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sys_user_tenant (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    tenant_id BIGINT NOT NULL,
+    tenant_role VARCHAR(64) DEFAULT 'member',
+    default_tenant TINYINT NOT NULL DEFAULT 0,
+    status TINYINT NOT NULL DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_tenant (user_id, tenant_id),
+    KEY idx_tenant_id (tenant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sys_menu (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    menu_code VARCHAR(64) NOT NULL,
+    menu_name VARCHAR(128) NOT NULL,
+    path VARCHAR(255) DEFAULT NULL,
+    icon VARCHAR(64) DEFAULT NULL,
+    permission_code VARCHAR(128) DEFAULT NULL,
+    parent_id BIGINT DEFAULT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    visible TINYINT NOT NULL DEFAULT 1,
+    status TINYINT NOT NULL DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_menu_code (menu_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

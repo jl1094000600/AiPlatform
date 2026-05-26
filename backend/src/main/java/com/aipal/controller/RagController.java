@@ -4,6 +4,7 @@ import com.aipal.common.Result;
 import com.aipal.dto.RagIngestionRequest;
 import com.aipal.dto.RagIngestionResponse;
 import com.aipal.entity.RagIngestionRecord;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.RagService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ public class RagController {
     private final RagService ragService;
 
     @PostMapping("/ingestions")
+    @RequirePermission("rag:create")
     public Result<RagIngestionResponse> ingest(@RequestBody RagIngestionRequest request) {
         try {
             return Result.success(ragService.ingest(request));
@@ -27,12 +29,14 @@ public class RagController {
     }
 
     @GetMapping("/ingestions")
+    @RequirePermission("rag:list")
     public Result<Page<RagIngestionRecord>> list(@RequestParam(defaultValue = "1") int pageNum,
                                                  @RequestParam(defaultValue = "20") int pageSize) {
         return Result.success(ragService.list(pageNum, pageSize));
     }
 
     @GetMapping("/chroma/collections")
+    @RequirePermission("rag:list")
     public Result<?> listChromaCollections(@RequestParam(required = false) String chromaUrl) {
         try {
             return Result.success(ragService.listChromaCollections(chromaUrl));
@@ -42,6 +46,7 @@ public class RagController {
     }
 
     @GetMapping("/chroma/collections/{collectionId}/documents")
+    @RequirePermission("rag:list")
     public Result<?> listChromaDocuments(@PathVariable String collectionId,
                                          @RequestParam(required = false) String chromaUrl,
                                          @RequestParam(defaultValue = "20") int limit,
