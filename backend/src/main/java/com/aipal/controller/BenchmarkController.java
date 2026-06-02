@@ -8,6 +8,7 @@ import com.aipal.dto.EvaluationRequest;
 import com.aipal.entity.AiDataset;
 import com.aipal.entity.AiEvaluation;
 import com.aipal.entity.AiEvaluationCriteria;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +32,7 @@ public class BenchmarkController {
      * POST /benchmark/dataset/upload → /api/v1/datasets/import
      */
     @PostMapping("/dataset/upload")
+    @RequirePermission("benchmark:run")
     public Result<AiDataset> uploadDataset(
             @RequestParam String datasetName,
             @RequestParam(required = false) String description,
@@ -50,6 +52,7 @@ public class BenchmarkController {
      * POST /benchmark/simdata/generate → /api/v1/data-generator/generate
      */
     @PostMapping("/simdata/generate")
+    @RequirePermission("benchmark:run")
     public Result<String> generateSimData(@RequestBody Map<String, Object> request) {
         try {
             String template = extractTemplate(request);
@@ -89,6 +92,7 @@ public class BenchmarkController {
      * GET /benchmark/history
      */
     @GetMapping("/history")
+    @RequirePermission("benchmark:view")
     public Result<?> getHistory(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -101,6 +105,7 @@ public class BenchmarkController {
      * POST /benchmark/start
      */
     @PostMapping("/start")
+    @RequirePermission("benchmark:run")
     public Result<String> startBenchmark(@RequestBody EvaluationRequest request) {
         return Result.success(evaluationService.startEvaluation(request));
     }
@@ -109,6 +114,7 @@ public class BenchmarkController {
      * POST /benchmark/start/batch
      */
     @PostMapping("/start/batch")
+    @RequirePermission("benchmark:run")
     public Result<String> startBatchBenchmark(@RequestBody BatchEvaluationRequest request) {
         return Result.success(evaluationService.startBatchEvaluation(request));
     }
@@ -117,6 +123,7 @@ public class BenchmarkController {
      * GET /benchmark/progress/{id}
      */
     @GetMapping("/progress/{id}")
+    @RequirePermission("benchmark:view")
     public Result<String> getProgress(@PathVariable String id) {
         return Result.success(evaluationService.getEvaluationStatus(id));
     }
@@ -125,6 +132,7 @@ public class BenchmarkController {
      * GET /benchmark/result/{id}
      */
     @GetMapping("/result/{id}")
+    @RequirePermission("benchmark:view")
     public Result<AiEvaluation> getResult(@PathVariable Long id) {
         return Result.success(evaluationService.getEvaluationById(id));
     }
@@ -136,6 +144,7 @@ public class BenchmarkController {
      * 2. 数组格式: {standards: [{...}, {...}], rules: [{...}, {...}]}
      */
     @PostMapping("/standards")
+    @RequirePermission("benchmark:manage")
     public Result<?> createStandard(@RequestBody Map<String, Object> request) {
         try {
             if (request.containsKey("standards") && request.get("standards") instanceof List) {
@@ -177,6 +186,7 @@ public class BenchmarkController {
      * GET /benchmark/standards
      */
     @GetMapping("/standards")
+    @RequirePermission("benchmark:view")
     public Result<List<AiEvaluationCriteria>> getStandards() {
         return Result.success(criteriaEngineService.getAllCriteria());
     }
@@ -185,6 +195,7 @@ public class BenchmarkController {
      * PUT /benchmark/standards/{id}
      */
     @PutMapping("/standards/{id}")
+    @RequirePermission("benchmark:manage")
     public Result<Boolean> updateStandard(@PathVariable Long id, @RequestBody CriteriaConfigRequest request) {
         return Result.success(criteriaEngineService.updateCriteria(request, id));
     }
@@ -193,6 +204,7 @@ public class BenchmarkController {
      * DELETE /benchmark/standards/{id}
      */
     @DeleteMapping("/standards/{id}")
+    @RequirePermission("benchmark:manage")
     public Result<Boolean> deleteStandard(@PathVariable Long id) {
         return Result.success(criteriaEngineService.deleteCriteria(id));
     }
@@ -201,6 +213,7 @@ public class BenchmarkController {
      * GET /benchmark/export/{id}
      */
     @GetMapping("/export/{id}")
+    @RequirePermission("benchmark:view")
     public Result<String> exportResult(@PathVariable Long id) {
         String report = statisticsService.generateEvaluationReport(id);
         if (report == null) {
@@ -213,6 +226,7 @@ public class BenchmarkController {
      * GET /benchmark/statistics
      */
     @GetMapping("/statistics")
+    @RequirePermission("benchmark:view")
     public Result<Map<String, Object>> getStatistics(
             @RequestParam(required = false) Long datasetId,
             @RequestParam(required = false) Long agentId,
@@ -224,6 +238,7 @@ public class BenchmarkController {
      * GET /benchmark/leaderboard
      */
     @GetMapping("/leaderboard")
+    @RequirePermission("benchmark:view")
     public Result<Map<String, Object>> getLeaderboard(@RequestParam(defaultValue = "10") int topN) {
         return Result.success(statisticsService.getAgentLeaderboard(topN));
     }

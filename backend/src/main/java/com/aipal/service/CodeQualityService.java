@@ -5,12 +5,14 @@ import com.aipal.dto.CodeQualityRuleResponse;
 import com.aipal.dto.CodeQualityStandardRequest;
 import com.aipal.dto.CodeQualityStandardResponse;
 import com.aipal.entity.AiModel;
+import com.aipal.entity.AutomationCodeQualityEvidence;
 import com.aipal.entity.AutomationCodeQualityIssue;
 import com.aipal.entity.AutomationCodeQualityRun;
 import com.aipal.entity.AutomationPipeline;
 import com.aipal.entity.AutomationStageRun;
 import com.aipal.entity.CodeQualityRule;
 import com.aipal.entity.CodeQualityStandard;
+import com.aipal.mapper.AutomationCodeQualityEvidenceMapper;
 import com.aipal.mapper.AutomationCodeQualityIssueMapper;
 import com.aipal.mapper.AutomationCodeQualityRunMapper;
 import com.aipal.mapper.CodeQualityRuleMapper;
@@ -28,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,12 +38,17 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -49,12 +57,15 @@ public class CodeQualityService {
     private static final int STATUS_ENABLED = 1;
     private static final int MAX_REVIEW_FILE_COUNT = 30;
     private static final int MAX_REVIEW_CHARS = 120_000;
+    private static final int MAX_COMMAND_OUTPUT_CHARS = 16_000;
+    private static final int QUALITY_COMMAND_TIMEOUT_SECONDS = 120;
     private static final int DEFAULT_MAX_TOKENS = 4096;
 
     private final CodeQualityStandardMapper standardMapper;
     private final CodeQualityRuleMapper ruleMapper;
     private final AutomationCodeQualityRunMapper runMapper;
     private final AutomationCodeQualityIssueMapper issueMapper;
+    private final AutomationCodeQualityEvidenceMapper evidenceMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Page<CodeQualityStandardResponse> listStandards(int pageNum, int pageSize, Integer status) {
@@ -141,6 +152,12 @@ public class CodeQualityService {
                 .orderByAsc(AutomationCodeQualityIssue::getId));
     }
 
+    public List<AutomationCodeQualityEvidence> listEvidence(Long runId) {
+        return evidenceMapper.selectList(new LambdaQueryWrapper<AutomationCodeQualityEvidence>()
+                .eq(AutomationCodeQualityEvidence::getRunId, runId)
+                .orderByAsc(AutomationCodeQualityEvidence::getId));
+    }
+
     @Transactional
     public EvaluationOutcome evaluate(AutomationPipeline pipeline, AutomationStageRun qualityStage,
                                       AutomationStageRun codeStage, AiModel model) {
@@ -168,12 +185,17 @@ public class CodeQualityService {
             if (codeContext.isBlank()) {
                 throw new IllegalStateException("Generated code is empty");
             }
+            EvidenceBundle evidence = collectEvidence(run, codeStage);
+            /*
             String systemPrompt = "你是严格的资深代码质量评审专家。只返回纯 JSON，不要输出 Markdown、解释或代码围栏。";
-            String userPrompt = buildEvaluationPrompt(pipeline, run, codeContext);
+            */
+            String systemPrompt = "You are a strict senior code quality reviewer. Return pure JSON only.";
+            String userPrompt = buildEvaluationPrompt(pipeline, run, codeContext, evidence.promptContext());
             ModelCallResult modelResult = callModel(model, systemPrompt, userPrompt);
             JsonNode result = parseModelJson(modelResult.content());
             applyEvaluationResult(run, result, modelResult, start);
-            List<AutomationCodeQualityIssue> issues = saveIssues(run, result.path("issues"));
+            List<AutomationCodeQualityIssue> issues = new ArrayList<>(saveIssues(run, result.path("issues")));
+            issues.addAll(saveEvidenceIssues(run, evidence.evidence()));
             GateDecision gateDecision = applyGate(run, issues);
             run.setPassed(gateDecision.passed() ? 1 : 0);
             run.setStatus(gateDecision.passed() ? "SUCCESS" : "BLOCKED");
@@ -289,7 +311,8 @@ public class CodeQualityService {
         return response;
     }
 
-    private String buildEvaluationPrompt(AutomationPipeline pipeline, AutomationCodeQualityRun run, String codeContext) {
+    private String buildEvaluationPrompt(AutomationPipeline pipeline, AutomationCodeQualityRun run,
+                                         String codeContext, String evidenceContext) {
         return """
                 请按照代码质量标准和质量门禁评估以下生成代码。
                 要求：
@@ -307,6 +330,9 @@ public class CodeQualityService {
                 %s
 
                 质量门禁：
+                %s
+
+                评估证据：
                 %s
 
                 生成代码：
@@ -347,8 +373,318 @@ public class CodeQualityService {
                 pipeline.getId(),
                 nullToEmpty(run.getStandardSnapshot()),
                 nullToEmpty(run.getGateSnapshot()),
+                nullToEmpty(evidenceContext),
                 codeContext
         );
+    }
+
+    private EvidenceBundle collectEvidence(AutomationCodeQualityRun run, AutomationStageRun codeStage) throws IOException {
+        Path root = artifactRoot(codeStage);
+        List<AutomationCodeQualityEvidence> evidence = new ArrayList<>();
+        ArtifactStats stats = readArtifactStats(codeStage, root);
+        evidence.add(saveEvidence(run, "artifact", "artifact-manifest", null, "SUCCESS", 100,
+                "Collected " + stats.fileCount() + " generated files, " + stats.totalBytes() + " bytes.",
+                null, objectMapper.writeValueAsString(stats.asMap()), 0));
+
+        Optional<AutomationCodeQualityEvidence> secretEvidence = runHeuristicSecretScan(run, codeStage, root);
+        secretEvidence.ifPresent(evidence::add);
+
+        List<QualityCommand> commands = detectQualityCommands(root);
+        if (commands.isEmpty()) {
+            evidence.add(saveEvidence(run, "command_plan", "quality-command-detector", null, "SKIPPED", 0,
+                    "No build, test, lint, or typecheck command was detected in generated artifacts.",
+                    null, "{}", 0));
+        }
+        for (QualityCommand command : commands) {
+            evidence.add(runQualityCommand(run, root, command));
+        }
+        return new EvidenceBundle(evidence, evidencePrompt(evidence));
+    }
+
+    private Path artifactRoot(AutomationStageRun codeStage) {
+        if (isBlank(codeStage.getArtifactPath())) {
+            throw new IllegalStateException("Generated code artifact path is empty");
+        }
+        return Paths.get(codeStage.getArtifactPath()).toAbsolutePath().normalize();
+    }
+
+    private ArtifactStats readArtifactStats(AutomationStageRun codeStage, Path root) throws IOException {
+        JsonNode filesNode = objectMapper.readTree(nullToEmpty(codeStage.getArtifactContent())).path("files");
+        if (!filesNode.isArray()) {
+            return new ArtifactStats(0, 0L, Map.of());
+        }
+        int fileCount = 0;
+        long totalBytes = 0;
+        Map<String, Integer> extensions = new LinkedHashMap<>();
+        for (JsonNode fileNode : filesNode) {
+            String pathValue = fileNode.path("path").asText("");
+            if (pathValue.isBlank()) {
+                continue;
+            }
+            Path target = root.resolve(pathValue).normalize();
+            if (!target.startsWith(root) || !Files.isRegularFile(target)) {
+                continue;
+            }
+            fileCount++;
+            totalBytes += Files.size(target);
+            String extension = fileExtension(pathValue);
+            extensions.put(extension, extensions.getOrDefault(extension, 0) + 1);
+        }
+        return new ArtifactStats(fileCount, totalBytes, extensions);
+    }
+
+    private Optional<AutomationCodeQualityEvidence> runHeuristicSecretScan(AutomationCodeQualityRun run,
+                                                                           AutomationStageRun codeStage,
+                                                                           Path root) throws IOException {
+        JsonNode filesNode = objectMapper.readTree(nullToEmpty(codeStage.getArtifactContent())).path("files");
+        if (!filesNode.isArray()) {
+            return Optional.empty();
+        }
+        List<Map<String, Object>> findings = new ArrayList<>();
+        for (JsonNode fileNode : filesNode) {
+            if (findings.size() >= 20) {
+                break;
+            }
+            String pathValue = fileNode.path("path").asText("");
+            if (pathValue.isBlank() || isBinaryOrLargeConfig(pathValue)) {
+                continue;
+            }
+            Path target = root.resolve(pathValue).normalize();
+            if (!target.startsWith(root) || !Files.isRegularFile(target) || Files.size(target) > 1_000_000L) {
+                continue;
+            }
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(target, StandardCharsets.UTF_8);
+            } catch (IOException ignored) {
+                continue;
+            }
+            for (int i = 0; i < lines.size() && findings.size() < 20; i++) {
+                String line = lines.get(i);
+                String lower = line.toLowerCase(Locale.ROOT);
+                boolean secretLike = List.of("api_key", "apikey", "secret", "password", "passwd", "token")
+                        .stream().anyMatch(lower::contains);
+                boolean assignmentLike = lower.contains("=") || lower.contains(":");
+                boolean placeholder = lower.contains("example") || lower.contains("placeholder")
+                        || lower.contains("changeme") || lower.contains("your_");
+                if (secretLike && assignmentLike && !placeholder) {
+                    findings.add(Map.of(
+                            "filePath", pathValue,
+                            "line", i + 1,
+                            "sample", line.length() > 160 ? line.substring(0, 160) : line
+                    ));
+                }
+            }
+        }
+        String status = findings.isEmpty() ? "SUCCESS" : "FAILED";
+        String summary = findings.isEmpty()
+                ? "No obvious hardcoded secret pattern was found."
+                : "Found " + findings.size() + " possible hardcoded secret patterns.";
+        String parsed = objectMapper.writeValueAsString(Map.of("findings", findings));
+        return Optional.of(saveEvidence(run, "security_scan", "secret-heuristic", null, status,
+                findings.isEmpty() ? 100 : 30, summary, null, parsed, 0));
+    }
+
+    private List<QualityCommand> detectQualityCommands(Path root) {
+        List<QualityCommand> commands = new ArrayList<>();
+        detectRootCommands(root, commands);
+        try (var paths = Files.walk(root, 3)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(path -> "package.json".equals(path.getFileName().toString())
+                            || "pom.xml".equals(path.getFileName().toString()))
+                    .map(Path::getParent)
+                    .filter(path -> !root.equals(path))
+                    .forEach(path -> detectRootCommands(path, commands));
+        } catch (IOException ignored) {
+        }
+        return deduplicateCommands(commands);
+    }
+
+    private void detectRootCommands(Path projectRoot, List<QualityCommand> commands) {
+        Path packageJson = projectRoot.resolve("package.json");
+        if (Files.isRegularFile(packageJson)) {
+            Map<String, String> scripts = readPackageScripts(packageJson);
+            if (scripts.containsKey("build")) {
+                commands.add(new QualityCommand("build", "npm-build", projectRoot, npmCommand("run", "build")));
+            }
+            if (scripts.containsKey("test") && !looksLikeEmptyTestScript(scripts.get("test"))) {
+                commands.add(new QualityCommand("test", "npm-test", projectRoot, npmCommand("test")));
+            }
+            if (scripts.containsKey("lint")) {
+                commands.add(new QualityCommand("static_scan", "npm-lint", projectRoot, npmCommand("run", "lint")));
+            }
+            if (scripts.containsKey("typecheck")) {
+                commands.add(new QualityCommand("static_scan", "npm-typecheck", projectRoot, npmCommand("run", "typecheck")));
+            }
+        }
+        Path pom = projectRoot.resolve("pom.xml");
+        if (Files.isRegularFile(pom)) {
+            commands.add(new QualityCommand("test", "maven-test", projectRoot, mavenCommand(projectRoot, "test")));
+        }
+    }
+
+    private Map<String, String> readPackageScripts(Path packageJson) {
+        try {
+            JsonNode scriptsNode = objectMapper.readTree(packageJson.toFile()).path("scripts");
+            if (!scriptsNode.isObject()) {
+                return Map.of();
+            }
+            Map<String, String> scripts = new LinkedHashMap<>();
+            scriptsNode.fields().forEachRemaining(entry -> scripts.put(entry.getKey(), entry.getValue().asText("")));
+            return scripts;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private List<String> npmCommand(String... args) {
+        List<String> command = new ArrayList<>();
+        command.add(isWindows() ? "npm.cmd" : "npm");
+        Collections.addAll(command, args);
+        return command;
+    }
+
+    private List<String> mavenCommand(Path root, String goal) {
+        Path wrapper = root.resolve(isWindows() ? "mvnw.cmd" : "mvnw");
+        List<String> command = new ArrayList<>();
+        command.add(Files.isRegularFile(wrapper) ? wrapper.toAbsolutePath().toString() : "mvn");
+        command.add("-q");
+        command.add(goal);
+        return command;
+    }
+
+    private List<QualityCommand> deduplicateCommands(List<QualityCommand> commands) {
+        Set<String> seen = new HashSet<>();
+        List<QualityCommand> result = new ArrayList<>();
+        for (QualityCommand command : commands) {
+            String key = command.workingDirectory().toAbsolutePath().normalize() + "::" + String.join(" ", command.command());
+            if (seen.add(key)) {
+                result.add(command);
+            }
+        }
+        return result;
+    }
+
+    private AutomationCodeQualityEvidence runQualityCommand(AutomationCodeQualityRun run, Path root,
+                                                            QualityCommand command) {
+        long started = System.nanoTime();
+        Process process = null;
+        StringBuilder output = new StringBuilder();
+        try {
+            ProcessBuilder builder = new ProcessBuilder(command.command());
+            builder.directory((command.workingDirectory() == null ? root : command.workingDirectory()).toFile());
+            builder.redirectErrorStream(true);
+            process = builder.start();
+            Process runningProcess = process;
+            Thread reader = new Thread(() -> readProcessOutput(runningProcess, output), "quality-command-output-reader");
+            reader.setDaemon(true);
+            reader.start();
+            boolean finished = process.waitFor(QUALITY_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                reader.join(1000L);
+                return saveEvidence(run, command.evidenceType(), command.toolName(), String.join(" ", command.command()),
+                        "FAILED", 0, "Command timed out after " + QUALITY_COMMAND_TIMEOUT_SECONDS + " seconds.",
+                        output.toString(), "{}", elapsedMs(started));
+            }
+            reader.join(1000L);
+            int exitCode = process.exitValue();
+            String status = exitCode == 0 ? "SUCCESS" : "FAILED";
+            int score = exitCode == 0 ? 100 : 30;
+            String summary = command.toolName() + " exited with code " + exitCode + ".";
+            String parsed = objectMapper.writeValueAsString(Map.of("exitCode", exitCode));
+            return saveEvidence(run, command.evidenceType(), command.toolName(), String.join(" ", command.command()),
+                    status, score, summary, output.toString(), parsed, elapsedMs(started));
+        } catch (IOException e) {
+            return saveEvidence(run, command.evidenceType(), command.toolName(), String.join(" ", command.command()),
+                    "UNAVAILABLE", 0, "Command is unavailable: " + e.getMessage(),
+                    output.toString(), "{}", elapsedMs(started));
+        } catch (Exception e) {
+            if (process != null) {
+                process.destroyForcibly();
+            }
+            return saveEvidence(run, command.evidenceType(), command.toolName(), String.join(" ", command.command()),
+                    "FAILED", 0, "Command failed: " + e.getMessage(),
+                    output.toString(), "{}", elapsedMs(started));
+        }
+    }
+
+    private void readProcessOutput(Process process, StringBuilder output) {
+        try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (output.length() < MAX_COMMAND_OUTPUT_CHARS) {
+                    int remaining = MAX_COMMAND_OUTPUT_CHARS - output.length();
+                    output.append(line, 0, Math.min(line.length(), remaining)).append('\n');
+                }
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private AutomationCodeQualityEvidence saveEvidence(AutomationCodeQualityRun run, String evidenceType,
+                                                       String toolName, String commandText, String status,
+                                                       Integer score, String summary, String rawOutput,
+                                                       String parsedResultJson, int durationMs) {
+        AutomationCodeQualityEvidence evidence = new AutomationCodeQualityEvidence();
+        evidence.setRunId(run.getId());
+        evidence.setPipelineId(run.getPipelineId());
+        evidence.setStageRunId(run.getStageRunId());
+        evidence.setEvidenceType(evidenceType);
+        evidence.setToolName(toolName);
+        evidence.setCommandText(commandText);
+        evidence.setStatus(status);
+        evidence.setScore(score);
+        evidence.setSummary(summary);
+        evidence.setRawOutput(truncate(rawOutput, MAX_COMMAND_OUTPUT_CHARS));
+        evidence.setParsedResultJson(parsedResultJson);
+        evidence.setDurationMs(durationMs);
+        evidence.setCreateTime(LocalDateTime.now());
+        evidenceMapper.insert(evidence);
+        return evidence;
+    }
+
+    private List<AutomationCodeQualityIssue> saveEvidenceIssues(AutomationCodeQualityRun run,
+                                                                List<AutomationCodeQualityEvidence> evidenceList) {
+        List<AutomationCodeQualityIssue> issues = new ArrayList<>();
+        for (AutomationCodeQualityEvidence evidence : evidenceList) {
+            if (!"FAILED".equalsIgnoreCase(evidence.getStatus())) {
+                continue;
+            }
+            AutomationCodeQualityIssue issue = new AutomationCodeQualityIssue();
+            issue.setRunId(run.getId());
+            issue.setPipelineId(run.getPipelineId());
+            issue.setStageRunId(run.getStageRunId());
+            issue.setRuleCode("EVIDENCE-" + evidence.getEvidenceType().toUpperCase(Locale.ROOT));
+            issue.setSeverity(evidenceSeverity(evidence.getEvidenceType()));
+            issue.setCategory(evidenceCategory(evidence.getEvidenceType()));
+            issue.setTitle("Evidence check failed: " + nullToEmpty(evidence.getToolName()));
+            issue.setDescription(evidence.getSummary());
+            issue.setSuggestion(evidenceSuggestion(evidence.getEvidenceType()));
+            issue.setCreateTime(LocalDateTime.now());
+            issueMapper.insert(issue);
+            issues.add(issue);
+        }
+        return issues;
+    }
+
+    private String evidencePrompt(List<AutomationCodeQualityEvidence> evidenceList) {
+        if (evidenceList.isEmpty()) {
+            return "No evidence was collected.";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (AutomationCodeQualityEvidence evidence : evidenceList) {
+            builder.append("- [").append(evidence.getStatus()).append("] ")
+                    .append(evidence.getEvidenceType()).append(" / ")
+                    .append(evidence.getToolName()).append(": ")
+                    .append(nullToEmpty(evidence.getSummary())).append('\n');
+            if (!isBlank(evidence.getRawOutput())) {
+                builder.append("  output: ")
+                        .append(truncate(evidence.getRawOutput().replace('\n', ' '), 1200))
+                        .append('\n');
+            }
+        }
+        return builder.toString();
     }
 
     private String readGeneratedCodeContext(AutomationStageRun codeStage) throws IOException {
@@ -573,6 +909,72 @@ public class CodeQualityService {
         return value.trim();
     }
 
+    private String evidenceSeverity(String evidenceType) {
+        return switch (nullToEmpty(evidenceType)) {
+            case "build" -> "BLOCKER";
+            case "test", "security_scan" -> "CRITICAL";
+            case "static_scan" -> "MAJOR";
+            default -> "INFO";
+        };
+    }
+
+    private String evidenceCategory(String evidenceType) {
+        return switch (nullToEmpty(evidenceType)) {
+            case "build" -> "runnable";
+            case "test" -> "testability";
+            case "security_scan" -> "security";
+            case "static_scan" -> "maintainability";
+            default -> "runnable";
+        };
+    }
+
+    private String evidenceSuggestion(String evidenceType) {
+        return switch (nullToEmpty(evidenceType)) {
+            case "build" -> "Fix build errors before continuing delivery.";
+            case "test" -> "Fix failing tests or update the generated test suite to match the accepted requirement.";
+            case "security_scan" -> "Remove hardcoded secrets and move sensitive values to secure runtime configuration.";
+            case "static_scan" -> "Fix lint/typecheck findings or adjust the generated code to match project conventions.";
+            default -> "Review this evidence item and decide whether it should block delivery.";
+        };
+    }
+
+    private String fileExtension(String path) {
+        int index = path.lastIndexOf('.');
+        if (index < 0 || index == path.length() - 1) {
+            return "(none)";
+        }
+        return path.substring(index + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isBinaryOrLargeConfig(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".ico")
+                || lower.endsWith(".jar") || lower.endsWith(".zip") || lower.endsWith(".gz")
+                || lower.endsWith(".lock");
+    }
+
+    private boolean looksLikeEmptyTestScript(String script) {
+        String lower = nullToEmpty(script).toLowerCase(Locale.ROOT);
+        return lower.contains("no test specified") || lower.contains("no tests specified")
+                || (lower.contains("echo") && lower.contains("exit 1"));
+    }
+
+    private int elapsedMs(long startedNanos) {
+        return (int) Math.min(Integer.MAX_VALUE, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength)) + "\n[truncated]";
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
     private String languageHint(String path) {
         String lower = path.toLowerCase(Locale.ROOT);
         if (lower.endsWith(".java")) return "java";
@@ -660,5 +1062,21 @@ public class CodeQualityService {
     }
 
     private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {
+    }
+
+    private record QualityCommand(String evidenceType, String toolName, Path workingDirectory, List<String> command) {
+    }
+
+    private record EvidenceBundle(List<AutomationCodeQualityEvidence> evidence, String promptContext) {
+    }
+
+    private record ArtifactStats(int fileCount, long totalBytes, Map<String, Integer> extensions) {
+        Map<String, Object> asMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("fileCount", fileCount);
+            map.put("totalBytes", totalBytes);
+            map.put("extensions", extensions);
+            return map;
+        }
     }
 }

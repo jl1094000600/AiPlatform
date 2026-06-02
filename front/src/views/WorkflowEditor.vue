@@ -7,7 +7,7 @@
         <span class="total-count mono">Workflow Orchestration</span>
       </div>
       <div class="header-actions">
-        <el-button type="primary" @click="createNewWorkflow" class="create-btn">
+        <el-button v-if="canManageWorkflow" type="primary" @click="createNewWorkflow" class="create-btn">
           <Plus class="btn-icon" /> 新建编排
         </el-button>
       </div>
@@ -66,10 +66,10 @@
         <el-table-column label="操作" width="180" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
-              <el-button size="small" type="primary" @click.stop="editWorkflow(row)">
+              <el-button v-if="canManageWorkflow" size="small" type="primary" @click.stop="editWorkflow(row)">
                 编辑
               </el-button>
-              <el-button size="small" type="success" @click.stop="triggerWorkflow(row)">
+              <el-button v-if="canManageWorkflow" size="small" type="success" @click.stop="triggerWorkflow(row)">
                 触发
               </el-button>
               <el-button size="small" @click.stop="viewExecutions(row)">
@@ -174,8 +174,8 @@
                 <el-option label="定时触发" value="SCHEDULE" />
                 <el-option label="事件触发" value="EVENT" />
               </el-select>
-              <el-button size="small" @click="clearCanvas">清空画布</el-button>
-              <el-button size="small" type="primary" @click="saveWorkflow">保存</el-button>
+              <el-button size="small" :disabled="!canManageWorkflow" @click="clearCanvas">清空画布</el-button>
+              <el-button size="small" type="primary" :disabled="!canManageWorkflow" @click="saveWorkflow">保存</el-button>
             </div>
           </div>
 
@@ -264,10 +264,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { computed, ref, onMounted, nextTick } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import { hasPermission } from '../utils/permissions'
 
 const canvasRef = ref(null)
 
@@ -282,6 +283,7 @@ const workflowEdges = ref([])
 const selectedNode = ref(null)
 const agents = ref([])
 const executions = ref([])
+const canManageWorkflow = computed(() => hasPermission('workflow:manage'))
 
 // Node type definitions
 const nodeTypes = [
@@ -358,6 +360,10 @@ const loadExecutions = async (workflowId) => {
 }
 
 const createNewWorkflow = () => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
   isEditing.value = false
   currentWorkflow.value = {
     workflowName: '',
@@ -372,6 +378,10 @@ const createNewWorkflow = () => {
 }
 
 const editWorkflow = async (row) => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
   isEditing.value = true
   try {
     const res = await api.getWorkflow(row.id)
@@ -398,6 +408,10 @@ const handleRowClick = (row) => {
 }
 
 const triggerWorkflow = async (row) => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
   try {
     await ElMessageBox.confirm('确定要触发该编排吗？', '触发确认', {
       confirmButtonText: '确定',
@@ -470,6 +484,10 @@ const clearCanvas = () => {
 }
 
 const saveWorkflow = async () => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
   if (!currentWorkflow.value.workflowName) {
     ElMessage.warning('请输入编排名称')
     return

@@ -154,9 +154,9 @@ public class TenantSecuritySchemaInitializer {
                 "ai_output_governance_record", "ai_skill", "ai_tts_config", "ai_tts_task",
                 "ai_user_memory", "ai_workflow", "ai_workflow_execution", "alert_event",
                 "alert_rule", "automation_approval", "automation_code_quality_issue",
-                "automation_code_quality_run", "automation_deploy_profile", "automation_deploy_run",
-                "automation_generation_job", "automation_pipeline", "automation_report_snapshot",
-                "automation_stage_run", "billing_balance_transaction", "billing_budget",
+                "automation_code_quality_evidence", "automation_code_quality_run", "automation_deploy_profile",
+                "automation_deploy_run", "automation_generation_job", "automation_pipeline",
+                "automation_report_snapshot", "automation_stage_run", "billing_balance_transaction", "billing_budget",
                 "billing_usage_daily", "biz_agent_auth", "biz_customer", "biz_module",
                 "code_quality_rule", "code_quality_standard", "lowcode_invocation_record",
                 "mon_api_metrics", "mon_call_record", "prompt_engineering_eval_result",
@@ -187,7 +187,9 @@ public class TenantSecuritySchemaInitializer {
                 {"prompt:list", "提示词查看"}, {"prompt:create", "提示词新建"}, {"prompt:update", "提示词编辑"}, {"prompt:evaluate", "提示词评测"}, {"prompt:publish", "提示词发布"},
                 {"tenant:manage", "租户管理"}, {"member:manage", "成员管理"}, {"role:manage", "角色权限管理"}, {"menu:manage", "菜单权限管理"},
                 {"audit:view", "审计查看"}, {"billing:view", "账单查看"}, {"alert:view", "告警查看"}, {"customer:manage", "客户管理"},
-                {"workflow:manage", "工作流管理"}, {"benchmark:view", "基准测试查看"}, {"monitor:view", "监控查看"}, {"graph:manage", "调用图谱管理"}
+                {"workflow:manage", "工作流管理"}, {"benchmark:view", "基准测试查看"}, {"benchmark:run", "基准测试执行"},
+                {"benchmark:manage", "基准测试标准管理"}, {"tts:invoke", "语音合成调用"}, {"tts:manage", "语音配置管理"},
+                {"monitor:view", "监控查看"}, {"graph:manage", "调用图谱管理"}
         };
         for (Object[] permission : permissions) {
             statement.executeUpdate("INSERT IGNORE INTO sys_permission (permission_code, permission_name, resource_type) VALUES ('"
@@ -263,19 +265,19 @@ public class TenantSecuritySchemaInitializer {
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'developer'
-                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','graph:manage','monitor:view')
+                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'reviewer'
-                  AND p.permission_code IN ('dashboard:view','automation:list','automation:approve','code-quality:list','governance:list','prompt:list','prompt:evaluate','audit:view')
+                  AND p.permission_code IN ('dashboard:view','automation:list','automation:approve','code-quality:list','governance:list','prompt:list','prompt:evaluate','audit:view','benchmark:view')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'readonly'
-                  AND p.permission_code IN ('dashboard:view','agent:list','skill:list','rag:list','model:list','automation:list','code-quality:list','governance:list','prompt:list','billing:view','audit:view')
+                  AND p.permission_code IN ('dashboard:view','agent:list','skill:list','rag:list','model:list','automation:list','code-quality:list','governance:list','prompt:list','billing:view','audit:view','benchmark:view')
                 """);
     }
 

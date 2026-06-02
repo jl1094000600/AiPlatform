@@ -209,6 +209,59 @@ export default {
   register(data) {
     return api.post('/auth/register', data)
   },
+  getCurrentUser() {
+    return api.get('/auth/me')
+  },
+  getAuthMenus() {
+    return api.get('/auth/menus')
+  },
+  getAuthTenants() {
+    return api.get('/auth/tenants')
+  },
+  switchTenant(data) {
+    return api.post('/auth/switch-tenant', data)
+  },
+
+  // Tenant admin APIs
+  getTenants(params) {
+    return api.get('/tenant-admin/tenants', { params })
+  },
+  createTenant(data) {
+    return api.post('/tenant-admin/tenants', data)
+  },
+  updateTenant(id, data) {
+    return api.put('/tenant-admin/tenants/' + id, data)
+  },
+  getTenantMembers(params) {
+    return api.get('/tenant-admin/members', { params })
+  },
+  addTenantMember(data) {
+    return api.post('/tenant-admin/members', data)
+  },
+  updateTenantMemberRoles(userId, roleIds, params) {
+    return api.put('/tenant-admin/members/' + userId + '/roles', roleIds, { params })
+  },
+  getTenantMemberRoles(userId, params) {
+    return api.get('/tenant-admin/members/' + userId + '/roles', { params })
+  },
+  getTenantRoles(params) {
+    return api.get('/tenant-admin/roles', { params })
+  },
+  getTenantPermissions() {
+    return api.get('/tenant-admin/permissions')
+  },
+  updateRolePermissions(roleId, permissionIds, params) {
+    return api.put('/tenant-admin/roles/' + roleId + '/permissions', permissionIds, { params })
+  },
+  getRolePermissions(roleId, params) {
+    return api.get('/tenant-admin/roles/' + roleId + '/permissions', { params })
+  },
+  getTenantMenus() {
+    return api.get('/tenant-admin/menus')
+  },
+  saveTenantMenu(data) {
+    return data.id ? api.put('/tenant-admin/menus/' + data.id, data) : api.post('/tenant-admin/menus', data)
+  },
 
   // Benchmark APIs
   getBenchmarkHistory() {
@@ -465,6 +518,9 @@ export default {
   },
   getAutomationCodeQualityIssues(runId) {
     return api.get('/automation/code-quality-runs/' + runId + '/issues')
+  },
+  getAutomationCodeQualityEvidence(runId) {
+    return api.get('/automation/code-quality-runs/' + runId + '/evidence')
   },
   getAiOutputGovernanceRecords(params) {
     return api.get('/ai-output-governance/records', { params })

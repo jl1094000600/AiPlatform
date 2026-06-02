@@ -110,6 +110,29 @@ public class CodeQualitySchemaInitializer {
                         KEY idx_code_quality_issue_severity (severity)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                     """);
+            statement.executeUpdate("""
+                    CREATE TABLE IF NOT EXISTS automation_code_quality_evidence (
+                        id BIGINT NOT NULL AUTO_INCREMENT,
+                        tenant_id BIGINT NOT NULL DEFAULT 1,
+                        run_id BIGINT NOT NULL,
+                        pipeline_id BIGINT NOT NULL,
+                        stage_run_id BIGINT NOT NULL,
+                        evidence_type VARCHAR(64) NOT NULL,
+                        tool_name VARCHAR(128) DEFAULT NULL,
+                        command_text VARCHAR(512) DEFAULT NULL,
+                        status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+                        score INT DEFAULT 0,
+                        summary TEXT DEFAULT NULL,
+                        raw_output MEDIUMTEXT DEFAULT NULL,
+                        parsed_result_json MEDIUMTEXT DEFAULT NULL,
+                        duration_ms INT DEFAULT NULL,
+                        create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        KEY idx_code_quality_evidence_run (tenant_id, run_id),
+                        KEY idx_code_quality_evidence_type (tenant_id, evidence_type),
+                        KEY idx_code_quality_evidence_status (tenant_id, status)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    """);
             addColumnIfMissing(connection, statement, "automation_pipeline", "code_quality_enabled",
                     "ALTER TABLE automation_pipeline ADD COLUMN code_quality_enabled TINYINT NOT NULL DEFAULT 0");
             addColumnIfMissing(connection, statement, "automation_pipeline", "code_quality_standard_id",

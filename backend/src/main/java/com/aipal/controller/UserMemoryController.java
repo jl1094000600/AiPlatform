@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.config.JwtConfig;
 import com.aipal.entity.AiUserMemory;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.UserMemoryService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,6 +26,7 @@ public class UserMemoryController {
     private final JwtConfig jwtConfig;
 
     @GetMapping
+    @RequirePermission("agent:list")
     public Result<Page<AiUserMemory>> listCompressed(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -39,6 +41,7 @@ public class UserMemoryController {
     }
 
     @GetMapping("/short-term")
+    @RequirePermission("agent:list")
     public Result<List<Object>> listShortTerm(@RequestParam(required = false) String userKey,
                                               HttpServletRequest request) {
         UserIdentity identity = currentIdentity(request);
@@ -48,6 +51,7 @@ public class UserMemoryController {
     }
 
     @PostMapping("/compress")
+    @RequirePermission("agent:update")
     public Result<AiUserMemory> compress(@RequestParam(required = false) String userKey,
                                          HttpServletRequest request) {
         UserIdentity identity = currentIdentity(request);
@@ -57,6 +61,7 @@ public class UserMemoryController {
     }
 
     @DeleteMapping("/short-term")
+    @RequirePermission("agent:update")
     public Result<Boolean> clearShortTerm(@RequestParam(required = false) String userKey,
                                           HttpServletRequest request) {
         UserIdentity identity = currentIdentity(request);

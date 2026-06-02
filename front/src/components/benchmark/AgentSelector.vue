@@ -115,7 +115,7 @@
       <el-button @click="handleBack" class="back-btn">上一步</el-button>
       <el-button
         type="primary"
-        :disabled="selectedAgents.length === 0"
+        :disabled="!canStart"
         :loading="isRunning"
         @click="handleStart"
         class="start-btn"
@@ -140,6 +140,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import api from '../../api'
+import { hasPermission } from '../../utils/permissions'
 
 const props = defineProps({
   datasetId: [String, Number]
@@ -170,6 +171,7 @@ const progress = ref({
 })
 
 const currentAgent = ref('')
+const canRunBenchmark = computed(() => hasPermission('benchmark:run'))
 
 const progressColor = computed(() => {
   if (progress.value.failed > 0) return 'var(--neon-pink)'
@@ -179,6 +181,10 @@ const progressColor = computed(() => {
 
 const canProceed = computed(() => {
   return benchmarkId.value && !isRunning.value
+})
+
+const canStart = computed(() => {
+  return canRunBenchmark.value && selectedAgents.value.length > 0
 })
 
 const loadAgents = async () => {
@@ -212,6 +218,10 @@ const getStatusText = (status) => {
 const handleStart = async () => {
   if (selectedAgents.value.length === 0) {
     ElMessage.warning('请选择至少一个Agent')
+    return
+  }
+  if (!canRunBenchmark.value) {
+    ElMessage.warning('当前账号无基准测试执行权限')
     return
   }
 

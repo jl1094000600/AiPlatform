@@ -8,7 +8,7 @@
     <!-- Upload Area -->
     <div
       class="upload-area"
-      :class="{ 'drag-over': isDragOver }"
+      :class="{ 'drag-over': isDragOver, disabled: !canUpload }"
       @dragover.prevent="isDragOver = true"
       @dragleave.prevent="isDragOver = false"
       @drop.prevent="handleDrop"
@@ -21,11 +21,12 @@
         </svg>
       </div>
       <p class="upload-text">将文件拖拽到此处，或<span class="upload-link" @click="triggerFileInput">点击上传</span></p>
-      <p class="upload-hint">支持 .csv, .json, .jsonl, .xlsx, .txt, .xml 文件</p>
+      <p class="upload-hint">{{ canUpload ? '支持 .csv, .json, .jsonl, .xlsx, .txt, .xml 文件' : '当前账号无基准测试执行权限' }}</p>
       <input
         ref="fileInputRef"
         type="file"
         accept=".csv,.json,.jsonl,.xlsx,.txt,.xml"
+        :disabled="!canUpload"
         style="display: none"
         @change="handleFileChange"
       />
@@ -100,6 +101,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Close, Delete, ArrowRight, Loading } from '@element-plus/icons-vue'
 import api from '../../api'
+import { hasPermission } from '../../utils/permissions'
 
 const emit = defineEmits(['next'])
 
@@ -108,12 +110,17 @@ const isDragOver = ref(false)
 const uploadedFiles = ref([])
 const previewData = ref([])
 const previewColumns = ref([])
+const canUpload = computed(() => hasPermission('benchmark:run'))
 
 const canProceed = computed(() => {
-  return uploadedFiles.value.length > 0 && uploadedFiles.value.every(f => f.status === 'success')
+  return canUpload.value && uploadedFiles.value.length > 0 && uploadedFiles.value.every(f => f.status === 'success')
 })
 
 const triggerFileInput = () => {
+  if (!canUpload.value) {
+    ElMessage.warning('当前账号无基准测试执行权限')
+    return
+  }
   fileInputRef.value?.click()
 }
 
@@ -125,11 +132,19 @@ const handleFileChange = (event) => {
 
 const handleDrop = (event) => {
   isDragOver.value = false
+  if (!canUpload.value) {
+    ElMessage.warning('当前账号无基准测试执行权限')
+    return
+  }
   const files = Array.from(event.dataTransfer.files)
   processFiles(files)
 }
 
 const processFiles = (files) => {
+  if (!canUpload.value) {
+    ElMessage.warning('当前账号无基准测试执行权限')
+    return
+  }
   const validExtensions = ['.csv', '.json', '.jsonl', '.xlsx', '.txt', '.xml']
   const validFiles = files.filter(file => {
     const ext = '.' + file.name.split('.').pop().toLowerCase()
@@ -274,6 +289,11 @@ const handleProceed = () => {
 .upload-area.drag-over {
   border-color: var(--neon-cyan);
   background: rgba(0, 212, 255, 0.05);
+}
+
+.upload-area.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .upload-icon {

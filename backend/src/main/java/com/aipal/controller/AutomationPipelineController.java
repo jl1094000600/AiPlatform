@@ -73,6 +73,12 @@ public class AutomationPipelineController {
         return Result.success(codeQualityService.listIssues(runId));
     }
 
+    @GetMapping("/code-quality-runs/{runId}/evidence")
+    @RequirePermission("code-quality:list")
+    public Result<?> getCodeQualityEvidence(@PathVariable Long runId) {
+        return Result.success(codeQualityService.listEvidence(runId));
+    }
+
     @GetMapping("/deploy-profiles")
     @RequirePermission("automation:list")
     public Result<?> listDeployProfiles(@RequestParam(defaultValue = "1") int pageNum,

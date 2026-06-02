@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.InvocationRecord;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.InvocationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -20,11 +21,13 @@ public class InvocationController {
     private final InvocationService invocationService;
 
     @PostMapping
+    @RequirePermission("agent:invoke")
     public Result<InvocationRecord> invoke(@RequestBody Map<String, Object> request) {
         return Result.success(invocationService.invoke(request));
     }
 
     @GetMapping
+    @RequirePermission("agent:invoke")
     public Result<?> list(@RequestParam(defaultValue = "1") int pageNum,
                           @RequestParam(defaultValue = "20") int pageSize,
                           @RequestParam(required = false) Long agentId,
@@ -33,11 +36,13 @@ public class InvocationController {
     }
 
     @PostMapping("/{id}/retry")
+    @RequirePermission("agent:invoke")
     public Result<InvocationRecord> retry(@PathVariable Long id) {
         return Result.success(invocationService.retry(id));
     }
 
     @GetMapping("/{id}/download")
+    @RequirePermission("agent:invoke")
     public ResponseEntity<byte[]> download(@PathVariable Long id) {
         InvocationRecord record = invocationService.get(id);
         String content = record == null ? "" : record.getOutputResult();

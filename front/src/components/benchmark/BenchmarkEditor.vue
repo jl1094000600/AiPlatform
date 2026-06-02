@@ -32,7 +32,7 @@
     <div class="custom-section">
       <h4 class="sub-title">
         自定义标准
-        <el-button size="small" @click="showAddDialog = true" class="add-btn">
+        <el-button v-if="canManageBenchmark" size="small" @click="showAddDialog = true" class="add-btn">
           <el-icon><Plus /></el-icon> 添加标准
         </el-button>
       </h4>
@@ -70,7 +70,7 @@
           </el-table-column>
           <el-table-column label="操作" width="100" align="center">
             <template #default="{ row, $index }">
-              <el-button size="small" text type="danger" @click="removeStandard($index)">
+              <el-button v-if="canManageBenchmark" size="small" text type="danger" @click="removeStandard($index)">
                 <el-icon><Delete /></el-icon>
               </el-button>
             </template>
@@ -155,7 +155,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" @click="addStandard">添加</el-button>
+        <el-button type="primary" :disabled="!canManageBenchmark" @click="addStandard">添加</el-button>
       </template>
     </el-dialog>
 
@@ -181,6 +181,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Plus, Delete, ArrowRight } from '@element-plus/icons-vue'
 import api from '../../api'
+import { hasPermission } from '../../utils/permissions'
 
 const emit = defineEmits(['back', 'next'])
 
@@ -240,12 +241,14 @@ const newStandard = ref({
   ruleType: 'range'
 })
 
+const canManageBenchmark = computed(() => hasPermission('benchmark:manage'))
+
 const totalWeight = computed(() => {
   return standards.value.reduce((sum, s) => sum + (s.weight || 0), 0)
 })
 
 const canProceed = computed(() => {
-  return standards.value.length > 0 && totalWeight.value === 100
+  return canManageBenchmark.value && standards.value.length > 0 && totalWeight.value === 100
 })
 
 const selectPreset = (preset) => {
@@ -254,6 +257,10 @@ const selectPreset = (preset) => {
 }
 
 const addStandard = () => {
+  if (!canManageBenchmark.value) {
+    ElMessage.warning('当前账号无基准测试标准管理权限')
+    return
+  }
   if (!newStandard.value.name) {
     ElMessage.warning('请输入标准名称')
     return
@@ -313,6 +320,10 @@ const handleBack = () => {
 }
 
 const handleProceed = async () => {
+  if (!canManageBenchmark.value) {
+    ElMessage.warning('当前账号无基准测试标准管理权限')
+    return
+  }
   if (!canProceed.value) {
     ElMessage.warning('请确保权重总和为100%')
     return

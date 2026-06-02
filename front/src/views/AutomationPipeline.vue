@@ -160,6 +160,17 @@
               </div>
             </div>
             <p>{{ run.summary || run.errorMessage || '-' }}</p>
+            <div v-if="qualityEvidence(run).length" class="quality-evidence">
+              <div class="quality-subtitle">评估证据</div>
+              <div v-for="evidence in qualityEvidence(run)" :key="evidence.id || evidence.toolName" class="quality-evidence-item">
+                <div>
+                  <el-tag size="small" :type="evidenceStatusType(evidence.status)">{{ evidence.status || '-' }}</el-tag>
+                  <strong>{{ evidenceLabel(evidence) }}</strong>
+                </div>
+                <span>{{ evidence.summary || '-' }}</span>
+                <small v-if="evidence.commandText">{{ evidence.commandText }}</small>
+              </div>
+            </div>
             <div v-if="qualityIssues(run).length" class="quality-issues">
               <div v-for="issue in qualityIssues(run)" :key="issue.id || issue.title" class="quality-issue">
                 <el-tag size="small" :type="severityType(issue.severity)">{{ issue.severity || 'MAJOR' }}</el-tag>
@@ -603,11 +614,34 @@ const qualityIssues = (run) => [...(run.issues || [])].sort((a, b) => {
   return left - right
 })
 
+const qualityEvidence = (run) => [...(run.evidence || [])]
+
 const severityType = (severity) => {
   if (severity === 'BLOCKER' || severity === 'CRITICAL') return 'danger'
   if (severity === 'MAJOR') return 'warning'
   if (severity === 'MINOR') return 'info'
   return 'success'
+}
+
+const evidenceStatusType = (status) => {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'FAILED') return 'danger'
+  if (status === 'UNAVAILABLE' || status === 'SKIPPED') return 'info'
+  return 'warning'
+}
+
+const evidenceTypeLabels = {
+  artifact: '生成产物',
+  command_plan: '命令检测',
+  build: '构建验证',
+  test: '测试验证',
+  static_scan: '静态扫描',
+  security_scan: '安全扫描'
+}
+
+const evidenceLabel = (evidence) => {
+  const type = evidenceTypeLabels[evidence.evidenceType] || evidence.evidenceType || '-'
+  return `${type} / ${evidence.toolName || '-'}`
 }
 
 const loadAll = async () => {
@@ -779,10 +813,13 @@ const openDetail = async (row, keepDrawer = true) => {
     const runs = qualityRes.data?.data || []
     codeQualityRuns.value = await Promise.all(runs.map(async run => {
       try {
-        const issueRes = await api.getAutomationCodeQualityIssues(run.id)
-        return { ...run, issues: issueRes.data?.data || [] }
+        const [issueRes, evidenceRes] = await Promise.all([
+          api.getAutomationCodeQualityIssues(run.id),
+          api.getAutomationCodeQualityEvidence(run.id)
+        ])
+        return { ...run, issues: issueRes.data?.data || [], evidence: evidenceRes.data?.data || [] }
       } catch {
-        return { ...run, issues: [] }
+        return { ...run, issues: [], evidence: [] }
       }
     }))
   } else {
@@ -1028,6 +1065,13 @@ onUnmounted(stopDetailPolling)
 .quality-score-item { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; background: #ffffff; }
 .quality-score-item div { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--text-muted); font-size: 12px; }
 .quality-score-item strong { color: #111827; }
+.quality-subtitle { font-weight: 700; font-size: 13px; color: #111827; margin-bottom: 8px; }
+.quality-evidence { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.quality-evidence-item { border: 1px solid #dbeafe; border-radius: 6px; padding: 8px; background: #f8fbff; }
+.quality-evidence-item div { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.quality-evidence-item strong { color: #111827; font-size: 13px; }
+.quality-evidence-item span, .quality-evidence-item small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.5; word-break: break-word; }
+.quality-evidence-item small { margin-top: 4px; font-family: Consolas, Monaco, monospace; }
 .quality-issues { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .quality-issue { display: grid; grid-template-columns: auto 1fr; gap: 8px; border: 1px solid #fee2e2; border-radius: 6px; padding: 8px; background: #fff7f7; }
 .quality-issue div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }

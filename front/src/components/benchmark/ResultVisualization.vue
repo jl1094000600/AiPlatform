@@ -105,7 +105,7 @@
       <el-button @click="handleExport" class="export-btn">
         <el-icon><Download /></el-icon> 导出报告
       </el-button>
-      <el-button type="primary" @click="handleNewBenchmark" class="new-btn">
+      <el-button v-if="canRunBenchmark" type="primary" @click="handleNewBenchmark" class="new-btn">
         新建测评
       </el-button>
     </div>
@@ -118,6 +118,7 @@ import { ElMessage } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import api from '../../api'
+import { hasPermission } from '../../utils/permissions'
 
 const props = defineProps({
   benchmarkId: [String, Number]
@@ -137,6 +138,7 @@ const metricColumns = ref(['准确性', '响应时间', '稳定性', '用户体�
 const barChartRef = ref(null)
 const radarChartRef = ref(null)
 const trendChartRef = ref(null)
+const canRunBenchmark = hasPermission('benchmark:run')
 
 const loadResults = async () => {
   try {

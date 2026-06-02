@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import { locale, setLocale, t } from '../i18n/index.js'
+import { filterNavByPermissions, hasPermission, isPlatformAdmin } from '../utils/permissions.js'
 
 const testMenuTargets = () => {
-  const routes = ['/dashboard', '/automation', '/agent-quality', '/billing', '/alerts', '/audit-logs', '/customers', '/invoke', '/model-training']
+  const routes = ['/dashboard', '/automation', '/agent-quality', '/billing', '/alerts', '/audit-logs', '/customers', '/invoke', '/model-training', '/benchmark', '/workflows']
   assert.ok(routes.includes('/dashboard'))
   assert.ok(routes.includes('/automation'))
   assert.ok(routes.includes('/agent-quality'))
   assert.ok(routes.includes('/invoke'))
-  assert.equal(routes.length, 9)
+  assert.ok(routes.includes('/benchmark'))
+  assert.ok(routes.includes('/workflows'))
+  assert.equal(routes.length, 11)
 }
 
 const testTrendBarWidth = () => {
@@ -148,3 +151,35 @@ const testModelTrainingEndpoints = () => {
 }
 
 testModelTrainingEndpoints()
+
+const testRbacPermissionHelpers = () => {
+  const platformAdmin = { platformAdmin: true, permissions: [] }
+  const developer = { platformAdmin: false, permissions: ['benchmark:view', 'benchmark:run'] }
+  assert.equal(isPlatformAdmin(platformAdmin), true)
+  assert.equal(isPlatformAdmin({ username: 'admin', permissions: [] }), false)
+  assert.equal(hasPermission('benchmark:manage', platformAdmin), true)
+  assert.equal(hasPermission('benchmark:run', developer), true)
+  assert.equal(hasPermission('benchmark:manage', developer), false)
+}
+
+testRbacPermissionHelpers()
+
+const testFallbackNavFiltering = () => {
+  const nav = [
+    { key: 'benchmark', path: '/benchmark', permissionCode: 'benchmark:view', children: [] },
+    { key: 'tenants', path: '/tenants', permissionCode: 'tenant:manage', children: [] },
+    {
+      key: 'ops',
+      label: '运营',
+      children: [
+        { key: 'monitor', path: '/monitor', permissionCode: 'monitor:view', children: [] },
+        { key: 'audit', path: '/audit-logs', permissionCode: 'audit:view', children: [] }
+      ]
+    }
+  ]
+  const filtered = filterNavByPermissions(nav, { permissions: ['benchmark:view', 'monitor:view'] })
+  assert.deepEqual(filtered.map(item => item.key), ['benchmark', 'ops'])
+  assert.deepEqual(filtered[1].children.map(item => item.key), ['monitor'])
+}
+
+testFallbackNavFiltering()

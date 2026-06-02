@@ -3,6 +3,7 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.AgentAuthRequest;
 import com.aipal.entity.BizAgentAuth;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.BizAgentAuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -17,11 +18,13 @@ public class AgentAuthController {
     private final BizAgentAuthService bizAgentAuthService;
 
     @GetMapping
+    @RequirePermission("customer:manage")
     public Result<List<BizAgentAuth>> listAgentAuths(@PathVariable Long moduleId) {
         return Result.success(bizAgentAuthService.getAuthsByModuleId(moduleId));
     }
 
     @PostMapping
+    @RequirePermission("customer:manage")
     public Result<Boolean> authorizeAgent(
             @PathVariable Long moduleId,
             @RequestBody AgentAuthRequest request) {
@@ -30,6 +33,7 @@ public class AgentAuthController {
     }
 
     @PutMapping("/{authId}")
+    @RequirePermission("customer:manage")
     public Result<Boolean> updateAgentAuth(
             @PathVariable Long moduleId,
             @PathVariable Long authId,
@@ -39,6 +43,7 @@ public class AgentAuthController {
     }
 
     @DeleteMapping("/{authId}")
+    @RequirePermission("customer:manage")
     public Result<Boolean> deleteAgentAuth(
             @PathVariable Long moduleId,
             @PathVariable Long authId) {

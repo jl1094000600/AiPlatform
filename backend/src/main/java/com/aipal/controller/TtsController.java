@@ -4,6 +4,7 @@ import com.aipal.common.Result;
 import com.aipal.dto.TtsRequest;
 import com.aipal.dto.TtsResponse;
 import com.aipal.dto.VoiceInfo;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.TtsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class TtsController {
     private final TtsService ttsService;
 
     @PostMapping("/synthesize")
+    @RequirePermission("tts:invoke")
     public Result<TtsResponse> synthesize(@RequestBody TtsRequest request) {
         log.info("TTS synthesize request: voiceId={}, textLength={}",
                 request.getVoiceId(), request.getText() != null ? request.getText().length() : 0);
@@ -40,6 +42,7 @@ public class TtsController {
     }
 
     @PostMapping("/stream")
+    @RequirePermission("tts:invoke")
     public Flux<String> stream(@RequestBody TtsRequest request) {
         log.info("TTS stream request: voiceId={}, textLength={}",
                 request.getVoiceId(), request.getText() != null ? request.getText().length() : 0);
@@ -47,6 +50,7 @@ public class TtsController {
     }
 
     @GetMapping("/voices")
+    @RequirePermission("tts:invoke")
     public Result<List<VoiceInfo>> getVoices(@RequestParam(required = false) String locale) {
         List<VoiceInfo> voices;
         if (locale != null && !locale.isBlank()) {
@@ -58,6 +62,7 @@ public class TtsController {
     }
 
     @GetMapping("/audio/{taskId}")
+    @RequirePermission("tts:invoke")
     public ResponseEntity<Resource> getAudio(@PathVariable String taskId) {
         Optional<Path> audioFile = ttsService.getAudioFile(taskId);
         if (audioFile.isPresent()) {
@@ -71,6 +76,7 @@ public class TtsController {
     }
 
     @DeleteMapping("/audio/{taskId}")
+    @RequirePermission("tts:invoke")
     public Result<Boolean> deleteAudio(@PathVariable String taskId) {
         boolean deleted = ttsService.deleteAudioFile(taskId);
         return Result.success(deleted);

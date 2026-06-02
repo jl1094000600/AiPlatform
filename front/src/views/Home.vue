@@ -7,16 +7,37 @@
       </div>
 
       <nav class="sidebar-nav">
-        <router-link
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="nav-item"
-          :class="{ active: $route.path === item.path || ($route.path.startsWith(item.path) && item.path !== '/') }"
-        >
-          <component :is="item.icon" class="nav-icon" />
-          <span class="nav-text">{{ item.label }}</span>
-        </router-link>
+        <template v-for="item in navGroups" :key="item.key">
+          <router-link
+            v-if="!item.children?.length"
+            :to="item.path"
+            class="nav-item"
+            :class="{ active: isActivePath(item.path) }"
+          >
+            <component :is="item.icon" class="nav-icon" />
+            <span class="nav-text">{{ item.label }}</span>
+          </router-link>
+
+          <div v-else class="nav-group" :class="{ open: isGroupOpen(item), active: hasActiveChild(item) }">
+            <button class="nav-group-title" type="button" @click="toggleGroup(item)">
+              <component :is="item.icon" class="nav-icon" />
+              <span class="nav-text">{{ item.label }}</span>
+              <span class="group-caret">&gt;</span>
+            </button>
+            <div v-show="isGroupOpen(item)" class="nav-children">
+              <router-link
+                v-for="child in item.children"
+                :key="child.key"
+                :to="child.path"
+                class="nav-item nav-child"
+                :class="{ active: isActivePath(child.path) }"
+              >
+                <component :is="child.icon" class="nav-icon" />
+                <span class="nav-text">{{ child.label }}</span>
+              </router-link>
+            </div>
+          </div>
+        </template>
       </nav>
 
       <div class="sidebar-footer">
@@ -39,6 +60,20 @@
           <h2 class="page-title">{{ currentPageTitle }}</h2>
         </div>
         <div class="header-right">
+          <el-select
+            v-if="tenantOptions.length"
+            :model-value="currentTenantId"
+            class="tenant-switch"
+            size="small"
+            @change="handleTenantChange"
+          >
+            <el-option
+              v-for="tenant in tenantOptions"
+              :key="tenant.id"
+              :label="tenant.tenantName"
+              :value="tenant.id"
+            />
+          </el-select>
           <div class="lang-switch">
             <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中</button>
             <button :class="{ active: locale === 'en' }" @click="setLocale('en')">EN</button>
@@ -66,56 +101,205 @@ import {
   DataLine,
   Finished,
   FolderOpened,
+  Key,
   MagicStick,
+  Menu,
   Money,
   Monitor,
+  OfficeBuilding,
   Promotion,
   SetUp,
   SwitchButton,
   Tickets,
-  User
+  User,
+  UserFilled
 } from '@element-plus/icons-vue'
 import { useI18n } from '../i18n'
+import api from '../api'
+import { filterNavByPermissions, readStoredUser } from '../utils/permissions'
 
 const router = useRouter()
 const route = useRoute()
 const { locale, t, setLocale } = useI18n()
 
-const navItems = computed(() => [
-  { path: '/dashboard', label: t('nav.overview'), icon: DataAnalysis },
-  { path: '/automation', label: t('nav.automation'), icon: Promotion },
-  { path: '/code-quality', label: t('nav.codeQuality'), icon: Finished },
-  { path: '/ai-output-governance', label: 'AI产出治理', icon: Connection },
-  { path: '/prompt-engineering', label: '提示词工程', icon: MagicStick },
-  { path: '/deploy-profiles', label: t('nav.deployProfiles'), icon: SetUp },
-  { path: '/skills', label: t('nav.skills'), icon: MagicStick },
-  { path: '/memories', label: t('nav.memories'), icon: Tickets },
-  { path: '/agents', label: t('nav.agents'), icon: Cpu },
-  { path: '/agent-quality', label: t('nav.quality'), icon: Finished },
-  { path: '/rag', label: t('nav.rag'), icon: FolderOpened },
-  { path: '/monitor', label: t('nav.monitor'), icon: Monitor },
-  { path: '/graph', label: t('nav.graph'), icon: Connection },
-  { path: '/models', label: t('nav.models'), icon: Box },
-  { path: '/model-training', label: t('nav.modelTraining'), icon: DataLine },
-  { path: '/billing', label: t('nav.billing'), icon: Money },
-  { path: '/alerts', label: t('nav.alerts'), icon: Bell },
-  { path: '/audit-logs', label: t('nav.audit'), icon: Tickets },
-  { path: '/customers', label: t('nav.customers'), icon: User },
-  { path: '/invoke', label: t('nav.invoke'), icon: MagicStick }
+const currentUser = ref(readUser())
+const openGroupKeys = ref(new Set(['group-workbench', 'group-automation', 'group-agent', 'group-operations']))
+const fallbackNavGroups = computed(() => [
+  {
+    key: 'group-workbench',
+    label: '工作台',
+    icon: DataAnalysis,
+    children: [
+      navItem('/dashboard', t('nav.overview'), DataAnalysis)
+    ]
+  },
+  {
+    key: 'group-automation',
+    label: '自动化交付',
+    icon: Promotion,
+    children: [
+      navItem('/automation', t('nav.automation'), Promotion),
+      navItem('/workflows', '工作流编排', Connection),
+      navItem('/code-quality', t('nav.codeQuality'), Finished),
+      navItem('/ai-output-governance', 'AI产出治理', Connection),
+      navItem('/prompt-engineering', '提示词工程', MagicStick),
+      navItem('/deploy-profiles', t('nav.deployProfiles'), SetUp)
+    ]
+  },
+  {
+    key: 'group-agent',
+    label: 'Agent 能力',
+    icon: Cpu,
+    children: [
+      navItem('/skills', t('nav.skills'), MagicStick),
+      navItem('/memories', t('nav.memories'), Tickets),
+      navItem('/agents', t('nav.agents'), Cpu),
+      navItem('/agent-quality', t('nav.quality'), Finished),
+      navItem('/rag', t('nav.rag'), FolderOpened),
+      navItem('/models', t('nav.models'), Box),
+      navItem('/model-training', t('nav.modelTraining'), DataLine)
+    ]
+  },
+  {
+    key: 'group-operations',
+    label: '运营观测',
+    icon: Monitor,
+    children: [
+      navItem('/monitor', t('nav.monitor'), Monitor),
+      navItem('/graph', t('nav.graph'), Connection),
+      navItem('/benchmark', '数据集测评', DataAnalysis),
+      navItem('/billing', t('nav.billing'), Money),
+      navItem('/alerts', t('nav.alerts'), Bell),
+      navItem('/audit-logs', t('nav.audit'), Tickets),
+      navItem('/customers', t('nav.customers'), User),
+      navItem('/invoke', t('nav.invoke'), MagicStick)
+    ]
+  },
+  {
+    key: 'group-system',
+    label: '系统管理',
+    icon: Menu,
+    children: [
+      navItem('/tenants', '租户管理', OfficeBuilding),
+      navItem('/members', '成员管理', UserFilled),
+      navItem('/roles', '角色权限', Key),
+      navItem('/menus', '菜单权限', Menu)
+    ]
+  }
 ])
 
+const iconMap = {
+  Bell,
+  Box,
+  Connection,
+  Cpu,
+  DataAnalysis,
+  DataLine,
+  Finished,
+  FolderOpened,
+  Key,
+  MagicStick,
+  Menu,
+  Money,
+  Monitor,
+  OfficeBuilding,
+  Promotion,
+  SetUp,
+  Tickets,
+  User,
+  UserFilled
+}
+
+const navGroups = computed(() => {
+  const menus = currentUser.value.menus || []
+  if (!menus.length) return filterNavByPermissions(fallbackNavGroups.value, currentUser.value)
+  return menus.map(toNavNode).filter(item => item.path || item.children.length)
+})
+
 const currentPageTitle = computed(() => {
-  const item = navItems.value.find(n => route.path.startsWith(n.path))
+  const item = flattenNavGroups(navGroups.value).find(n => isActivePath(n.path))
   return item?.label || t('common.console')
 })
 
-const userInfo = computed(() => {
-  try {
-    return JSON.parse(localStorage.getItem('user') || '{}')
-  } catch {
-    return {}
+const userInfo = computed(() => currentUser.value || {})
+const tenantOptions = computed(() => currentUser.value.tenants || [])
+const currentTenantId = computed(() => currentUser.value.tenant?.id)
+
+function readUser() {
+  return readStoredUser()
+}
+
+function navItem(path, label, icon) {
+  const routePermissions = {
+    '/dashboard': 'dashboard:view',
+    '/automation': 'automation:list',
+    '/workflows': 'workflow:manage',
+    '/code-quality': 'code-quality:list',
+    '/ai-output-governance': 'governance:list',
+    '/prompt-engineering': 'prompt:list',
+    '/deploy-profiles': 'automation:list',
+    '/skills': 'skill:list',
+    '/memories': 'agent:list',
+    '/agents': 'agent:list',
+    '/agent-quality': 'agent:list',
+    '/rag': 'rag:list',
+    '/models': 'model:list',
+    '/model-training': 'model:update',
+    '/monitor': 'monitor:view',
+    '/graph': 'graph:manage',
+    '/benchmark': 'benchmark:view',
+    '/billing': 'billing:view',
+    '/alerts': 'alert:view',
+    '/audit-logs': 'audit:view',
+    '/customers': 'customer:manage',
+    '/invoke': 'agent:invoke',
+    '/tenants': 'tenant:manage',
+    '/members': 'member:manage',
+    '/roles': 'role:manage',
+    '/menus': 'menu:manage'
   }
-})
+  return { key: path, path, label, icon, permissionCode: routePermissions[path], children: [] }
+}
+
+function toNavNode(menu) {
+  return {
+    key: menu.menuCode || menu.path || String(menu.id),
+    path: menu.path,
+    label: menu.menuName,
+    icon: iconMap[menu.icon] || MagicStick,
+    permissionCode: menu.permissionCode,
+    children: (menu.children || []).map(toNavNode).filter(item => item.path || item.children.length)
+  }
+}
+
+function flattenNavGroups(items) {
+  return items.flatMap(item => [
+    ...(item.path ? [item] : []),
+    ...flattenNavGroups(item.children || [])
+  ])
+}
+
+function isActivePath(path) {
+  return !!path && (route.path === path || (route.path.startsWith(path) && path !== '/'))
+}
+
+function hasActiveChild(group) {
+  return flattenNavGroups(group.children || []).some(item => isActivePath(item.path))
+}
+
+function isGroupOpen(group) {
+  return openGroupKeys.value.has(group.key) || hasActiveChild(group)
+}
+
+function toggleGroup(group) {
+  const next = new Set(openGroupKeys.value)
+  if (next.has(group.key)) {
+    next.delete(group.key)
+  } else {
+    next.add(group.key)
+  }
+  openGroupKeys.value = next
+}
 
 const currentTime = ref('')
 let timeInterval
@@ -139,7 +323,18 @@ const handleLogout = () => {
   router.push('/login')
 }
 
+const handleTenantChange = async (tenantId) => {
+  if (!tenantId || tenantId === currentTenantId.value) return
+  const res = await api.switchTenant({ tenantId })
+  const payload = res.data.data
+  localStorage.setItem('token', payload.token)
+  localStorage.setItem('user', JSON.stringify(payload))
+  currentUser.value = payload
+  router.push('/dashboard')
+}
+
 onMounted(() => {
+  currentUser.value = readUser()
   updateTime()
   timeInterval = setInterval(updateTime, 1000)
 })
@@ -216,6 +411,56 @@ onUnmounted(() => {
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-group-title {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 8px;
+  color: #cbd5e1;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.nav-group-title:hover,
+.nav-group.active .nav-group-title {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.group-caret {
+  margin-left: auto;
+  font-size: 12px;
+  color: #94a3b8;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+}
+
+.nav-group.open .group-caret {
+  transform: rotate(90deg);
+}
+
+.nav-children {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 8px;
+}
+
+.nav-child {
+  padding-left: 28px;
 }
 
 .nav-item::before {
@@ -355,6 +600,10 @@ onUnmounted(() => {
   gap: 16px;
 }
 
+.tenant-switch {
+  width: 150px;
+}
+
 .lang-switch {
   display: inline-flex;
   border: 1px solid var(--border-color);
@@ -416,6 +665,16 @@ onUnmounted(() => {
   .nav-item {
     justify-content: center;
     padding: 14px;
+  }
+
+  .nav-group-title {
+    justify-content: center;
+    padding: 14px;
+  }
+
+  .group-caret,
+  .nav-children {
+    display: none;
   }
 
   .sidebar-footer {

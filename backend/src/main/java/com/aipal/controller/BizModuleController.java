@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.entity.BizModule;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.BizModuleService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ public class BizModuleController {
     private final BizModuleService bizModuleService;
 
     @GetMapping
+    @RequirePermission("customer:manage")
     public Result<Page<BizModule>> listBizModules(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize) {
@@ -23,22 +25,26 @@ public class BizModuleController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("customer:manage")
     public Result<BizModule> getBizModule(@PathVariable Long id) {
         return Result.success(bizModuleService.getBizModuleById(id));
     }
 
     @PostMapping
+    @RequirePermission("customer:manage")
     public Result<Boolean> createBizModule(@RequestBody BizModule bizModule) {
         return Result.success(bizModuleService.saveBizModule(bizModule));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("customer:manage")
     public Result<Boolean> updateBizModule(@PathVariable Long id, @RequestBody BizModule bizModule) {
         bizModule.setId(id);
         return Result.success(bizModuleService.updateBizModule(bizModule));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission("customer:manage")
     public Result<Boolean> deleteBizModule(@PathVariable Long id) {
         return Result.success(bizModuleService.deleteBizModule(id));
     }

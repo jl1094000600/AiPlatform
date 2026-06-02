@@ -145,6 +145,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Delete, Plus, ArrowRight } from '@element-plus/icons-vue'
 import api from '../../api'
+import { hasPermission } from '../../utils/permissions'
 
 const emit = defineEmits(['back', 'next'])
 
@@ -160,9 +161,10 @@ const selectedTemplate = ref(null)
 const fieldRules = ref([])
 const generateCount = ref(100)
 const generating = ref(false)
+const canRunBenchmark = computed(() => hasPermission('benchmark:run'))
 
 const canGenerate = computed(() => {
-  return selectedTemplate.value && fieldRules.value.length > 0
+  return canRunBenchmark.value && selectedTemplate.value && fieldRules.value.length > 0
 })
 
 const canProceed = computed(() => {
@@ -236,7 +238,7 @@ const removeRule = (index) => {
 
 const handleGenerate = async () => {
   if (!canGenerate.value) {
-    ElMessage.warning('请选择模板并配置字段规则')
+    ElMessage.warning(canRunBenchmark.value ? '请选择模板并配置字段规则' : '当前账号无基准测试执行权限')
     return
   }
 
