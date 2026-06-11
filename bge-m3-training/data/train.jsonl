@@ -1,0 +1,3 @@
+{"query":"如何创建自动化流水线？","pos":["在自动化流水线页面点击新建，填写产品线、项目名称、需求标题和 PRD 模板后创建流水线。"],"neg":["模型管理页面用于配置模型供应商、Base URL 和 API Key。","RAG 知识库页面用于拆分文本并写入 Chroma。"]}
+{"query":"BGEM3 embedding 服务如何启动？","pos":["进入 embedding-service 目录，设置 BGE_M3_MODEL_PATH 后运行 start.ps1 或 uvicorn app.main:app。"],"neg":["自动化流水线详情展示阶段执行状态。","客户管理页面维护客户状态和余额。"]}
+{"query":"RAG 入库需要配置哪些参数？","pos":["RAG 入库需要集合名称、文档标题、embedding 模型、Chroma 地址、分块大小、重叠长度和文档内容。"],"neg":["告警中心用于维护规则和告警事件。","成本计费页面展示用量和预算。"]}

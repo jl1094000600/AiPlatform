@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="860" viewBox="0 0 1600 860" role="img" aria-labelledby="title desc">
+  <title id="title">AI Platform 界面能力概览</title>
+  <desc id="desc">工作台、自动化交付、Agent 能力、运营观测和系统管理界面概览</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#f8fafc"/></linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#10b981"/></linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="12" stdDeviation="20" flood-color="#0f172a" flood-opacity="0.14"/></filter>
+  </defs>
+  <rect width="1600" height="860" rx="28" fill="#eef2f7"/>
+  <rect x="48" y="42" width="1504" height="776" rx="22" fill="#ffffff" filter="url(#shadow)"/>
+
+  <g>
+    <path d="M70 42 H308 V818 H70 Q48 818 48 796 V64 Q48 42 70 42 Z" fill="#111827"/>
+    <rect x="78" y="74" width="42" height="42" rx="9" fill="#ffffff"/>
+    <text x="99" y="101" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="800" fill="#111827">AP</text>
+    <text x="138" y="101" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18" font-weight="700" fill="#f8fafc">AI Platform</text>
+
+    <g font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="15" fill="#cbd5e1">
+      <rect x="70" y="146" width="216" height="46" rx="8" fill="#1f2937"/>
+      <rect x="70" y="146" width="4" height="46" rx="2" fill="#60a5fa"/>
+      <text x="96" y="175" fill="#ffffff" font-weight="700">工作台</text>
+
+      <text x="96" y="231" font-weight="700">自动化交付</text>
+      <text x="112" y="268" fill="#94a3b8">流水线 · 工作流 · 质量门禁</text>
+      <text x="112" y="301" fill="#94a3b8">AI 治理 · PromptOps · 部署</text>
+
+      <text x="96" y="357" font-weight="700">Agent 能力</text>
+      <text x="112" y="394" fill="#94a3b8">Skill · 记忆 · RAG · 模型</text>
+      <text x="112" y="427" fill="#94a3b8">Agent 管理 · 模型训练</text>
+
+      <text x="96" y="483" font-weight="700">运营观测</text>
+      <text x="112" y="520" fill="#94a3b8">监控 · 图谱 · 评测 · 账单</text>
+      <text x="112" y="553" fill="#94a3b8">告警 · 审计 · 低代码调用</text>
+
+      <text x="96" y="609" font-weight="700">系统管理</text>
+      <text x="112" y="646" fill="#94a3b8">租户 · 成员 · 角色 · 菜单</text>
+    </g>
+
+    <circle cx="98" cy="766" r="20" fill="#2563eb"/>
+    <text x="98" y="772" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14" font-weight="800" fill="#ffffff">A</text>
+    <text x="130" y="762" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="14" font-weight="700" fill="#f8fafc">平台管理员</text>
+    <text x="130" y="782" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="11" fill="#94a3b8">Platform Admin</text>
+  </g>
+
+  <g transform="translate(308 42)">
+    <rect width="1244" height="66" fill="#ffffff"/>
+    <line x1="0" y1="66" x2="1244" y2="66" stroke="#e2e8f0"/>
+    <text x="34" y="40" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="20" font-weight="700" fill="#0f172a">首页概况</text>
+    <rect x="980" y="18" width="116" height="30" rx="7" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="1038" y="38" text-anchor="middle" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#475569">AI Platform</text>
+    <rect x="1112" y="18" width="88" height="30" rx="7" fill="#111827"/>
+    <text x="1156" y="38" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" fill="#ffffff">ZH / EN</text>
+  </g>
+
+  <g transform="translate(340 142)">
+    <text x="0" y="0" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="26" font-weight="800" fill="#0f172a">AI 应用工程与治理工作台</text>
+    <text x="0" y="32" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="14" fill="#64748b">关键运行指标、自动化交付、模型训练和异常风险一屏查看</text>
+
+    <g transform="translate(0 62)">
+      <g>
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#2563eb"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">今日调用量</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="800" fill="#2563eb">12,864</text>
+      </g>
+      <g transform="translate(194)">
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#10b981"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">在线 Agent</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="800" fill="#10b981">18</text>
+      </g>
+      <g transform="translate(388)">
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#f59e0b"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">平均响应</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="800" fill="#f59e0b">286ms</text>
+      </g>
+      <g transform="translate(582)">
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#a855f7"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">今日成本</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="800" fill="#a855f7">¥42.68</text>
+      </g>
+      <g transform="translate(776)">
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#0ea5e9"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">成功率</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="27" font-weight="800" fill="#0ea5e9">99.2%</text>
+      </g>
+      <g transform="translate(970)">
+        <rect width="180" height="104" rx="10" fill="url(#panel)" stroke="#dbe3ee"/>
+        <rect x="16" y="15" width="34" height="4" rx="2" fill="#ef4444"/>
+        <text x="16" y="44" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">Token 消耗</text>
+        <text x="16" y="78" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="25" font-weight="800" fill="#ef4444">3.85M</text>
+      </g>
+    </g>
+
+    <g transform="translate(0 192)">
+      <rect width="440" height="414" rx="12" fill="#ffffff" stroke="#dbe3ee"/>
+      <text x="22" y="36" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="17" font-weight="800" fill="#0f172a">Agent 调用关系图谱</text>
+      <text x="22" y="59" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">注册状态、A2A 关系与实时调用链</text>
+      <g stroke="url(#line)" stroke-width="3" fill="none" opacity="0.82">
+        <path d="M78 190 L162 122 L258 170 L354 103"/>
+        <path d="M162 122 L185 260 L292 286"/>
+        <path d="M258 170 L292 286 L370 232"/>
+      </g>
+      <g font-family="Inter,Segoe UI,Arial,sans-serif" font-size="10" font-weight="700" text-anchor="middle">
+        <circle cx="78" cy="190" r="34" fill="#2563eb"/><text x="78" y="194" fill="#fff">Gateway</text>
+        <circle cx="162" cy="122" r="34" fill="#0ea5e9"/><text x="162" y="126" fill="#fff">Intent</text>
+        <circle cx="258" cy="170" r="34" fill="#10b981"/><text x="258" y="174" fill="#fff">RAG</text>
+        <circle cx="354" cy="103" r="34" fill="#8b5cf6"/><text x="354" y="107" fill="#fff">Skill</text>
+        <circle cx="185" cy="260" r="34" fill="#f59e0b"/><text x="185" y="264" fill="#fff">Prompt</text>
+        <circle cx="292" cy="286" r="34" fill="#ef4444"/><text x="292" y="290" fill="#fff">Quality</text>
+        <circle cx="370" cy="232" r="34" fill="#334155"/><text x="370" y="236" fill="#fff">Delivery</text>
+      </g>
+      <rect x="22" y="356" width="396" height="34" rx="7" fill="#f8fafc" stroke="#e2e8f0"/>
+      <text x="42" y="378" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#475569">实时调用中 · 8 个节点 · 7 条关系</text>
+    </g>
+
+    <g transform="translate(462 192)">
+      <rect width="334" height="414" rx="12" fill="#ffffff" stroke="#dbe3ee"/>
+      <text x="22" y="36" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="17" font-weight="800" fill="#0f172a">自动化交付</text>
+      <text x="22" y="59" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">从需求到代码、质量门禁与部署</text>
+      <g transform="translate(22 86)" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif">
+        <rect width="290" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+        <text x="16" y="27" font-size="13" font-weight="700" fill="#1e3a8a">企业知识助手</text>
+        <text x="16" y="47" font-size="11" fill="#64748b">代码质量评估 · 运行中</text>
+        <rect x="218" y="18" width="54" height="24" rx="6" fill="#2563eb"/><text x="245" y="34" text-anchor="middle" font-size="10" fill="#fff">RUNNING</text>
+        <rect y="78" width="290" height="62" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="16" y="105" font-size="13" font-weight="700" fill="#78350f">智能客服 Agent</text>
+        <text x="16" y="125" font-size="11" fill="#64748b">PRD 人工审核 · 待审核</text>
+        <rect x="218" y="96" width="54" height="24" rx="6" fill="#f59e0b"/><text x="245" y="112" text-anchor="middle" font-size="10" fill="#fff">REVIEW</text>
+        <rect y="156" width="290" height="62" rx="8" fill="#ecfdf5" stroke="#a7f3d0"/>
+        <text x="16" y="183" font-size="13" font-weight="700" fill="#064e3b">营销内容工作流</text>
+        <text x="16" y="203" font-size="11" fill="#64748b">部署发布 · 已完成</text>
+        <rect x="218" y="174" width="54" height="24" rx="6" fill="#10b981"/><text x="245" y="190" text-anchor="middle" font-size="10" fill="#fff">DONE</text>
+      </g>
+      <text x="22" y="350" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">阶段通过率</text>
+      <rect x="22" y="368" width="290" height="10" rx="5" fill="#e2e8f0"/>
+      <rect x="22" y="368" width="266" height="10" rx="5" fill="url(#line)"/>
+      <text x="312" y="352" text-anchor="end" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15" font-weight="800" fill="#0f172a">91.7%</text>
+    </g>
+
+    <g transform="translate(818 192)">
+      <rect width="332" height="414" rx="12" fill="#ffffff" stroke="#dbe3ee"/>
+      <text x="22" y="36" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="17" font-weight="800" fill="#0f172a">治理与权限</text>
+      <text x="22" y="59" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif" font-size="12" fill="#64748b">策略、评测、多租户与审计闭环</text>
+      <g transform="translate(22 88)" font-family="Microsoft YaHei,Segoe UI,Arial,sans-serif">
+        <rect width="138" height="100" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="14" y="28" font-size="12" fill="#64748b">质量门禁</text><text x="14" y="66" font-size="27" font-weight="800" fill="#10b981">87</text><text x="65" y="65" font-size="12" fill="#64748b">/100</text>
+        <rect x="152" width="136" height="100" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="166" y="28" font-size="12" fill="#64748b">租户隔离</text><text x="166" y="66" font-size="24" font-weight="800" fill="#2563eb">ACTIVE</text>
+        <rect y="116" width="290" height="54" rx="9" fill="#faf5ff" stroke="#e9d5ff"/>
+        <text x="14" y="140" font-size="12" font-weight="700" fill="#6b21a8">PromptOps</text><text x="14" y="158" font-size="11" fill="#64748b">版本 · 评测 · 发布 · 运行时关联</text>
+        <rect y="184" width="290" height="54" rx="9" fill="#fff7ed" stroke="#fed7aa"/>
+        <text x="14" y="208" font-size="12" font-weight="700" fill="#9a3412">AI 输出治理</text><text x="14" y="226" font-size="11" fill="#64748b">策略模板 · 人工审批 · 放行链路</text>
+        <rect y="252" width="290" height="54" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+        <text x="14" y="276" font-size="12" font-weight="700" fill="#1e40af">RBAC 与审计</text><text x="14" y="294" font-size="11" fill="#64748b">成员 · 角色 · 权限码 · 菜单树</text>
+      </g>
+    </g>
+  </g>
+</svg>

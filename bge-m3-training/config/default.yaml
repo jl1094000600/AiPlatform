@@ -1,0 +1,10 @@
+model_path: BAAI/bge-m3
+train_data: bge-m3-training/data/train.jsonl
+output_dir: bge-m3-training/output/bge-m3-ft
+epochs: 1
+learning_rate: 0.00001
+query_max_len: 256
+passage_max_len: 512
+train_group_size: 4
+unified_finetuning: false
+dry_run: true
