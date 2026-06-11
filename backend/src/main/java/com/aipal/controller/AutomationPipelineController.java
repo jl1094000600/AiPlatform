@@ -3,11 +3,13 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.config.JwtConfig;
 import com.aipal.dto.AutomationApprovalRequest;
+import com.aipal.dto.AutomationCodeFeedbackRequest;
 import com.aipal.dto.AutomationDeployProfileRequest;
 import com.aipal.dto.AutomationPipelineRequest;
 import com.aipal.security.RequirePermission;
 import com.aipal.service.AutomationDeployProfileService;
 import com.aipal.service.AutomationDeploymentExecutionService;
+import com.aipal.service.AutomationBuildTestExecutionService;
 import com.aipal.service.AutomationPipelineService;
 import com.aipal.service.CodeQualityService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,6 +33,7 @@ public class AutomationPipelineController {
     private final AutomationPipelineService automationService;
     private final AutomationDeployProfileService deployProfileService;
     private final AutomationDeploymentExecutionService deploymentExecutionService;
+    private final AutomationBuildTestExecutionService buildTestExecutionService;
     private final CodeQualityService codeQualityService;
     private final JwtConfig jwtConfig;
 
@@ -59,6 +62,18 @@ public class AutomationPipelineController {
     @RequirePermission("automation:list")
     public Result<?> getDeployRuns(@PathVariable Long id) {
         return Result.success(deploymentExecutionService.listRuns(id));
+    }
+
+    @GetMapping("/pipelines/{id}/build-runs")
+    @RequirePermission("automation:list")
+    public Result<?> getBuildRuns(@PathVariable Long id) {
+        return Result.success(buildTestExecutionService.listBuildRuns(id));
+    }
+
+    @GetMapping("/pipelines/{id}/test-runs")
+    @RequirePermission("automation:list")
+    public Result<?> getTestRuns(@PathVariable Long id) {
+        return Result.success(buildTestExecutionService.listTestRuns(id));
     }
 
     @GetMapping("/pipelines/{id}/code-quality-runs")
@@ -157,6 +172,18 @@ public class AutomationPipelineController {
         return jwtConfig.validateToken(token) ? token : null;
     }
 
+    private String currentUsername(HttpServletRequest request) {
+        String token = bearerToken(request);
+        if (token == null) {
+            return null;
+        }
+        try {
+            return jwtConfig.getUsernameFromToken(token);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     @GetMapping("/pipelines/{id}/code-tree")
     @RequirePermission("automation:list")
     public Result<?> getCodeTree(@PathVariable Long id) {
@@ -167,6 +194,22 @@ public class AutomationPipelineController {
     @RequirePermission("automation:list")
     public Result<?> getCodeFile(@PathVariable Long id, @RequestParam String path) {
         return Result.success(automationService.getCodeFile(id, path));
+    }
+
+    @GetMapping("/pipelines/{id}/code-feedback")
+    @RequirePermission("automation:list")
+    public Result<?> getCodeFeedback(@PathVariable Long id, @RequestParam(required = false) Long batchId) {
+        return Result.success(automationService.listCodeFeedback(id, batchId));
+    }
+
+    @PostMapping("/pipelines/{id}/code-feedback")
+    @RequirePermission("automation:approve")
+    public Result<?> submitCodeFeedback(@PathVariable Long id, @RequestBody AutomationCodeFeedbackRequest request,
+                                        HttpServletRequest httpRequest) {
+        if (request != null && (request.getReviewedBy() == null || request.getReviewedBy().isBlank())) {
+            request.setReviewedBy(currentUsername(httpRequest));
+        }
+        return Result.success(automationService.submitCodeFeedback(id, request));
     }
 
     @GetMapping("/code-templates")

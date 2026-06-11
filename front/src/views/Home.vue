@@ -61,7 +61,7 @@
         </div>
         <div class="header-right">
           <el-select
-            v-if="tenantOptions.length"
+            v-if="tenantOptions.length > 1"
             :model-value="currentTenantId"
             class="tenant-switch"
             size="small"

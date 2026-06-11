@@ -1,14 +1,21 @@
 package com.aipal.service;
 
+import com.aipal.dto.AutomationApprovalRequest;
+import com.aipal.dto.AutomationCodeFeedbackRequest;
 import com.aipal.dto.AutomationPipelineRequest;
 import com.aipal.entity.AutomationApproval;
+import com.aipal.entity.AutomationCodeRequirementFeedback;
 import com.aipal.entity.AutomationGenerationJob;
+import com.aipal.entity.AutomationGeneratedCodeBatch;
 import com.aipal.entity.AiModel;
 import com.aipal.entity.AutomationPipeline;
 import com.aipal.entity.AutomationStageRun;
 import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.AutomationApprovalMapper;
+import com.aipal.mapper.AutomationCodeRequirementFeedbackMapper;
 import com.aipal.mapper.AutomationGenerationJobMapper;
+import com.aipal.mapper.AutomationGeneratedCodeBatchMapper;
+import com.aipal.mapper.AutomationGeneratedCodeFileMapper;
 import com.aipal.mapper.AutomationPipelineMapper;
 import com.aipal.mapper.AutomationStageRunMapper;
 import org.junit.jupiter.api.Test;
@@ -52,7 +59,8 @@ class AutomationPipelineServiceTest {
         }).when(stageRunMapper).insert(any());
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
-                generationJobMapper, modelMapper, mock(SkillService.class), mock(AutomationDeployProfileService.class),
+                generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, mock(SkillService.class), mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -101,7 +109,8 @@ class AutomationPipelineServiceTest {
         }).when(generationJobMapper).insert(any());
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
-                generationJobMapper, modelMapper, skillService, mock(AutomationDeployProfileService.class),
+                generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, skillService, mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -142,7 +151,8 @@ class AutomationPipelineServiceTest {
         }).when(stageRunMapper).insert(any());
 
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
-                generationJobMapper, modelMapper, mock(SkillService.class), mock(AutomationDeployProfileService.class),
+                generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, mock(SkillService.class), mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class), codeQualityService, mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -176,8 +186,12 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -203,8 +217,12 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 skillService,
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -227,8 +245,12 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -253,8 +275,12 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -281,8 +307,12 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -308,8 +338,12 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 approvalMapper,
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -325,14 +359,158 @@ class AutomationPipelineServiceTest {
     }
 
     @Test
+    void approvingCodeGenerationStartsBuildAndTestStages() {
+        AutomationPipelineMapper pipelineMapper = mock(AutomationPipelineMapper.class);
+        AutomationStageRunMapper stageRunMapper = mock(AutomationStageRunMapper.class);
+        AutomationApprovalMapper approvalMapper = mock(AutomationApprovalMapper.class);
+        AutomationBuildTestExecutionService buildTestExecutionService = mock(AutomationBuildTestExecutionService.class);
+        AutomationApproval approval = new AutomationApproval();
+        approval.setId(7L);
+        approval.setPipelineId(1L);
+        approval.setStageRunId(2L);
+        approval.setStatus("PENDING");
+        AutomationStageRun codeStage = stage(2L, 1L, "code_generation", 2, "WAITING_APPROVAL");
+        AutomationStageRun buildStage = stage(3L, 1L, "build_compile", 3, "PENDING");
+        AutomationStageRun testStage = stage(4L, 1L, "test_execution", 4, "PENDING");
+        AutomationPipeline pipeline = pipeline(1L, "code_generation", "RUNNING");
+
+        when(approvalMapper.selectById(7L)).thenReturn(approval);
+        when(stageRunMapper.selectById(2L)).thenReturn(codeStage);
+        when(pipelineMapper.selectById(1L)).thenReturn(pipeline);
+        when(stageRunMapper.selectList(any())).thenReturn(List.of(codeStage, buildStage, testStage));
+        when(buildTestExecutionService.executeBuild(any(), any())).thenAnswer(invocation -> {
+            AutomationStageRun stage = invocation.getArgument(1);
+            stage.setStatus("SUCCESS");
+            return stage;
+        });
+        when(buildTestExecutionService.executeTest(any(), any())).thenAnswer(invocation -> {
+            AutomationStageRun stage = invocation.getArgument(1);
+            stage.setStatus("SUCCESS");
+            return stage;
+        });
+
+        AutomationPipelineService service = new AutomationPipelineService(
+                pipelineMapper,
+                stageRunMapper,
+                approvalMapper,
+                mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
+                mock(AiModelMapper.class),
+                mock(SkillService.class),
+                buildTestExecutionService,
+                mock(AutomationDeployProfileService.class),
+                mock(AutomationDeploymentExecutionService.class),
+                mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
+                mock(UserMemoryService.class)
+        );
+        AutomationApprovalRequest request = new AutomationApprovalRequest();
+        request.setStatus("SUCCESS");
+
+        service.approve(7L, request);
+
+        verify(buildTestExecutionService, times(1)).executeBuild(any(), any());
+        verify(buildTestExecutionService, times(1)).executeTest(any(), any());
+    }
+
+    @Test
+    void rejectsManualFailedFeedbackWithoutReason() {
+        AutomationGeneratedCodeBatchMapper batchMapper = mock(AutomationGeneratedCodeBatchMapper.class);
+        AutomationCodeRequirementFeedbackMapper feedbackMapper = mock(AutomationCodeRequirementFeedbackMapper.class);
+        AutomationGeneratedCodeBatch batch = codeBatch();
+        when(batchMapper.selectById(30L)).thenReturn(batch);
+        AutomationPipelineService service = new AutomationPipelineService(
+                mock(AutomationPipelineMapper.class),
+                mock(AutomationStageRunMapper.class),
+                mock(AutomationApprovalMapper.class),
+                mock(AutomationGenerationJobMapper.class),
+                batchMapper,
+                mock(AutomationGeneratedCodeFileMapper.class),
+                feedbackMapper,
+                mock(AiModelMapper.class),
+                mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
+                mock(AutomationDeployProfileService.class),
+                mock(AutomationDeploymentExecutionService.class),
+                mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
+                mock(UserMemoryService.class)
+        );
+        AutomationCodeFeedbackRequest request = new AutomationCodeFeedbackRequest();
+        request.setBatchId(30L);
+        request.setAlignmentStatus("FAILED");
+
+        assertThrows(IllegalArgumentException.class, () -> service.submitCodeFeedback(1L, request));
+        verify(feedbackMapper, never()).insert(any());
+    }
+
+    @Test
+    void blocksCodeGenerationWhenAiAndManualFeedbackBothFail() {
+        AutomationPipelineMapper pipelineMapper = mock(AutomationPipelineMapper.class);
+        AutomationStageRunMapper stageRunMapper = mock(AutomationStageRunMapper.class);
+        AutomationApprovalMapper approvalMapper = mock(AutomationApprovalMapper.class);
+        AutomationGeneratedCodeBatchMapper batchMapper = mock(AutomationGeneratedCodeBatchMapper.class);
+        AutomationCodeRequirementFeedbackMapper feedbackMapper = mock(AutomationCodeRequirementFeedbackMapper.class);
+        AutomationGeneratedCodeBatch batch = codeBatch();
+        AutomationStageRun codeStage = stage(2L, 1L, "code_generation", 2, "WAITING_APPROVAL");
+        AutomationPipeline pipeline = pipeline(1L, "code_generation", "RUNNING");
+        AutomationCodeRequirementFeedback ai = feedback(30L, "AI", "FAILED", "AI reason");
+        AutomationCodeRequirementFeedback manual = feedback(30L, "MANUAL", "FAILED", "Manual reason");
+
+        when(batchMapper.selectById(30L)).thenReturn(batch);
+        when(feedbackMapper.selectOne(any())).thenReturn(ai, manual, ai, manual, ai, manual, ai, manual, ai, manual);
+        when(stageRunMapper.selectById(2L)).thenReturn(codeStage);
+        when(pipelineMapper.selectById(1L)).thenReturn(pipeline);
+        when(stageRunMapper.selectList(any())).thenReturn(List.of(codeStage));
+        when(approvalMapper.selectList(any())).thenReturn(List.of());
+
+        AutomationPipelineService service = new AutomationPipelineService(
+                pipelineMapper,
+                stageRunMapper,
+                approvalMapper,
+                mock(AutomationGenerationJobMapper.class),
+                batchMapper,
+                mock(AutomationGeneratedCodeFileMapper.class),
+                feedbackMapper,
+                mock(AiModelMapper.class),
+                mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
+                mock(AutomationDeployProfileService.class),
+                mock(AutomationDeploymentExecutionService.class),
+                mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
+                mock(UserMemoryService.class)
+        );
+        AutomationCodeFeedbackRequest request = new AutomationCodeFeedbackRequest();
+        request.setBatchId(30L);
+        request.setAlignmentStatus("FAILED");
+        request.setFailureReason("Manual reason");
+
+        Map<String, Object> result = service.submitCodeFeedback(1L, request);
+
+        assertEquals(true, result.get("doubleFailed"));
+        assertEquals("REJECTED", codeStage.getStatus());
+        assertEquals(true, codeStage.getErrorMessage().contains("AI reason"));
+        assertEquals(true, codeStage.getErrorMessage().contains("Manual reason"));
+        verify(feedbackMapper, times(1)).insert(any());
+        verify(stageRunMapper, times(1)).updateById(codeStage);
+    }
+
+    @Test
     void projectDirectoryTreeStartsAtRootAndExcludesBuildArtifacts() {
         AutomationPipelineService service = new AutomationPipelineService(
                 mock(AutomationPipelineMapper.class),
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -360,8 +538,12 @@ class AutomationPipelineServiceTest {
                 stageRunMapper,
                 approvalMapper,
                 generationJobMapper,
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -387,8 +569,12 @@ class AutomationPipelineServiceTest {
                 mock(AutomationStageRunMapper.class),
                 mock(AutomationApprovalMapper.class),
                 mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
                 mock(AiModelMapper.class),
                 mock(SkillService.class),
+                mock(AutomationBuildTestExecutionService.class),
                 mock(AutomationDeployProfileService.class),
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
@@ -420,6 +606,24 @@ class AutomationPipelineServiceTest {
         stage.setStatus(status);
         stage.setRequiresApproval(1);
         return stage;
+    }
+
+    private AutomationGeneratedCodeBatch codeBatch() {
+        AutomationGeneratedCodeBatch batch = new AutomationGeneratedCodeBatch();
+        batch.setId(30L);
+        batch.setPipelineId(1L);
+        batch.setStageRunId(2L);
+        batch.setGenerationJobId(3L);
+        return batch;
+    }
+
+    private AutomationCodeRequirementFeedback feedback(Long batchId, String source, String status, String failureReason) {
+        AutomationCodeRequirementFeedback feedback = new AutomationCodeRequirementFeedback();
+        feedback.setBatchId(batchId);
+        feedback.setFeedbackSource(source);
+        feedback.setAlignmentStatus(status);
+        feedback.setFailureReason(failureReason);
+        return feedback;
     }
 
     private AutomationGenerationJob generationJob(Long id) {

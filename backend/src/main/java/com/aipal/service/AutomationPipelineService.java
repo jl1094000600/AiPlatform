@@ -1,16 +1,23 @@
 package com.aipal.service;
 
 import com.aipal.dto.AutomationApprovalRequest;
+import com.aipal.dto.AutomationCodeFeedbackRequest;
 import com.aipal.dto.AutomationPipelineDetail;
 import com.aipal.dto.AutomationPipelineRequest;
 import com.aipal.entity.AiModel;
 import com.aipal.entity.AutomationApproval;
+import com.aipal.entity.AutomationCodeRequirementFeedback;
 import com.aipal.entity.AutomationGenerationJob;
+import com.aipal.entity.AutomationGeneratedCodeBatch;
+import com.aipal.entity.AutomationGeneratedCodeFile;
 import com.aipal.entity.AutomationPipeline;
 import com.aipal.entity.AutomationStageRun;
 import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.AutomationApprovalMapper;
+import com.aipal.mapper.AutomationCodeRequirementFeedbackMapper;
 import com.aipal.mapper.AutomationGenerationJobMapper;
+import com.aipal.mapper.AutomationGeneratedCodeBatchMapper;
+import com.aipal.mapper.AutomationGeneratedCodeFileMapper;
 import com.aipal.mapper.AutomationPipelineMapper;
 import com.aipal.mapper.AutomationStageRunMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -28,13 +35,17 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,6 +79,12 @@ public class AutomationPipelineService {
     private static final String DEFAULT_BACKEND_OUTPUT_PATH = "backend/src/main/java/com/aipal/generated";
     private static final String JOB_TYPE_PRD = "PRD";
     private static final String JOB_TYPE_CODE = "CODE";
+    private static final String FEEDBACK_SOURCE_AI = "AI";
+    private static final String FEEDBACK_SOURCE_MANUAL = "MANUAL";
+    private static final String FEEDBACK_PASSED = "PASSED";
+    private static final String FEEDBACK_PARTIAL = "PARTIAL";
+    private static final String FEEDBACK_FAILED = "FAILED";
+    private static final String FEEDBACK_ERROR = "ERROR";
     private static final int MAX_RUNNING_GENERATION_JOBS = 2;
     private static final int MAX_DIRECTORY_TREE_DEPTH = 8;
     private static final Set<String> EXCLUDED_DIRECTORY_NAMES = Set.of(
@@ -81,8 +98,12 @@ public class AutomationPipelineService {
     private final AutomationStageRunMapper stageRunMapper;
     private final AutomationApprovalMapper approvalMapper;
     private final AutomationGenerationJobMapper generationJobMapper;
+    private final AutomationGeneratedCodeBatchMapper generatedCodeBatchMapper;
+    private final AutomationGeneratedCodeFileMapper generatedCodeFileMapper;
+    private final AutomationCodeRequirementFeedbackMapper codeRequirementFeedbackMapper;
     private final AiModelMapper modelMapper;
     private final SkillService skillService;
+    private final AutomationBuildTestExecutionService buildTestExecutionService;
     private final AutomationDeployProfileService deployProfileService;
     private final AutomationDeploymentExecutionService deploymentExecutionService;
     private final CodeQualityService codeQualityService;
@@ -311,6 +332,22 @@ public class AutomationPipelineService {
         if (STAGE_CODE_QUALITY_EVALUATION.equals(stage.getStageKey())) {
             return runCodeQualityEvaluation(pipeline);
         }
+        if ("build_compile".equals(stage.getStageKey())) {
+            AutomationStageRun result = buildTestExecutionService.executeBuild(pipeline, stage);
+            refreshPipelineProgress(pipeline.getId());
+            if (STATUS_SUCCESS.equals(result.getStatus())) {
+                runBuildAndTestStages(pipeline.getId(), "build_compile");
+            }
+            return result;
+        }
+        if ("test_execution".equals(stage.getStageKey())) {
+            AutomationStageRun result = buildTestExecutionService.executeTest(pipeline, stage);
+            refreshPipelineProgress(pipeline.getId());
+            if (STATUS_SUCCESS.equals(result.getStatus()) && isAutoDeployEnabled(requirePipeline(pipeline.getId()))) {
+                runAutoDeployStages(pipeline.getId(), "test_execution");
+            }
+            return result;
+        }
         if (isAutoDeployEnabled(pipeline) && deploymentExecutionService.isDeploymentStage(stage.getStageKey())) {
             AutomationStageRun result = deploymentExecutionService.executeStage(pipeline, stage);
             refreshPipelineProgress(pipeline.getId());
@@ -372,6 +409,12 @@ public class AutomationPipelineService {
                 && outputGovernanceService.hasBlockingRecords(stage.getPipelineId(), stage.getId())) {
             throw new IllegalStateException("当前阶段存在被治理策略阻塞的 AI 产出，请修复后重新生成或重新评估后再审批通过");
         }
+        if (STATUS_SUCCESS.equals(nextStatus) && STAGE_CODE_GENERATION.equals(stage.getStageKey())) {
+            AutomationGeneratedCodeBatch latestBatch = latestCodeBatch(stage.getPipelineId());
+            if (latestBatch != null && isDoubleFailed(latestBatch.getId())) {
+                throw new IllegalStateException("AI 和人工均判定当前生成代码不符合需求，请根据不合格原因重新生成代码。");
+            }
+        }
         approval.setStatus(nextStatus);
         approval.setComment(review.getComment());
         approval.setReviewedBy(review.getReviewedBy());
@@ -387,7 +430,7 @@ public class AutomationPipelineService {
         if (STATUS_SUCCESS.equals(nextStatus) && STAGE_REQUIREMENT_ANALYSIS.equals(stage.getStageKey())) {
             startCodeGeneration(stage.getPipelineId(), true);
         } else if (STATUS_SUCCESS.equals(nextStatus) && STAGE_CODE_GENERATION.equals(stage.getStageKey())) {
-            runAutoDeployStages(stage.getPipelineId(), null);
+            runBuildAndTestStages(stage.getPipelineId(), null);
         }
         return approval;
     }
@@ -416,6 +459,15 @@ public class AutomationPipelineService {
         result.put("artifactPath", stage.getArtifactPath());
         result.put("files", readCodeManifest(stage));
         result.put("errorMessage", stage.getErrorMessage());
+        AutomationGeneratedCodeBatch batch = latestCodeBatch(pipelineId);
+        result.put("batch", batch);
+        result.put("batchId", batch == null ? null : batch.getId());
+        List<AutomationCodeRequirementFeedback> feedbacks = batch == null
+                ? List.of()
+                : listCodeFeedback(pipelineId, batch.getId());
+        result.put("feedbacks", feedbacks);
+        result.put("doubleFailed", batch != null && isDoubleFailed(batch.getId()));
+        result.put("failureSummary", batch == null ? null : doubleFailedSummary(batch.getId()));
         return result;
     }
 
@@ -447,6 +499,57 @@ public class AutomationPipelineService {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read generated code file: " + e.getMessage(), e);
         }
+    }
+
+    public List<AutomationCodeRequirementFeedback> listCodeFeedback(Long pipelineId, Long batchId) {
+        AutomationGeneratedCodeBatch batch = batchId == null ? latestCodeBatch(pipelineId) : requireCodeBatch(pipelineId, batchId);
+        if (batch == null) {
+            return List.of();
+        }
+        return codeRequirementFeedbackMapper.selectList(
+                new LambdaQueryWrapper<AutomationCodeRequirementFeedback>()
+                        .eq(AutomationCodeRequirementFeedback::getPipelineId, pipelineId)
+                        .eq(AutomationCodeRequirementFeedback::getBatchId, batch.getId())
+                        .orderByAsc(AutomationCodeRequirementFeedback::getCreateTime)
+                        .orderByAsc(AutomationCodeRequirementFeedback::getId)
+        );
+    }
+
+    @Transactional
+    public Map<String, Object> submitCodeFeedback(Long pipelineId, AutomationCodeFeedbackRequest request) {
+        AutomationCodeFeedbackRequest feedbackRequest = request == null ? new AutomationCodeFeedbackRequest() : request;
+        AutomationGeneratedCodeBatch batch = requireCodeBatch(pipelineId, feedbackRequest.getBatchId());
+        String status = normalizeFeedbackStatus(feedbackRequest.getAlignmentStatus());
+        if (FEEDBACK_FAILED.equals(status) && isBlank(feedbackRequest.getFailureReason())) {
+            throw new IllegalArgumentException("不合格原因不能为空");
+        }
+        AutomationCodeRequirementFeedback feedback = new AutomationCodeRequirementFeedback();
+        feedback.setBatchId(batch.getId());
+        feedback.setPipelineId(batch.getPipelineId());
+        feedback.setStageRunId(batch.getStageRunId());
+        feedback.setGenerationJobId(batch.getGenerationJobId());
+        feedback.setFeedbackSource(FEEDBACK_SOURCE_MANUAL);
+        feedback.setAlignmentStatus(status);
+        feedback.setAlignmentScore(feedbackRequest.getAlignmentScore());
+        feedback.setSummary(feedbackRequest.getSummary());
+        feedback.setFailureReason(FEEDBACK_FAILED.equals(status)
+                ? defaultFailureReason(feedbackRequest.getFailureReason())
+                : feedbackRequest.getFailureReason());
+        feedback.setDetailJson(feedbackRequest.getDetailJson());
+        feedback.setReviewedBy(feedbackRequest.getReviewedBy());
+        feedback.setCreateTime(LocalDateTime.now());
+        codeRequirementFeedbackMapper.insert(feedback);
+
+        boolean doubleFailed = isDoubleFailed(batch.getId());
+        if (doubleFailed) {
+            blockCodeGenerationForDoubleFailure(batch);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("feedback", feedback);
+        result.put("feedbacks", listCodeFeedback(pipelineId, batch.getId()));
+        result.put("doubleFailed", doubleFailed);
+        result.put("failureSummary", doubleFailedSummary(batch.getId()));
+        return result;
     }
 
     public List<Map<String, Object>> listCodeTemplates() {
@@ -879,14 +982,21 @@ public class AutomationPipelineService {
         stage.setUpdateTime(LocalDateTime.now());
         stageRunMapper.updateById(stage);
         job.setArtifactPath(stage.getArtifactPath());
+        AutomationGeneratedCodeBatch codeBatch = archiveGeneratedCode(pipeline, stage, job, files, manifest);
+        recordAiRequirementFeedback(pipeline, stage, job, codeBatch, prdContent, files);
         AutomationPipeline latestPipeline = requirePipeline(pipelineId);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("fileCount", files.size());
         metadata.put("manifestLength", manifest == null ? 0 : manifest.length());
         metadata.put("codeQualityEnabled", qualityEnabled);
         metadata.put("projectMode", pipeline.getProjectMode());
+        metadata.put("generatedCodeBatchId", codeBatch == null ? null : codeBatch.getId());
         recordAutomationGovernance(latestPipeline, stage, job, "CODE", stage.getArtifactPath(),
                 stage.getOutputSummary(), stage.getAiModelCode(), metadata);
+        if (codeBatch != null && isDoubleFailed(codeBatch.getId())) {
+            appendPipelineMemory(latestPipeline, stage, job, "CODE", prdContent, manifest);
+            return;
+        }
         if (qualityEnabled) {
             runCodeQualityEvaluation(latestPipeline);
         } else {
@@ -1105,6 +1215,297 @@ public class AutomationPipelineService {
             }
         }
         return List.of();
+    }
+
+    private AutomationGeneratedCodeBatch archiveGeneratedCode(AutomationPipeline pipeline, AutomationStageRun stage,
+                                                              AutomationGenerationJob job, List<GeneratedFile> files,
+                                                              String manifest) {
+        LocalDateTime now = LocalDateTime.now();
+        long totalBytes = files.stream().mapToLong(file -> utf8Size(file.content())).sum();
+        AutomationGeneratedCodeBatch batch = new AutomationGeneratedCodeBatch();
+        batch.setPipelineId(pipeline.getId());
+        batch.setStageRunId(stage.getId());
+        batch.setGenerationJobId(job == null ? null : job.getId());
+        batch.setArtifactPath(stage.getArtifactPath());
+        batch.setManifestJson(manifest);
+        batch.setFileCount(files.size());
+        batch.setTotalBytes(totalBytes);
+        batch.setModelCode(stage.getAiModelCode());
+        batch.setCreateTime(now);
+        batch.setUpdateTime(now);
+        generatedCodeBatchMapper.insert(batch);
+
+        int index = 0;
+        for (GeneratedFile file : files) {
+            AutomationGeneratedCodeFile codeFile = new AutomationGeneratedCodeFile();
+            codeFile.setBatchId(batch.getId());
+            codeFile.setPipelineId(pipeline.getId());
+            codeFile.setStageRunId(stage.getId());
+            codeFile.setGenerationJobId(job == null ? null : job.getId());
+            codeFile.setFileIndex(index++);
+            codeFile.setFilePath(file.path());
+            codeFile.setFileType(fileType(file.path()));
+            codeFile.setSizeBytes(utf8Size(file.content()));
+            codeFile.setContentHash(sha256(file.content()));
+            codeFile.setContent(file.content());
+            codeFile.setCreateTime(now);
+            generatedCodeFileMapper.insert(codeFile);
+        }
+        return batch;
+    }
+
+    private void recordAiRequirementFeedback(AutomationPipeline pipeline, AutomationStageRun stage,
+                                             AutomationGenerationJob job, AutomationGeneratedCodeBatch batch,
+                                             String prdContent, List<GeneratedFile> files) {
+        if (batch == null) {
+            return;
+        }
+        AiModel model = resolveRequirementFeedbackModel(pipeline, stage);
+        if (model == null || isBlank(model.getEndpoint()) || isBlank(model.getApiKey())) {
+            saveRequirementFeedback(batch, FEEDBACK_SOURCE_AI, FEEDBACK_ERROR, null,
+                    "AI 需求符合度评价未执行：评价模型未配置。",
+                    null, "{\"reason\":\"model_not_configured\"}", null, null);
+            return;
+        }
+        try {
+            String systemPrompt = "You are a senior software delivery reviewer. Return pure JSON only.";
+            String userPrompt = buildRequirementFeedbackPrompt(pipeline, prdContent, files);
+            ModelCallResult result = callModel(model, systemPrompt, userPrompt);
+            ParsedRequirementFeedback parsed = parseRequirementFeedback(result.content());
+            AutomationCodeRequirementFeedback feedback = saveRequirementFeedback(batch, FEEDBACK_SOURCE_AI, parsed.status(), parsed.score(),
+                    parsed.summary(), parsed.failureReason(), parsed.detailJson(), result.content(), null);
+            if (FEEDBACK_FAILED.equals(feedback.getAlignmentStatus()) && isDoubleFailed(batch.getId())) {
+                blockCodeGenerationForDoubleFailure(batch);
+            }
+        } catch (Exception e) {
+            saveRequirementFeedback(batch, FEEDBACK_SOURCE_AI, FEEDBACK_ERROR, null,
+                    "AI 需求符合度评价失败：" + e.getMessage(),
+                    null, "{\"reason\":\"model_call_failed\"}", e.getMessage(), null);
+        }
+    }
+
+    private AiModel resolveRequirementFeedbackModel(AutomationPipeline pipeline, AutomationStageRun stage) {
+        String modelCode = !isBlank(pipeline.getQualityModelCode()) ? pipeline.getQualityModelCode() : stage.getAiModelCode();
+        if (isBlank(modelCode)) {
+            return null;
+        }
+        return modelMapper.selectOne(new LambdaQueryWrapper<AiModel>()
+                .eq(AiModel::getModelCode, modelCode)
+                .last("LIMIT 1"));
+    }
+
+    private String buildRequirementFeedbackPrompt(AutomationPipeline pipeline, String prdContent, List<GeneratedFile> files) {
+        StringBuilder codeContext = new StringBuilder();
+        for (GeneratedFile file : files) {
+            if (codeContext.length() >= MAX_CODE_PREVIEW_CHARS) {
+                break;
+            }
+            codeContext.append("\n\n--- FILE: ").append(file.path()).append(" ---\n");
+            String content = file.content() == null ? "" : file.content();
+            int remaining = MAX_CODE_PREVIEW_CHARS - codeContext.length();
+            codeContext.append(content, 0, Math.min(content.length(), Math.max(remaining, 0)));
+        }
+        return """
+                请判断本次生成代码是否符合需求，并只返回 JSON。
+                要求：
+                - 评价语言使用中文。
+                - 若 alignmentStatus 为 FAILED，failureReason 必须说明具体不合格原因，例如缺失需求、实现偏差、不可验收点或关键风险。
+                - 不要因为代码片段不完整而直接给 0 分，请基于可见内容客观判断。
+
+                返回结构：
+                {
+                  "alignmentStatus": "PASSED|PARTIAL|FAILED",
+                  "alignmentScore": 0-100,
+                  "summary": "中文摘要",
+                  "failureReason": "不合格时必填",
+                  "missingRequirements": ["缺失需求"],
+                  "mismatches": ["实现偏差"],
+                  "suggestedChanges": ["改进建议"]
+                }
+
+                项目：%s
+                需求标题：%s
+                需求描述：%s
+
+                PRD：
+                %s
+
+                生成代码：
+                %s
+                """.formatted(
+                nullToEmpty(pipeline.getProjectName()),
+                nullToEmpty(pipeline.getRequirementTitle()),
+                nullToEmpty(pipeline.getRequirementSummary()),
+                nullToEmpty(prdContent),
+                codeContext
+        );
+    }
+
+    private ParsedRequirementFeedback parseRequirementFeedback(String rawContent) throws IOException {
+        String json = extractJsonPayload(rawContent == null ? "" : rawContent);
+        JsonNode root = objectMapper.readTree(json);
+        String status = normalizeFeedbackStatus(firstText(root, "alignmentStatus", "alignment_status", "status"));
+        Integer score = root.has("alignmentScore") ? root.path("alignmentScore").asInt()
+                : root.has("alignment_score") ? root.path("alignment_score").asInt() : null;
+        if (score != null) {
+            score = Math.max(0, Math.min(100, score));
+        }
+        String summary = firstText(root, "summary", "comment", "message");
+        String failureReason = FEEDBACK_FAILED.equals(status)
+                ? defaultFailureReason(firstText(root, "failureReason", "failure_reason", "reason"))
+                : firstText(root, "failureReason", "failure_reason", "reason");
+        return new ParsedRequirementFeedback(status, score, summary, failureReason, objectMapper.writeValueAsString(root));
+    }
+
+    private AutomationCodeRequirementFeedback saveRequirementFeedback(AutomationGeneratedCodeBatch batch,
+                                                                      String source,
+                                                                      String status,
+                                                                      Integer score,
+                                                                      String summary,
+                                                                      String failureReason,
+                                                                      String detailJson,
+                                                                      String rawResult,
+                                                                      String reviewedBy) {
+        AutomationCodeRequirementFeedback feedback = new AutomationCodeRequirementFeedback();
+        feedback.setBatchId(batch.getId());
+        feedback.setPipelineId(batch.getPipelineId());
+        feedback.setStageRunId(batch.getStageRunId());
+        feedback.setGenerationJobId(batch.getGenerationJobId());
+        feedback.setFeedbackSource(source);
+        feedback.setAlignmentStatus(normalizeFeedbackStatus(status));
+        feedback.setAlignmentScore(score);
+        feedback.setSummary(summary);
+        feedback.setFailureReason(FEEDBACK_FAILED.equals(feedback.getAlignmentStatus())
+                ? defaultFailureReason(failureReason)
+                : failureReason);
+        feedback.setDetailJson(detailJson);
+        feedback.setRawResult(rawResult);
+        feedback.setReviewedBy(reviewedBy);
+        feedback.setCreateTime(LocalDateTime.now());
+        codeRequirementFeedbackMapper.insert(feedback);
+        return feedback;
+    }
+
+    private AutomationGeneratedCodeBatch latestCodeBatch(Long pipelineId) {
+        return generatedCodeBatchMapper.selectOne(
+                new LambdaQueryWrapper<AutomationGeneratedCodeBatch>()
+                        .eq(AutomationGeneratedCodeBatch::getPipelineId, pipelineId)
+                        .orderByDesc(AutomationGeneratedCodeBatch::getCreateTime)
+                        .orderByDesc(AutomationGeneratedCodeBatch::getId)
+                        .last("LIMIT 1")
+        );
+    }
+
+    private AutomationGeneratedCodeBatch requireCodeBatch(Long pipelineId, Long batchId) {
+        AutomationGeneratedCodeBatch batch = batchId == null ? latestCodeBatch(pipelineId) : generatedCodeBatchMapper.selectById(batchId);
+        if (batch == null || !pipelineId.equals(batch.getPipelineId())) {
+            throw new IllegalArgumentException("Generated code batch does not exist: " + batchId);
+        }
+        return batch;
+    }
+
+    private boolean isDoubleFailed(Long batchId) {
+        AutomationCodeRequirementFeedback ai = latestFeedback(batchId, FEEDBACK_SOURCE_AI);
+        AutomationCodeRequirementFeedback manual = latestFeedback(batchId, FEEDBACK_SOURCE_MANUAL);
+        return ai != null && manual != null
+                && FEEDBACK_FAILED.equals(ai.getAlignmentStatus())
+                && FEEDBACK_FAILED.equals(manual.getAlignmentStatus());
+    }
+
+    private AutomationCodeRequirementFeedback latestFeedback(Long batchId, String source) {
+        return codeRequirementFeedbackMapper.selectOne(
+                new LambdaQueryWrapper<AutomationCodeRequirementFeedback>()
+                        .eq(AutomationCodeRequirementFeedback::getBatchId, batchId)
+                        .eq(AutomationCodeRequirementFeedback::getFeedbackSource, source)
+                        .orderByDesc(AutomationCodeRequirementFeedback::getCreateTime)
+                        .orderByDesc(AutomationCodeRequirementFeedback::getId)
+                        .last("LIMIT 1")
+        );
+    }
+
+    private Map<String, Object> doubleFailedSummary(Long batchId) {
+        AutomationCodeRequirementFeedback ai = latestFeedback(batchId, FEEDBACK_SOURCE_AI);
+        AutomationCodeRequirementFeedback manual = latestFeedback(batchId, FEEDBACK_SOURCE_MANUAL);
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("aiFailureReason", ai == null ? null : ai.getFailureReason());
+        summary.put("manualFailureReason", manual == null ? null : manual.getFailureReason());
+        summary.put("message", isDoubleFailed(batchId)
+                ? "AI 和人工均判定当前生成代码不符合需求，请重新生成代码。"
+                : null);
+        return summary;
+    }
+
+    private void blockCodeGenerationForDoubleFailure(AutomationGeneratedCodeBatch batch) {
+        AutomationStageRun stage = requireStage(batch.getStageRunId());
+        Map<String, Object> summary = doubleFailedSummary(batch.getId());
+        String message = "AI 和人工均判定当前生成代码不符合需求，请重新生成代码。AI原因："
+                + nullToEmpty((String) summary.get("aiFailureReason"))
+                + "；人工原因：" + nullToEmpty((String) summary.get("manualFailureReason"));
+        rejectPendingApprovals(batch.getPipelineId(), batch.getStageRunId(), "Rejected by AI and manual requirement feedback");
+        stage.setStatus(STATUS_REJECTED);
+        stage.setErrorMessage(message);
+        stage.setOutputSummary(message);
+        stage.setUpdateTime(LocalDateTime.now());
+        stageRunMapper.updateById(stage);
+
+        AutomationPipeline pipeline = requirePipeline(batch.getPipelineId());
+        pipeline.setStatus(STATUS_BLOCKED);
+        pipeline.setCurrentStage(STAGE_CODE_GENERATION);
+        pipeline.setUpdateTime(LocalDateTime.now());
+        pipelineMapper.updateById(pipeline);
+        refreshPipelineProgress(batch.getPipelineId());
+    }
+
+    private String normalizeFeedbackStatus(String status) {
+        if (status == null) {
+            return FEEDBACK_PARTIAL;
+        }
+        String normalized = status.trim().toUpperCase();
+        return switch (normalized) {
+            case "PASS", "PASSED", "SUCCESS", "合格" -> FEEDBACK_PASSED;
+            case "PARTIAL", "PARTLY", "部分符合" -> FEEDBACK_PARTIAL;
+            case "FAIL", "FAILED", "REJECTED", "不合格" -> FEEDBACK_FAILED;
+            case "ERROR" -> FEEDBACK_ERROR;
+            default -> throw new IllegalArgumentException("Invalid feedback status: " + status);
+        };
+    }
+
+    private String defaultFailureReason(String value) {
+        return isBlank(value) ? "判定不合格，但未返回具体原因，请人工复核生成代码与需求差异。" : value.trim();
+    }
+
+    private String firstText(JsonNode root, String... fields) {
+        for (String field : fields) {
+            JsonNode value = root.path(field);
+            if (!value.isMissingNode() && !value.isNull() && !value.asText("").isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
+    }
+
+    private String fileType(String path) {
+        String normalized = normalizeRelativePath(path);
+        if (normalized.startsWith("backend/")) {
+            return "backend";
+        }
+        if (normalized.startsWith("front/") || normalized.startsWith("consumer-front/")) {
+            return "front";
+        }
+        return "other";
+    }
+
+    private long utf8Size(String value) {
+        return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest is not available", e);
+        }
     }
 
     private List<GeneratedFile> fallbackCodeFiles(AutomationPipeline pipeline, String prdContent, String reason) {
@@ -1371,8 +1772,8 @@ public class AutomationPipelineService {
         if (!isAutoDeployEnabled(pipeline)) {
             return;
         }
-        List<String> stageKeys = List.of("build_compile", "test_execution", "deployment_release", "operations_monitoring");
-        boolean start = afterStageKey == null;
+        List<String> stageKeys = List.of("deployment_release", "operations_monitoring");
+        boolean start = afterStageKey == null || "test_execution".equals(afterStageKey);
         for (String stageKey : stageKeys) {
             if (!start) {
                 start = stageKey.equals(afterStageKey);
@@ -1391,6 +1792,38 @@ public class AutomationPipelineService {
             if (!STATUS_SUCCESS.equals(result.getStatus())) {
                 break;
             }
+        }
+    }
+
+    private void runBuildAndTestStages(Long pipelineId, String afterStageKey) {
+        List<String> stageKeys = List.of("build_compile", "test_execution");
+        boolean start = afterStageKey == null;
+        for (String stageKey : stageKeys) {
+            if (!start) {
+                start = stageKey.equals(afterStageKey);
+                continue;
+            }
+            AutomationStageRun stage = findStage(pipelineId, stageKey);
+            if (stage == null || STATUS_SUCCESS.equals(stage.getStatus())) {
+                continue;
+            }
+            if (!STATUS_PENDING.equals(stage.getStatus()) && !STATUS_RUNNING.equals(stage.getStatus())
+                    && !STATUS_BLOCKED.equals(stage.getStatus())) {
+                break;
+            }
+            AutomationPipeline pipeline = requirePipeline(pipelineId);
+            AutomationStageRun result = "build_compile".equals(stageKey)
+                    ? buildTestExecutionService.executeBuild(pipeline, stage)
+                    : buildTestExecutionService.executeTest(pipeline, stage);
+            refreshPipelineProgress(pipelineId);
+            if (!STATUS_SUCCESS.equals(result.getStatus())) {
+                break;
+            }
+        }
+        AutomationStageRun testStage = findStage(pipelineId, "test_execution");
+        if (testStage != null && STATUS_SUCCESS.equals(testStage.getStatus())
+                && isAutoDeployEnabled(requirePipeline(pipelineId))) {
+            runAutoDeployStages(pipelineId, "test_execution");
         }
     }
 
@@ -2014,6 +2447,10 @@ public class AutomationPipelineService {
         return value == null || value.isBlank();
     }
 
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
     private double round(double value) {
         return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
     }
@@ -2042,6 +2479,10 @@ public class AutomationPipelineService {
     }
 
     private record GeneratedFile(String path, String content) {
+    }
+
+    private record ParsedRequirementFeedback(String status, Integer score, String summary, String failureReason,
+                                             String detailJson) {
     }
 
     private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {

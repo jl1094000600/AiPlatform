@@ -444,6 +444,12 @@ export default {
   getAutomationCodeFile(pipelineId, path) {
     return api.get('/automation/pipelines/' + pipelineId + '/code-file', { params: { path } })
   },
+  getAutomationCodeFeedback(pipelineId, batchId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/code-feedback', { params: { batchId } })
+  },
+  submitAutomationCodeFeedback(pipelineId, data) {
+    return api.post('/automation/pipelines/' + pipelineId + '/code-feedback', data)
+  },
   getAutomationCodeTemplates() {
     return api.get('/automation/code-templates')
   },
@@ -494,6 +500,12 @@ export default {
   },
   getAutomationDeployRuns(pipelineId) {
     return api.get('/automation/pipelines/' + pipelineId + '/deploy-runs')
+  },
+  getAutomationBuildRuns(pipelineId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/build-runs')
+  },
+  getAutomationTestRuns(pipelineId) {
+    return api.get('/automation/pipelines/' + pipelineId + '/test-runs')
   },
   getCodeQualityStandards(params) {
     return api.get('/code-quality/standards', { params })

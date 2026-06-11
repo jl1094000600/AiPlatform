@@ -118,6 +118,38 @@
             </div>
           </div>
         </div>
+        <div v-if="buildRuns.length" class="deploy-runs">
+          <h4>构建编译记录</h4>
+          <div v-for="run in buildRuns" :key="run.id" class="deploy-run">
+            <div class="deploy-run-head">
+              <strong>{{ run.commandText || '未配置构建命令' }}</strong>
+              <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
+            </div>
+            <div class="deploy-run-meta">
+              <span>工作目录：{{ run.workDir || '-' }}</span>
+              <span>退出码：{{ run.exitCode ?? '-' }}</span>
+              <span>耗时：{{ run.durationMs || 0 }} ms</span>
+            </div>
+            <pre>{{ run.commandLog || run.errorMessage || '-' }}</pre>
+          </div>
+        </div>
+        <div v-if="testRuns.length" class="deploy-runs">
+          <h4>测试执行记录</h4>
+          <div v-for="run in testRuns" :key="run.id" class="deploy-run">
+            <div class="deploy-run-head">
+              <strong>{{ run.commandText || '未配置测试命令' }}</strong>
+              <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
+            </div>
+            <div class="deploy-run-meta">
+              <span>工作目录：{{ run.workDir || '-' }}</span>
+              <span>通过/失败/跳过：{{ run.passedCount || 0 }}/{{ run.failedCount || 0 }}/{{ run.skippedCount || 0 }}</span>
+              <span>总数：{{ run.totalCount || 0 }}</span>
+              <span>退出码：{{ run.exitCode ?? '-' }}</span>
+              <span>耗时：{{ run.durationMs || 0 }} ms</span>
+            </div>
+            <pre>{{ run.commandLog || run.errorMessage || '-' }}</pre>
+          </div>
+        </div>
         <div v-if="deployRuns.length" class="deploy-runs">
           <h4>部署执行记录</h4>
           <div v-for="run in deployRuns" :key="run.id" class="deploy-run">
@@ -362,7 +394,52 @@
     <el-dialog v-model="codeVisible" :title="t('automation.generatedCode')" width="980px" :close-on-click-modal="false">
       <div class="code-meta">
         <span>{{ t('common.status') }}：{{ statusText(codeTree.status || 'PENDING') }}</span>
+        <span v-if="codeTree.batchId">批次：{{ codeTree.batchId }}</span>
         <span v-if="codeTree.artifactPath">{{ t('automation.directory') }}：{{ codeTree.artifactPath }}</span>
+      </div>
+      <div v-if="codeTree.batchId" class="code-feedback-panel">
+        <el-alert
+          v-if="codeTree.doubleFailed"
+          type="error"
+          :closable="false"
+          title="AI 和人工均判定当前代码不符合需求，请重新生成代码。"
+        >
+          <div class="failure-reasons">
+            <p v-if="codeTree.failureSummary?.aiFailureReason">AI原因：{{ codeTree.failureSummary.aiFailureReason }}</p>
+            <p v-if="codeTree.failureSummary?.manualFailureReason">人工原因：{{ codeTree.failureSummary.manualFailureReason }}</p>
+          </div>
+        </el-alert>
+        <div v-if="codeFeedbacks.length" class="feedback-list">
+          <div v-for="feedback in codeFeedbacks" :key="feedback.id" class="feedback-item">
+            <div class="feedback-head">
+              <strong>{{ feedbackSourceLabel(feedback.feedbackSource) }}</strong>
+              <el-tag size="small" :type="feedbackStatusType(feedback.alignmentStatus)">
+                {{ feedbackStatusText(feedback.alignmentStatus) }}
+              </el-tag>
+              <span v-if="feedback.alignmentScore !== null && feedback.alignmentScore !== undefined">
+                {{ feedback.alignmentScore }} / 100
+              </span>
+            </div>
+            <p>{{ feedback.summary || '-' }}</p>
+            <small v-if="feedback.failureReason">不合格原因：{{ feedback.failureReason }}</small>
+          </div>
+        </div>
+        <div class="manual-feedback-form">
+          <el-select v-model="codeFeedbackForm.alignmentStatus" size="small" style="width: 150px">
+            <el-option label="合格" value="PASSED" />
+            <el-option label="部分符合" value="PARTIAL" />
+            <el-option label="不合格" value="FAILED" />
+          </el-select>
+          <el-input-number v-model="codeFeedbackForm.alignmentScore" size="small" :min="0" :max="100" />
+          <el-input v-model="codeFeedbackForm.summary" size="small" placeholder="人工反馈说明" />
+          <el-input
+            v-if="codeFeedbackForm.alignmentStatus === 'FAILED'"
+            v-model="codeFeedbackForm.failureReason"
+            size="small"
+            placeholder="不合格原因（必填）"
+          />
+          <el-button size="small" type="primary" :loading="feedbackSubmitting" @click="submitCodeFeedback">提交反馈</el-button>
+        </div>
       </div>
       <div v-if="codeTree.status === 'QUEUED' || codeTree.status === 'RUNNING'" class="code-generating">
         <el-icon class="is-loading"><Loading /></el-icon>
@@ -419,6 +496,8 @@ const models = ref([])
 const skills = ref([])
 const deployProfiles = ref([])
 const deployRuns = ref([])
+const buildRuns = ref([])
+const testRuns = ref([])
 const codeQualityStandards = ref([])
 const codeQualityRuns = ref([])
 const prdTemplates = ref([])
@@ -442,6 +521,14 @@ const selectedCodeFile = ref('')
 const codeContent = ref('')
 const codeLoading = ref(false)
 const codeTruncated = ref(false)
+const codeFeedbacks = ref([])
+const feedbackSubmitting = ref(false)
+const codeFeedbackForm = reactive({
+  alignmentStatus: 'PASSED',
+  alignmentScore: 80,
+  summary: '',
+  failureReason: ''
+})
 let detailPollTimer = null
 const detail = reactive({ pipeline: null, stages: [], approvals: [] })
 const currentUsername = () => {
@@ -805,11 +892,15 @@ const openDetail = async (row, keepDrawer = true) => {
   const res = await api.getAutomationPipeline(row.id)
   Object.assign(detail, res.data.data || { pipeline: null, stages: [], approvals: [] })
   if (detail.pipeline?.id) {
-    const [deployRes, qualityRes] = await Promise.all([
+    const [deployRes, buildRes, testRes, qualityRes] = await Promise.all([
       api.getAutomationDeployRuns(detail.pipeline.id),
+      api.getAutomationBuildRuns(detail.pipeline.id),
+      api.getAutomationTestRuns(detail.pipeline.id),
       api.getAutomationCodeQualityRuns(detail.pipeline.id)
     ])
     deployRuns.value = deployRes.data?.data || []
+    buildRuns.value = buildRes.data?.data || []
+    testRuns.value = testRes.data?.data || []
     const runs = qualityRes.data?.data || []
     codeQualityRuns.value = await Promise.all(runs.map(async run => {
       try {
@@ -824,6 +915,8 @@ const openDetail = async (row, keepDrawer = true) => {
     }))
   } else {
     deployRuns.value = []
+    buildRuns.value = []
+    testRuns.value = []
     codeQualityRuns.value = []
   }
   if (keepDrawer) {
@@ -949,6 +1042,7 @@ const refreshCodeTree = async (pipelineId) => {
   const res = await api.getAutomationCodeTree(pipelineId)
   codeTree.value = res.data.data || {}
   codeFiles.value = codeTree.value.files || []
+  codeFeedbacks.value = codeTree.value.feedbacks || []
 }
 
 const selectCodeFile = async (file) => {
@@ -988,6 +1082,58 @@ const submitCodeReview = async (status) => {
   if (detail.pipeline) {
     await openDetail(detail.pipeline)
   }
+}
+
+const submitCodeFeedback = async () => {
+  const pipelineId = codeTree.value?.pipelineId || detail.pipeline?.id
+  if (!pipelineId || !codeTree.value?.batchId) return
+  if (codeFeedbackForm.alignmentStatus === 'FAILED' && !codeFeedbackForm.failureReason.trim()) {
+    ElMessage.warning('请填写不合格原因')
+    return
+  }
+  feedbackSubmitting.value = true
+  try {
+    await api.submitAutomationCodeFeedback(pipelineId, {
+      batchId: codeTree.value.batchId,
+      alignmentStatus: codeFeedbackForm.alignmentStatus,
+      alignmentScore: codeFeedbackForm.alignmentScore,
+      summary: codeFeedbackForm.summary,
+      failureReason: codeFeedbackForm.failureReason,
+      reviewedBy: currentUsername()
+    })
+    ElMessage.success('反馈已提交')
+    codeFeedbackForm.summary = ''
+    codeFeedbackForm.failureReason = ''
+    await refreshCodeTree(pipelineId)
+    if (detail.pipeline) {
+      await openDetail(detail.pipeline)
+    }
+  } finally {
+    feedbackSubmitting.value = false
+  }
+}
+
+const feedbackSourceLabel = (source) => {
+  if (source === 'AI') return 'AI评价'
+  if (source === 'MANUAL') return '人工反馈'
+  return source || '-'
+}
+
+const feedbackStatusText = (status) => {
+  const map = {
+    PASSED: '合格',
+    PARTIAL: '部分符合',
+    FAILED: '不合格',
+    ERROR: '评价失败'
+  }
+  return map[status] || status || '-'
+}
+
+const feedbackStatusType = (status) => {
+  if (status === 'PASSED') return 'success'
+  if (status === 'FAILED' || status === 'ERROR') return 'danger'
+  if (status === 'PARTIAL') return 'warning'
+  return 'info'
 }
 
 const formatBytes = (value) => {
@@ -1080,6 +1226,14 @@ onUnmounted(stopDetailPolling)
 .quality-issue p { margin: 0; color: #374151; font-size: 12px; }
 .prd-meta { color: var(--text-muted); margin-bottom: 12px; font-size: 13px; word-break: break-all; }
 .code-meta { display: flex; flex-direction: column; gap: 6px; color: var(--text-muted); font-size: 13px; margin-bottom: 12px; word-break: break-all; }
+.code-feedback-panel { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #f8fafc; display: flex; flex-direction: column; gap: 10px; }
+.failure-reasons p { margin: 4px 0 0; }
+.feedback-list { display: grid; gap: 8px; }
+.feedback-item { background: #fff; border: 1px solid var(--border-color); border-radius: 6px; padding: 9px 10px; }
+.feedback-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.feedback-item p { margin: 6px 0; color: #374151; }
+.feedback-item small { color: #b45309; }
+.manual-feedback-form { display: grid; grid-template-columns: auto auto minmax(180px, 1fr) minmax(180px, 1fr) auto; gap: 8px; align-items: center; }
 .code-generating { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }
 .code-layout { display: grid; grid-template-columns: 290px 1fr; gap: 14px; min-height: 520px; }
 .code-files { border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; overflow: auto; background: #f8fafc; }
@@ -1095,6 +1249,7 @@ onUnmounted(stopDetailPolling)
   .summary-grid { grid-template-columns: repeat(2, 1fr); }
   .code-layout { grid-template-columns: 1fr; }
   .code-files { max-height: 220px; }
+  .manual-feedback-form { grid-template-columns: 1fr; }
   .form-grid, .template-toolbar { grid-template-columns: 1fr; }
   .inline-field { flex-direction: column; }
 }

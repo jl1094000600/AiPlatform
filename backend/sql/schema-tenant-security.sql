@@ -130,15 +130,20 @@ CALL add_column_if_missing('ai_workflow_execution', 'tenant_id', 'BIGINT NOT NUL
 CALL add_column_if_missing('alert_event', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('alert_rule', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_approval', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
+CALL add_column_if_missing('automation_build_run', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
+CALL add_column_if_missing('automation_code_requirement_feedback', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_code_quality_issue', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_code_quality_evidence', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_code_quality_run', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_deploy_profile', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_deploy_run', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
+CALL add_column_if_missing('automation_generated_code_batch', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
+CALL add_column_if_missing('automation_generated_code_file', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_generation_job', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_pipeline', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_report_snapshot', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('automation_stage_run', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
+CALL add_column_if_missing('automation_test_run', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('billing_balance_transaction', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('billing_budget', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
 CALL add_column_if_missing('billing_usage_daily', 'tenant_id', 'BIGINT NOT NULL DEFAULT 1');
@@ -161,7 +166,18 @@ CALL add_column_if_missing('rag_ingestion_record', 'tenant_id', 'BIGINT NOT NULL
 DROP PROCEDURE add_column_if_missing;
 
 INSERT IGNORE INTO sys_tenant (id, tenant_code, tenant_name, status)
-VALUES (1, 'think_land', 'Think Land', 1);
+VALUES (1, 'aiplatform', 'AIPlatform', 1);
+
+UPDATE sys_tenant
+SET tenant_code = CASE
+        WHEN tenant_code = 'think_land'
+         AND NOT EXISTS (SELECT 1 FROM (SELECT id FROM sys_tenant WHERE tenant_code = 'aiplatform' AND id <> 1) existing_tenant)
+        THEN 'aiplatform'
+        ELSE tenant_code
+    END,
+    tenant_name = 'AIPlatform'
+WHERE id = 1
+  AND (tenant_code = 'think_land' OR tenant_name = 'Think Land');
 
 UPDATE sys_user SET default_tenant_id = 1 WHERE default_tenant_id IS NULL;
 
@@ -235,15 +251,20 @@ CALL migrate_tenant_data_if_exists('ai_workflow_execution');
 CALL migrate_tenant_data_if_exists('alert_event');
 CALL migrate_tenant_data_if_exists('alert_rule');
 CALL migrate_tenant_data_if_exists('automation_approval');
+CALL migrate_tenant_data_if_exists('automation_build_run');
+CALL migrate_tenant_data_if_exists('automation_code_requirement_feedback');
 CALL migrate_tenant_data_if_exists('automation_code_quality_issue');
 CALL migrate_tenant_data_if_exists('automation_code_quality_evidence');
 CALL migrate_tenant_data_if_exists('automation_code_quality_run');
 CALL migrate_tenant_data_if_exists('automation_deploy_profile');
 CALL migrate_tenant_data_if_exists('automation_deploy_run');
+CALL migrate_tenant_data_if_exists('automation_generated_code_batch');
+CALL migrate_tenant_data_if_exists('automation_generated_code_file');
 CALL migrate_tenant_data_if_exists('automation_generation_job');
 CALL migrate_tenant_data_if_exists('automation_pipeline');
 CALL migrate_tenant_data_if_exists('automation_report_snapshot');
 CALL migrate_tenant_data_if_exists('automation_stage_run');
+CALL migrate_tenant_data_if_exists('automation_test_run');
 CALL migrate_tenant_data_if_exists('billing_balance_transaction');
 CALL migrate_tenant_data_if_exists('billing_budget');
 CALL migrate_tenant_data_if_exists('billing_usage_daily');

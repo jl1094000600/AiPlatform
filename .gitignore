@@ -4,6 +4,13 @@
 
 # Claude
 .claude/
+.superpowers/
+
+# Temporary README capture failures
+docs/assets/readme/dashboard.png
+docs/assets/readme/dashboard-v*.png
+docs/assets/readme/dashboard-proxy.png
+docs/assets/readme/agent-graph.png
 
 # Logs
 *.log
@@ -21,6 +28,10 @@ marketDoc/generated-code/
 marketDoc/generated-prd/
 bge-m3-training/runs/
 bge-m3-training/output/
+chroma/chroma.sqlite3
+chroma/chroma.sqlite3-*
+chroma/*/
+front/.vite-*/
 
 # Test
 src/test/

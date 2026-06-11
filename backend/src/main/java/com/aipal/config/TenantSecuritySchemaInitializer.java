@@ -15,8 +15,8 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class TenantSecuritySchemaInitializer {
-    private static final String DEFAULT_TENANT_CODE = "think_land";
-    private static final String DEFAULT_TENANT_NAME = "Think Land";
+    private static final String DEFAULT_TENANT_CODE = "aiplatform";
+    private static final String DEFAULT_TENANT_NAME = "AIPlatform";
     private final DataSource dataSource;
 
     @PostConstruct
@@ -153,10 +153,11 @@ public class TenantSecuritySchemaInitializer {
                 "ai_dataset", "ai_evaluation", "ai_evaluation_criteria", "ai_model",
                 "ai_output_governance_record", "ai_skill", "ai_tts_config", "ai_tts_task",
                 "ai_user_memory", "ai_workflow", "ai_workflow_execution", "alert_event",
-                "alert_rule", "automation_approval", "automation_code_quality_issue",
+                "alert_rule", "automation_approval", "automation_build_run", "automation_code_requirement_feedback", "automation_code_quality_issue",
                 "automation_code_quality_evidence", "automation_code_quality_run", "automation_deploy_profile",
-                "automation_deploy_run", "automation_generation_job", "automation_pipeline",
-                "automation_report_snapshot", "automation_stage_run", "billing_balance_transaction", "billing_budget",
+                "automation_deploy_run", "automation_generated_code_batch", "automation_generated_code_file",
+                "automation_generation_job", "automation_pipeline",
+                "automation_report_snapshot", "automation_stage_run", "automation_test_run", "billing_balance_transaction", "billing_budget",
                 "billing_usage_daily", "biz_agent_auth", "biz_customer", "biz_module",
                 "code_quality_rule", "code_quality_standard", "lowcode_invocation_record",
                 "mon_api_metrics", "mon_call_record", "prompt_engineering_eval_result",
@@ -168,6 +169,18 @@ public class TenantSecuritySchemaInitializer {
 
     private void seedDefaultTenant(Statement statement) throws SQLException {
         statement.executeUpdate("INSERT IGNORE INTO sys_tenant (id, tenant_code, tenant_name, status) VALUES (1, '" + DEFAULT_TENANT_CODE + "', '" + DEFAULT_TENANT_NAME + "', 1)");
+        statement.executeUpdate("""
+                UPDATE sys_tenant
+                SET tenant_code = CASE
+                        WHEN tenant_code = 'think_land'
+                         AND NOT EXISTS (SELECT 1 FROM (SELECT id FROM sys_tenant WHERE tenant_code = 'aiplatform' AND id <> 1) existing_tenant)
+                        THEN 'aiplatform'
+                        ELSE tenant_code
+                    END,
+                    tenant_name = 'AIPlatform'
+                WHERE id = 1
+                  AND (tenant_code = 'think_land' OR tenant_name = 'Think Land')
+                """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_user (id, username, password, real_name, default_tenant_id, platform_admin, status)
                 VALUES (1, 'admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', '系统管理员', 1, 1, 1)

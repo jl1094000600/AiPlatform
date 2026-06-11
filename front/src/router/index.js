@@ -71,13 +71,20 @@ async function refreshAuthState(token) {
 }
 
 // 路由守卫：未登录则重定向到登录页
+function hasLegacyThinkLandTenant(user) {
+  const currentName = user?.tenant?.tenantName
+  const tenantNames = Array.isArray(user?.tenants) ? user.tenants.map(tenant => tenant?.tenantName) : []
+  return currentName === 'Think Land' || tenantNames.includes('Think Land')
+}
+
 router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token')
   if (to.path !== '/login' && !token) {
     next('/login')
     return
   }
-  if (to.path !== '/login' && token && !hasCompleteAuthState(readStoredUser())) {
+  const storedUser = readStoredUser()
+  if (to.path !== '/login' && token && (!hasCompleteAuthState(storedUser) || hasLegacyThinkLandTenant(storedUser))) {
     try {
       await refreshAuthState(token)
     } catch {
