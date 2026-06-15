@@ -12,6 +12,11 @@ docs/assets/readme/dashboard-v*.png
 docs/assets/readme/dashboard-proxy.png
 docs/assets/readme/agent-graph.png
 
+# Local-only documentation (not pushed to remote, kept on disk for reference)
+QA/
+docs/
+marketDoc/
+
 # Logs
 *.log
 logs/
@@ -23,6 +28,7 @@ node_modules/
 # Build
 dist/
 build/
+.tmp-build*/
 *.class
 marketDoc/generated-code/
 marketDoc/generated-prd/
