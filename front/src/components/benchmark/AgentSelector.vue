@@ -143,7 +143,8 @@ import api from '../../api'
 import { hasPermission } from '../../utils/permissions'
 
 const props = defineProps({
-  datasetId: [String, Number]
+  datasetId: [String, Number],
+  criteriaCode: String
 })
 
 const emit = defineEmits(['back', 'next'])
@@ -153,6 +154,9 @@ const loading = ref(false)
 const selectedAgents = ref([])
 const isRunning = ref(false)
 const benchmarkId = ref(null)
+const evaluationIds = ref([])
+const batchCode = ref(null)
+let elapsedTimer = null
 
 const config = ref({
   sampleCount: 10,
@@ -236,14 +240,15 @@ const handleStart = async () => {
   }
 
   const startTime = Date.now()
-  const elapsedTimer = setInterval(() => {
+  elapsedTimer = setInterval(() => {
     progress.value.elapsed = Math.floor((Date.now() - startTime) / 1000)
   }, 1000)
 
   try {
-    const res = await api.startBenchmark({
-      datasetId: props.datasetId,
+    const res = await api.startBatchBenchmark({
+      datasetIds: [Number(props.datasetId)],
       agentIds: selectedAgents.value.map(a => a.id),
+      criteriaCode: props.criteriaCode,
       sampleCount: config.value.sampleCount,
       timeout: config.value.timeout,
       retryCount: config.value.retryCount,
@@ -251,7 +256,7 @@ const handleStart = async () => {
     })
 
     if (res.data.code === 200) {
-      benchmarkId.value = res.data.data.benchmarkId
+      batchCode.value = res.data.data
       ElMessage.success('测评任务已启动')
 
       pollProgress()
@@ -263,7 +268,7 @@ const handleStart = async () => {
     ElMessage.error('启动测评失败')
     isRunning.value = false
   } finally {
-    clearInterval(elapsedTimer)
+    if (!isRunning.value && elapsedTimer) clearInterval(elapsedTimer)
   }
 }
 
@@ -275,21 +280,28 @@ const pollProgress = () => {
     }
 
     try {
-      const res = await api.getBenchmarkProgress(benchmarkId.value)
+      const res = await api.getBatchEvaluations(batchCode.value)
       if (res.data.code === 200) {
-        const data = res.data.data
-        progress.value.completed = data.completed || 0
-        progress.value.running = data.running || 0
-        progress.value.failed = data.failed || 0
-        progress.value.total = data.total || progress.value.total
-        progress.value.percentage = data.percentage || 0
-        currentAgent.value = data.currentAgent || ''
+        const evaluations = res.data.data || []
+        evaluationIds.value = evaluations.map(item => item.id)
+        if (evaluationIds.value.length > 0) benchmarkId.value = evaluationIds.value[0]
+        const completed = evaluations.reduce((sum, item) => sum + (item.completedSamples || 0), 0)
+        const failed = evaluations.reduce((sum, item) => sum + (item.failedSamples || 0), 0)
+        const total = evaluations.reduce((sum, item) => sum + (item.totalSamples || 0), 0)
+        const terminal = evaluations.filter(item => [2, 3, 4].includes(item.status)).length
+        progress.value.completed = completed
+        progress.value.failed = failed
+        progress.value.running = Math.max(total - completed, 0)
+        progress.value.total = total || progress.value.total
+        progress.value.percentage = total ? Math.round(completed * 100 / total) : 0
+        currentAgent.value = `${terminal}/${evaluations.length} 个 Agent 已结束`
 
-        if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+        if (evaluations.length > 0 && terminal === evaluations.length) {
           isRunning.value = false
+          if (elapsedTimer) clearInterval(elapsedTimer)
           clearInterval(pollTimer)
 
-          if (data.status === 'COMPLETED') {
+          if (evaluations.some(item => item.status === 2)) {
             ElMessage.success('测评已完成')
           } else {
             ElMessage.error('测评失败')
@@ -308,7 +320,11 @@ const handleBack = () => {
 
 const handleProceed = () => {
   if (benchmarkId.value) {
-    emit('next', { benchmarkId: benchmarkId.value })
+    emit('next', {
+      benchmarkId: benchmarkId.value,
+      evaluationIds: evaluationIds.value,
+      batchCode: batchCode.value
+    })
   }
 }
 

@@ -20,6 +20,7 @@ import com.aipal.mapper.AutomationGeneratedCodeBatchMapper;
 import com.aipal.mapper.AutomationGeneratedCodeFileMapper;
 import com.aipal.mapper.AutomationPipelineMapper;
 import com.aipal.mapper.AutomationStageRunMapper;
+import com.aipal.security.TenantTaskRunner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -27,6 +28,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,7 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 @RequiredArgsConstructor
@@ -110,6 +113,13 @@ public class AutomationPipelineService {
     private final AiOutputGovernanceService outputGovernanceService;
     private final UserMemoryService userMemoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Autowired
+    private TenantTaskRunner tenantTaskRunner;
+
+    @Autowired
+    @Qualifier("tenantAwareExecutor")
+    private Executor tenantAwareExecutor;
 
     public Page<AutomationPipeline> listPipelines(int pageNum, int pageSize, String status) {
         LambdaQueryWrapper<AutomationPipeline> wrapper = new LambdaQueryWrapper<AutomationPipeline>()
@@ -884,8 +894,13 @@ public class AutomationPipelineService {
         return stage;
     }
 
-    @Scheduled(fixedDelay = 2000)
+    @Scheduled(fixedDelayString = "${aipal.scheduling.automation-delay-ms:2000}",
+            initialDelayString = "${aipal.scheduling.initial-delay-ms:5000}")
     public void dispatchGenerationJobs() {
+        tenantTaskRunner.forEachActiveTenant("automation-generation", tenant -> dispatchGenerationJobsForCurrentTenant());
+    }
+
+    private void dispatchGenerationJobsForCurrentTenant() {
         Long runningCount = generationJobMapper.selectCount(
                 new LambdaQueryWrapper<AutomationGenerationJob>().eq(AutomationGenerationJob::getStatus, STATUS_RUNNING)
         );
@@ -912,7 +927,7 @@ public class AutomationPipelineService {
                         .eq(AutomationGenerationJob::getStatus, STATUS_QUEUED)
         );
         if (claimed == 1) {
-            CompletableFuture.runAsync(() -> processGenerationJob(job.getId()));
+            tenantAwareExecutor.execute(() -> processGenerationJob(job.getId()));
         }
     }
 

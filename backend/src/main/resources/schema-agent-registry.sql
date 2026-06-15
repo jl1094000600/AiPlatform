@@ -1,6 +1,7 @@
 -- Agent注册表
 CREATE TABLE IF NOT EXISTS ai_agent_registration (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
     agent_code VARCHAR(64) NOT NULL COMMENT 'Agent编码',
     agent_name VARCHAR(128) NOT NULL COMMENT 'Agent名称',
     description VARCHAR(512) COMMENT '能力描述',
@@ -21,7 +22,8 @@ CREATE TABLE IF NOT EXISTS ai_agent_registration (
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     is_deleted TINYINT DEFAULT 0,
-    UNIQUE KEY uk_agent_instance (agent_code, instance_id),
+    UNIQUE KEY uk_agent_instance (tenant_id, agent_code, instance_id),
+    INDEX idx_agent_registration_tenant (tenant_id),
     INDEX idx_status (status),
     INDEX idx_registry_type (registry_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -29,6 +31,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_registration (
 -- Agent注册事件表
 CREATE TABLE IF NOT EXISTS ai_agent_registration_event (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
     agent_code VARCHAR(64) NOT NULL COMMENT 'Agent编码',
     instance_id VARCHAR(64) NOT NULL DEFAULT 'default',
     event_type VARCHAR(32) NOT NULL COMMENT '事件类型',
@@ -44,6 +47,7 @@ CREATE TABLE IF NOT EXISTS ai_agent_registration_event (
 -- 编排配置表
 CREATE TABLE IF NOT EXISTS ai_workflow (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
     workflow_code VARCHAR(64) NOT NULL COMMENT '编排编码',
     workflow_name VARCHAR(128) NOT NULL COMMENT '编排名称',
     description VARCHAR(512) COMMENT '编排描述',
@@ -57,7 +61,8 @@ CREATE TABLE IF NOT EXISTS ai_workflow (
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     is_deleted TINYINT DEFAULT 0,
-    UNIQUE KEY uk_workflow_code (workflow_code),
+    UNIQUE KEY uk_workflow_code (tenant_id, workflow_code),
+    INDEX idx_workflow_tenant (tenant_id),
     INDEX idx_trigger_type (trigger_type),
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -65,6 +70,7 @@ CREATE TABLE IF NOT EXISTS ai_workflow (
 -- 编排执行记录表
 CREATE TABLE IF NOT EXISTS ai_workflow_execution (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id BIGINT NOT NULL DEFAULT 1,
     execution_id VARCHAR(64) NOT NULL COMMENT '执行ID',
     workflow_id BIGINT NOT NULL COMMENT '编排ID',
     trigger_type VARCHAR(16) NOT NULL COMMENT '触发类型',
@@ -78,6 +84,7 @@ CREATE TABLE IF NOT EXISTS ai_workflow_execution (
     end_time DATETIME COMMENT '结束时间',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_execution_id (execution_id),
+    INDEX idx_workflow_execution_tenant (tenant_id),
     INDEX idx_workflow_status (workflow_id, status),
     INDEX idx_trigger_type (trigger_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

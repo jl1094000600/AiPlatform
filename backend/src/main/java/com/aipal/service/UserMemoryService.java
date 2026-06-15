@@ -4,12 +4,15 @@ import com.aipal.entity.AiModel;
 import com.aipal.entity.AiUserMemory;
 import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.AiUserMemoryMapper;
+import com.aipal.security.TenantContext;
+import com.aipal.security.TenantTaskRunner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -41,6 +44,9 @@ public class UserMemoryService {
     private final AiModelMapper modelMapper;
     private final ObjectMapper objectMapper;
 
+    @Autowired
+    private TenantTaskRunner tenantTaskRunner;
+
     public void appendPipelineMemory(String userKey, Long userId, String username,
                                      Long pipelineId, Long stageRunId, String stage,
                                      String inputSummary, String outputSummary,
@@ -67,7 +73,7 @@ public class UserMemoryService {
             redisTemplate.opsForList().rightPush(key, item);
             redisTemplate.opsForList().trim(key, -MAX_SHORT_MEMORY_ITEMS, -1);
             redisTemplate.expire(key, 8, TimeUnit.HOURS);
-            redisTemplate.opsForSet().add(MEMORY_USER_SET, effectiveUserKey);
+            redisTemplate.opsForSet().add(memoryUserSetKey(), effectiveUserKey);
         } catch (RuntimeException e) {
             log.warn("Failed to append short-term user memory for {}: {}", effectiveUserKey, e.getMessage());
         }
@@ -118,9 +124,13 @@ public class UserMemoryService {
 
     @Scheduled(fixedRate = 14_400_000, initialDelay = 120_000)
     public void compressAllShortMemories() {
+        tenantTaskRunner.forEachActiveTenant("user-memory-compression", tenant -> compressCurrentTenantMemories());
+    }
+
+    private void compressCurrentTenantMemories() {
         Set<Object> userKeys;
         try {
-            userKeys = redisTemplate.opsForSet().members(MEMORY_USER_SET);
+            userKeys = redisTemplate.opsForSet().members(memoryUserSetKey());
         } catch (RuntimeException e) {
             log.warn("Failed to scan user memory keys: {}", e.getMessage());
             return;
@@ -274,7 +284,12 @@ public class UserMemoryService {
     }
 
     private String shortMemoryKey(String userKey) {
-        return SHORT_MEMORY_PREFIX + userKey.replaceAll("[^a-zA-Z0-9:_-]", "_");
+        return SHORT_MEMORY_PREFIX + TenantContext.tenantId() + ":"
+                + userKey.replaceAll("[^a-zA-Z0-9:_-]", "_");
+    }
+
+    private String memoryUserSetKey() {
+        return MEMORY_USER_SET + ":" + TenantContext.tenantId();
     }
 
     private String truncate(String value, int maxLength) {

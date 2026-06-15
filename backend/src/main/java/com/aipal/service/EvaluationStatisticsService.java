@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -19,6 +20,14 @@ public class EvaluationStatisticsService {
     private final AiEvaluationMapper evaluationMapper;
 
     public Map<String, Object> getEvaluationStatistics(Long datasetId, Long agentId, String timeRange) {
+        return getEvaluationStatistics(datasetId, agentId, timeRange, null, null);
+    }
+
+    public Map<String, Object> getEvaluationStatistics(Long datasetId, Long agentId, String timeRange,
+                                                       LocalDate startDate, LocalDate endDate) {
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("startDate must not be after endDate");
+        }
         Map<String, Object> stats = new HashMap<>();
 
         QueryWrapper<AiEvaluation> wrapper = new QueryWrapper<>();
@@ -28,7 +37,13 @@ public class EvaluationStatisticsService {
         if (agentId != null) {
             wrapper.eq("agent_id", agentId);
         }
-        if (timeRange != null) {
+        if (startDate != null) {
+            wrapper.ge("create_time", startDate.atStartOfDay());
+        }
+        if (endDate != null) {
+            wrapper.lt("create_time", endDate.plusDays(1).atStartOfDay());
+        }
+        if (startDate == null && endDate == null && timeRange != null && !timeRange.isBlank()) {
             LocalDateTime startTime = parseTimeRange(timeRange);
             wrapper.ge("create_time", startTime);
         }

@@ -331,12 +331,5 @@ INSERT INTO sys_role (role_code, role_name, description) VALUES
 ('MODULE_OWNER', '业务模块负责人', '负责所辖业务模块的Agent调用授权'),
 ('NORMAL_USER', '普通用户', '基础查看权限');
 
--- ===============================================
--- 初始化管理员用户（密码: admin123，SHA256加密）
--- admin123 的 SHA256 = 240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9
--- ===============================================
-INSERT INTO sys_user (username, password, real_name, email, status) VALUES
-('admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', '系统管理员', 'admin@example.com', 1);
-
--- 关联管理员与系统管理员角色
-INSERT INTO sys_user_role (user_id, role_id) SELECT id, (SELECT id FROM sys_role WHERE role_code = 'SYSTEM_ADMIN') FROM sys_user WHERE username = 'admin';
+-- 管理员账号由应用启动时使用 BOOTSTRAP_ADMIN_PASSWORD_HASH 显式创建，
+-- 初始化脚本不得保存固定密码或已知密码哈希。

@@ -11,6 +11,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -46,9 +47,11 @@ public class DatasetController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String format,
             @RequestParam(required = false) String fields,
+            @RequestParam(required = false) String sourceUrl,
             @RequestParam(required = false) MultipartFile file) {
         try {
             DatasetImportRequest request = buildImportRequest(datasetName, description, category, format, fields);
+            request.setSourceUrl(sourceUrl);
             return Result.success(datasetService.importDataset(request, file));
         } catch (Exception e) {
             return Result.error("Import failed: " + e.getMessage());
@@ -71,6 +74,20 @@ public class DatasetController {
     @RequirePermission("rag:delete")
     public Result<Boolean> deleteDataset(@PathVariable Long id) {
         return Result.success(datasetService.deleteDataset(id));
+    }
+
+    @PostMapping("/batch-delete")
+    @RequirePermission("rag:delete")
+    public Result<Integer> deleteDatasets(@RequestBody List<Long> ids) {
+        return Result.success(datasetService.deleteDatasets(ids));
+    }
+
+    @GetMapping("/{id}/preview")
+    @RequirePermission("rag:list")
+    public Result<List<Map<String, Object>>> previewDataset(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "100") int limit) {
+        return Result.success(datasetService.previewDataset(id, limit));
     }
 
     @GetMapping("/formats")
@@ -100,7 +117,7 @@ public class DatasetController {
             return mapper.readValue(json, mapper.getTypeFactory().constructCollectionType(List.class, DatasetImportRequest.FieldSchema.class));
         } catch (Exception e) {
             log.error("Failed to parse fields JSON", e);
-            return new ArrayList<>();
+            throw new IllegalArgumentException("fields must be a valid JSON array", e);
         }
     }
 

@@ -4,6 +4,7 @@ import com.aipal.common.Result;
 import com.aipal.dto.AgentDetailResponse;
 import com.aipal.dto.CallRecordItem;
 import com.aipal.dto.PageResult;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.A2AGraphService;
 import com.aipal.service.MonitorService;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +21,13 @@ public class A2AGraphController {
     private final MonitorService monitorService;
 
     @GetMapping("/agents/{agentId}")
+    @RequirePermission("agent:list")
     public Result<AgentDetailResponse> getAgentDetail(@PathVariable Long agentId) {
         return Result.success(a2aGraphService.getAgentDetail(agentId));
     }
 
     @GetMapping("/agents/{agentId}/calls")
+    @RequirePermission("agent:list")
     public Result<PageResult<CallRecordItem>> getAgentCalls(
             @PathVariable Long agentId,
             @RequestParam(defaultValue = "1") int page,
@@ -37,11 +40,13 @@ public class A2AGraphController {
     }
 
     @PostMapping("/export")
+    @RequirePermission("graph:manage")
     public Result<?> exportGraph(@RequestParam(required = false) String format) {
         return Result.success(a2aGraphService.exportGraph(format));
     }
 
     @GetMapping("/executions/{executionId}")
+    @RequirePermission("monitor:view")
     public Result<?> getExecutionChain(@PathVariable String executionId) {
         return Result.success(monitorService.getExecutionChain(executionId, null));
     }

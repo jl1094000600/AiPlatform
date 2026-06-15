@@ -24,7 +24,7 @@ RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
 # Create apps directory for Spring Boot
-RUN mkdir -p /app
+RUN mkdir -p /app/data/datasets
 
 # Copy the built JAR from build stage
 COPY --from=builder /build/target/*.jar app.jar
@@ -34,12 +34,16 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
-# Expose default port (can be overridden via SERVER_PORT env)
-EXPOSE 8000
+# Keep the container contract aligned with application.yml and Compose.
+ENV SERVER_PORT=8080 \
+    MANAGEMENT_ENDPOINTS_WEB_BASE_PATH=/api/actuator \
+    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health
+
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8000/actuator/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/actuator/health || exit 1
 
 # JVM optimization for containers
 ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"

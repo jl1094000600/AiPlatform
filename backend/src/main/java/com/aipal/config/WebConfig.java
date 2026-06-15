@@ -46,7 +46,9 @@ public class WebConfig implements MetaObjectHandler {
     public void insertFill(MetaObject metaObject) {
         this.strictInsertFill(metaObject, "createTime", LocalDateTime.class, LocalDateTime.now());
         this.strictInsertFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
-        this.strictInsertFill(metaObject, "tenantId", Long.class, TenantContext.tenantId());
+        if (metaObject.hasSetter("tenantId")) {
+            this.strictInsertFill(metaObject, "tenantId", Long.class, TenantContext.tenantId());
+        }
     }
 
     @Override

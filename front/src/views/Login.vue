@@ -93,7 +93,7 @@
           </el-form>
 
           <div class="login-footer">
-            <p class="footer-hint">默认账号: <span class="highlight">admin</span> / <span class="highlight">admin123</span></p>
+            <p class="footer-hint">请使用管理员分配的账号登录</p>
           </div>
         </div>
 

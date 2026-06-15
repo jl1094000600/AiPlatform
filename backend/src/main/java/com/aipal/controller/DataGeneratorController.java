@@ -1,12 +1,13 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.dto.DataGenerationRequest;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.DataGeneratorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/data-generator")
@@ -16,15 +17,17 @@ public class DataGeneratorController {
     private final DataGeneratorService dataGeneratorService;
 
     @GetMapping("/templates")
+    @RequirePermission("benchmark:view")
     public Result<List<String>> getTemplateNames() {
         return Result.success(dataGeneratorService.getTemplateNames());
     }
 
     @PostMapping("/generate")
-    public Result<String> generateData(@RequestBody Map<String, Object> request) {
+    @RequirePermission("benchmark:run")
+    public Result<String> generateData(@RequestBody DataGenerationRequest request) {
         try {
             String template = extractTemplate(request);
-            Integer count = request.get("count") != null ? Integer.parseInt(request.get("count").toString()) : 100;
+            int count = request.getCount() == null ? DataGeneratorService.MIN_GENERATION_COUNT : request.getCount();
             DataGeneratorService.TemplateType templateType = DataGeneratorService.TemplateType.valueOf(template.toUpperCase());
             String data = dataGeneratorService.generateDataByTemplate(templateType, count);
             return Result.success(data);
@@ -33,17 +36,12 @@ public class DataGeneratorController {
         }
     }
 
-    private String extractTemplate(Map<String, Object> request) {
-        if (request.containsKey("template") && request.get("template") != null) {
-            return request.get("template").toString();
+    private String extractTemplate(DataGenerationRequest request) {
+        if (request.getTemplate() != null && !request.getTemplate().isBlank()) {
+            return request.getTemplate();
         }
-        if (request.containsKey("templateId") && request.get("templateId") != null) {
-            Object templateId = request.get("templateId");
-            if (templateId instanceof Number) {
-                int id = ((Number) templateId).intValue();
-                return getTemplateById(id);
-            }
-            return getTemplateById(Integer.parseInt(templateId.toString()));
+        if (request.getTemplateId() != null) {
+            return getTemplateById(request.getTemplateId());
         }
         throw new IllegalArgumentException("template or templateId is required");
     }

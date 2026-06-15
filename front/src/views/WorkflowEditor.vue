@@ -131,7 +131,7 @@
             <div class="property-item" v-if="selectedNode.type === 'AGENT'">
               <label>调用参数</label>
               <el-input
-                v-model="selectedNode.params"
+                v-model="selectedNode.paramsText"
                 type="textarea"
                 :rows="3"
                 size="small"
@@ -139,18 +139,32 @@
               />
             </div>
             <div class="property-item" v-if="selectedNode.type === 'CONDITION'">
-              <label>条件表达式</label>
-              <el-input
-                v-model="selectedNode.condition"
-                type="textarea"
-                :rows="2"
-                size="small"
-                placeholder="支持SpEL表达式"
-              />
+              <label>条件字段</label>
+              <el-input v-model="selectedNode.conditionField" size="small" placeholder="例如 status" />
             </div>
-            <div class="property-item" v-if="selectedNode.type === 'LOOP'">
-              <label>循环次数</label>
-              <el-input-number v-model="selectedNode.loopCount" :min="1" :max="100" size="small" />
+            <div class="property-item" v-if="selectedNode.type === 'CONDITION'">
+              <label>比较方式</label>
+              <el-select v-model="selectedNode.operator" size="small">
+                <el-option v-for="operator in conditionOperators" :key="operator" :label="operator" :value="operator" />
+              </el-select>
+            </div>
+            <div class="property-item" v-if="selectedNode.type === 'CONDITION' && selectedNode.operator !== 'EXISTS'">
+              <label>比较值</label>
+              <el-input v-model="selectedNode.conditionValue" size="small" />
+            </div>
+            <div class="property-item" v-if="selectedNode.type === 'AGENT'">
+              <label>超时 / 重试</label>
+              <div class="inline-controls">
+                <el-input-number v-model="selectedNode.timeout" :min="1" :max="300" size="small" />
+                <el-input-number v-model="selectedNode.retryCount" :min="0" :max="5" size="small" />
+              </div>
+            </div>
+            <div class="node-actions">
+              <el-button size="small" @click="beginConnection(selectedNode)">
+                {{ connectionSourceId === selectedNode.id ? '已选为起点' : '设为连线起点' }}
+              </el-button>
+              <el-button v-if="connectionSourceId && connectionSourceId !== selectedNode.id" size="small" type="primary" @click="connectToNode(selectedNode)">连接到此节点</el-button>
+              <el-button size="small" type="danger" @click="deleteNode(selectedNode)">删除节点</el-button>
             </div>
           </div>
           <div v-else class="no-selection">
@@ -179,13 +193,13 @@
             </div>
           </div>
 
-          <div class="canvas-content">
+          <div class="canvas-content" @drop="onCanvasDrop" @dragover.prevent>
             <div class="workflow-nodes">
               <div
                 v-for="node in workflowNodes"
                 :key="node.id"
                 class="workflow-node"
-                :class="[node.type.toLowerCase(), { selected: selectedNode?.id === node.id }]"
+                :class="[node.type.toLowerCase(), { selected: selectedNode?.id === node.id, connecting: connectionSourceId === node.id }]"
                 :style="{ left: node.x + 'px', top: node.y + 'px' }"
                 @click.stop="selectNode(node)"
                 @dblclick.stop="openNodeConfig(node)"
@@ -205,15 +219,17 @@
               <line
                 v-for="(edge, index) in workflowEdges"
                 :key="index"
-                :x1="edge.x1"
-                :y1="edge.y1"
-                :x2="edge.x2"
-                :y2="edge.y2"
+                :x1="edgeCoordinates(edge).x1"
+                :y1="edgeCoordinates(edge).y1"
+                :x2="edgeCoordinates(edge).x2"
+                :y2="edgeCoordinates(edge).y2"
                 class="workflow-edge"
+                :class="{ selected: selectedEdge === edge }"
                 marker-end="url(#arrowhead)"
                 @click.stop="selectEdge(edge)"
               />
             </svg>
+            <el-button v-if="selectedEdge" class="delete-edge-btn" size="small" type="danger" @click="deleteSelectedEdge">删除连线</el-button>
           </div>
         </div>
 
@@ -281,6 +297,8 @@ const currentWorkflow = ref({})
 const workflowNodes = ref([])
 const workflowEdges = ref([])
 const selectedNode = ref(null)
+const selectedEdge = ref(null)
+const connectionSourceId = ref(null)
 const agents = ref([])
 const executions = ref([])
 const canManageWorkflow = computed(() => hasPermission('workflow:manage'))
@@ -290,11 +308,10 @@ const nodeTypes = [
   { type: 'START', label: '开始', icon: '\u25B6' },
   { type: 'AGENT', label: 'Agent节点', icon: '\u2699' },
   { type: 'CONDITION', label: '条件分支', icon: '\u2716' },
-  { type: 'LOOP', label: '循环节点', icon: '\u21BB' },
   { type: 'PARALLEL', label: '并行执行', icon: '\u25CE' },
-  { type: 'MERGE', label: '结果合并', icon: '\u2211' },
   { type: 'END', label: '结束', icon: '\u25A0' }
 ]
+const conditionOperators = ['EQ', 'NE', 'GT', 'GTE', 'LT', 'LTE', 'CONTAINS', 'EXISTS']
 
 // Drag state
 let draggedNodeType = null
@@ -341,7 +358,7 @@ const loadAgents = async () => {
   try {
     const res = await api.getAgents()
     if (res.data.code === 200) {
-      agents.value = res.data.data || []
+      agents.value = res.data.data?.records || res.data.data || []
     }
   } catch (e) {
     console.error('加载Agent列表失败', e)
@@ -367,6 +384,7 @@ const createNewWorkflow = () => {
   isEditing.value = false
   currentWorkflow.value = {
     workflowName: '',
+    workflowCode: `WF_${Date.now()}`,
     description: '',
     triggerType: 'MANUAL',
     workflowDefinition: {}
@@ -387,9 +405,25 @@ const editWorkflow = async (row) => {
     const res = await api.getWorkflow(row.id)
     if (res.data.code === 200) {
       currentWorkflow.value = res.data.data || {}
+      try {
+        const triggerConfig = JSON.parse(currentWorkflow.value.triggerConfig || '{}')
+        currentWorkflow.value.cron = triggerConfig.cron || ''
+        currentWorkflow.value.eventType = triggerConfig.eventType || ''
+      } catch (_) {
+        currentWorkflow.value.cron = ''
+        currentWorkflow.value.eventType = ''
+      }
       const definition = JSON.parse(currentWorkflow.value.workflowDefinition || '{}')
       workflowNodes.value = definition.nodes || []
       workflowEdges.value = definition.edges || []
+      workflowNodes.value.forEach(node => {
+        node.paramsText = JSON.stringify(node.params || {}, null, 2)
+        if (node.condition && typeof node.condition === 'object') {
+          node.conditionField = node.condition.field
+          node.operator = node.condition.operator
+          node.conditionValue = node.condition.value
+        }
+      })
       if (workflowNodes.value.length > 0) {
         const maxId = Math.max(...workflowNodes.value.map(n => parseInt(n.id) || 0))
         nodeIdCounter = maxId + 1
@@ -418,7 +452,8 @@ const triggerWorkflow = async (row) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    const res = await api.triggerWorkflow(row.id)
+    if (row.status !== 1) await api.deployWorkflow(row.id)
+    const res = await api.triggerWorkflow(row.id, {}, 'MANUAL')
     if (res.data.code === 200) {
       ElMessage.success('编排触发成功')
       loadWorkflows()
@@ -457,8 +492,12 @@ const onCanvasDrop = async (event) => {
     y: y - 20,
     agentId: null,
     params: '{}',
-    condition: '',
-    loopCount: 1
+    paramsText: '{}',
+    conditionField: '',
+    operator: 'EQ',
+    conditionValue: '',
+    timeout: 30,
+    retryCount: 0
   }
 
   workflowNodes.value.push(newNode)
@@ -474,13 +513,50 @@ const openNodeConfig = (node) => {
 }
 
 const selectEdge = (edge) => {
-  // Edge selection logic
+  selectedEdge.value = edge
+  selectedNode.value = null
+}
+
+const beginConnection = (node) => {
+  connectionSourceId.value = node.id
+}
+
+const connectToNode = (node) => {
+  if (!connectionSourceId.value || connectionSourceId.value === node.id) return
+  const duplicate = workflowEdges.value.some(edge => edge.source === connectionSourceId.value && edge.target === node.id)
+  if (!duplicate) workflowEdges.value.push({ source: connectionSourceId.value, target: node.id })
+  connectionSourceId.value = null
+}
+
+const deleteNode = (node) => {
+  workflowNodes.value = workflowNodes.value.filter(item => item.id !== node.id)
+  workflowEdges.value = workflowEdges.value.filter(edge => edge.source !== node.id && edge.target !== node.id)
+  selectedNode.value = null
+  if (connectionSourceId.value === node.id) connectionSourceId.value = null
+}
+
+const deleteSelectedEdge = () => {
+  workflowEdges.value = workflowEdges.value.filter(edge => edge !== selectedEdge.value)
+  selectedEdge.value = null
+}
+
+const edgeCoordinates = (edge) => {
+  const source = workflowNodes.value.find(node => node.id === edge.source)
+  const target = workflowNodes.value.find(node => node.id === edge.target)
+  return {
+    x1: (source?.x || 0) + 60,
+    y1: (source?.y || 0) + 30,
+    x2: (target?.x || 0) + 60,
+    y2: (target?.y || 0) + 30
+  }
 }
 
 const clearCanvas = () => {
   workflowNodes.value = []
   workflowEdges.value = []
   selectedNode.value = null
+  selectedEdge.value = null
+  connectionSourceId.value = null
 }
 
 const saveWorkflow = async () => {
@@ -492,14 +568,51 @@ const saveWorkflow = async () => {
     ElMessage.warning('请输入编排名称')
     return
   }
+  if (!currentWorkflow.value.workflowCode) {
+    ElMessage.warning('请输入编排编码')
+    return
+  }
+
+  let normalizedNodes
+  try {
+    normalizedNodes = workflowNodes.value.map(node => {
+      const normalized = { ...node }
+      delete normalized.paramsText
+      if (node.type === 'AGENT') normalized.params = JSON.parse(node.paramsText || '{}')
+      if (node.type === 'CONDITION') {
+        normalized.condition = {
+          field: node.conditionField,
+          operator: node.operator,
+          value: node.conditionValue
+        }
+      }
+      return normalized
+    })
+  } catch (error) {
+    ElMessage.error('Agent调用参数必须是合法JSON')
+    return
+  }
 
   const definition = {
-    nodes: workflowNodes.value,
-    edges: workflowEdges.value
+    timeoutSeconds: 1800,
+    nodes: normalizedNodes,
+    edges: workflowEdges.value.map(edge => ({ source: edge.source, target: edge.target, condition: edge.condition }))
   }
+  normalizedNodes.filter(node => node.type === 'CONDITION').forEach(node => {
+    const outgoing = definition.edges.filter(edge => edge.source === node.id)
+    if (outgoing[0] && !outgoing[0].condition) outgoing[0].condition = 'true'
+    if (outgoing[1] && !outgoing[1].condition) outgoing[1].condition = 'false'
+  })
+
+  const triggerConfig = currentWorkflow.value.triggerType === 'SCHEDULE'
+    ? JSON.stringify({ cron: currentWorkflow.value.cron })
+    : currentWorkflow.value.triggerType === 'EVENT'
+      ? JSON.stringify({ eventType: currentWorkflow.value.eventType })
+      : null
 
   const data = {
     ...currentWorkflow.value,
+    triggerConfig,
     workflowDefinition: JSON.stringify(definition)
   }
 
@@ -521,12 +634,6 @@ const saveWorkflow = async () => {
 onMounted(() => {
   loadWorkflows()
   loadAgents()
-
-  // Setup canvas drop zone
-  if (canvasRef.value) {
-    canvasRef.value.addEventListener('drop', onCanvasDrop)
-    canvasRef.value.addEventListener('dragover', (e) => e.preventDefault())
-  }
 })
 </script>
 

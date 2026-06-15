@@ -28,5 +28,7 @@ public class AgentConfig {
         private String registryUrl = "http://localhost:8080/api/v1/registry/agents";
         private String heartbeatUrl = "http://localhost:8080/api/v1/heartbeat/report";
         private String a2aUrl = "http://localhost:8080/api/v1/a2a/message";
+        private String tenantCode = "aiplatform";
+        private String heartbeatSecret;
     }
 }

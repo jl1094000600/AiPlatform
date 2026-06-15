@@ -12,6 +12,10 @@ public class TraceContext {
         return traceId != null ? traceId : generateTraceId();
     }
 
+    public static String currentTraceId() {
+        return TRACE_ID.get();
+    }
+
     public static void setTraceId(String traceId) {
         TRACE_ID.set(traceId);
     }

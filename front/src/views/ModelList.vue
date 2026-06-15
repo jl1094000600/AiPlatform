@@ -17,9 +17,15 @@
             <h3>{{ model.modelName }}</h3>
             <span class="mono">{{ model.modelCode }}</span>
           </div>
-          <el-tag :type="model.status === 1 ? 'success' : 'info'">
-            {{ model.status === 1 ? t('model.enabled') : t('model.disabled') }}
-          </el-tag>
+          <div class="card-tags">
+            <el-tag effect="plain">{{ capabilityLabel(model.capabilityType) }}</el-tag>
+            <el-tag v-if="model.defaultForCapability === 1" type="warning">
+              {{ t('model.defaultForCapability') }}
+            </el-tag>
+            <el-tag :type="model.status === 1 ? 'success' : 'info'">
+              {{ model.status === 1 ? t('model.enabled') : t('model.disabled') }}
+            </el-tag>
+          </div>
         </div>
 
         <div class="meta-grid">
@@ -84,6 +90,23 @@
       />
 
       <el-form :model="form" label-position="top" class="model-form">
+        <div class="form-grid">
+          <el-form-item :label="t('model.capabilityType')" required>
+            <el-select v-model="form.capabilityType" style="width: 100%">
+              <el-option :label="t('model.capabilityChat')" value="CHAT" />
+              <el-option :label="t('model.capabilityVision')" value="VISION" />
+              <el-option :label="t('model.capabilityAsr')" value="ASR" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('model.defaultForCapability')">
+            <el-switch
+              v-model="form.defaultForCapability"
+              :active-value="1"
+              :inactive-value="0"
+            />
+          </el-form-item>
+        </div>
+
         <div class="form-grid">
           <el-form-item :label="t('model.name')" required>
             <el-input v-model="form.modelName" placeholder="MiniMax M2.7" />
@@ -206,6 +229,8 @@ function defaultForm() {
     endpoint: '',
     sdkType: 'openai-compatible',
     apiKey: '',
+    capabilityType: 'CHAT',
+    defaultForCapability: 0,
     defaultTemperature: 1,
     maxTokens: 4096,
     apiVersion: '',
@@ -241,6 +266,7 @@ const openMiniMaxPreset = () => {
     modelVersion: form.modelVersion || 'v1',
     endpoint: 'https://api.minimaxi.com/v1',
     sdkType: 'openai-compatible',
+    capabilityType: 'CHAT',
     defaultTemperature: 1,
     maxTokens: form.maxTokens || 4096,
     status: 1
@@ -281,6 +307,15 @@ const handleDelete = async (model) => {
   } catch (e) {
     if (e !== 'cancel') ElMessage.error(t('model.deleteFailed'))
   }
+}
+
+const capabilityLabel = (capabilityType) => {
+  const labels = {
+    CHAT: 'model.capabilityChat',
+    VISION: 'model.capabilityVision',
+    ASR: 'model.capabilityAsr'
+  }
+  return t(labels[capabilityType] || labels.CHAT)
 }
 
 onMounted(loadModels)
@@ -332,6 +367,14 @@ onMounted(loadModels)
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.card-tags {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .card-head h3 {

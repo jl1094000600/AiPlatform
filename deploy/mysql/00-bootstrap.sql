@@ -1,0 +1,29 @@
+SOURCE /opt/aiplatform/sql/init.sql;
+SOURCE /opt/aiplatform/sql/schema-v2.sql;
+SOURCE /opt/aiplatform/sql/schema-v3.sql;
+
+SOURCE /opt/aiplatform/resources/schema-agent-registry.sql;
+SOURCE /opt/aiplatform/resources/schema-evaluation.sql;
+SOURCE /opt/aiplatform/resources/schema-tts.sql;
+
+SOURCE /opt/aiplatform/sql/schema-automation-pipeline.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-build-test.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-deploy.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-generation-job.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-generated-code-feedback.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-prd-artifact.sql;
+SOURCE /opt/aiplatform/sql/schema-automation-template-options.sql;
+SOURCE /opt/aiplatform/sql/schema-agent-model-binding.sql;
+SOURCE /opt/aiplatform/sql/schema-agent-quality.sql;
+SOURCE /opt/aiplatform/sql/schema-ai-output-governance.sql;
+SOURCE /opt/aiplatform/sql/schema-business-p0-p1.sql;
+SOURCE /opt/aiplatform/sql/schema-code-quality.sql;
+SOURCE /opt/aiplatform/sql/schema-lowcode-invocation.sql;
+SOURCE /opt/aiplatform/sql/schema-model-sdk-config.sql;
+SOURCE /opt/aiplatform/sql/schema-model-training-dataset.sql;
+SOURCE /opt/aiplatform/sql/schema-prompt-engineering.sql;
+SOURCE /opt/aiplatform/sql/schema-rag.sql;
+SOURCE /opt/aiplatform/sql/schema-skill.sql;
+SOURCE /opt/aiplatform/sql/schema-user-memory.sql;
+SOURCE /opt/aiplatform/sql/schema-tenant-security.sql;
+SOURCE /opt/aiplatform/sql/schema-v5-multimodal.sql;

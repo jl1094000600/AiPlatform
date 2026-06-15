@@ -6,6 +6,10 @@ import com.aipal.entity.AiAgent;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AgentRegistrationMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.security.TenantContext;
+import com.aipal.security.TenantTaskRunner;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -24,6 +28,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,9 +47,31 @@ class HeartbeatManagementServiceImplTest {
     private AiAgentMapper agentMapper;
     @Mock
     private AgentEventService agentEventService;
+    @Mock
+    private TenantTaskRunner tenantTaskRunner;
 
     @InjectMocks
     private HeartbeatManagementServiceImpl heartbeatManagementService;
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(new TenantContext.Context(
+                1L, "tester", 9L, "tenant-9", false, java.util.Set.of(), java.util.Set.of()));
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            java.util.function.Consumer<com.aipal.entity.SysTenant> task = invocation.getArgument(1);
+            com.aipal.entity.SysTenant tenant = new com.aipal.entity.SysTenant();
+            tenant.setId(9L);
+            tenant.setTenantCode("tenant-9");
+            task.accept(tenant);
+            return null;
+        }).when(tenantTaskRunner).forEachActiveTenant(any(), any());
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Test
     void heartbeatUsesAgentCodeAndInstanceId() {

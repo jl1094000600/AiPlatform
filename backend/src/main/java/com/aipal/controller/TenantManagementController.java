@@ -1,6 +1,7 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.common.BizException;
 import com.aipal.entity.SysMenu;
 import com.aipal.entity.SysTenant;
 import com.aipal.security.RequirePermission;
@@ -29,18 +30,21 @@ public class TenantManagementController {
     @RequirePermission("tenant:manage")
     public Result<?> listTenants(@RequestParam(defaultValue = "1") int pageNum,
                                  @RequestParam(defaultValue = "20") int pageSize) {
+        requirePlatformAdmin();
         return Result.success(tenantManagementService.listTenants(pageNum, pageSize));
     }
 
     @PostMapping("/tenants")
     @RequirePermission("tenant:manage")
     public Result<?> createTenant(@RequestBody SysTenant request) {
+        requirePlatformAdmin();
         return Result.success(tenantManagementService.saveTenant(request));
     }
 
     @PutMapping("/tenants/{id}")
     @RequirePermission("tenant:manage")
     public Result<?> updateTenant(@PathVariable Long id, @RequestBody SysTenant request) {
+        requirePlatformAdmin();
         request.setId(id);
         return Result.success(tenantManagementService.saveTenant(request));
     }
@@ -56,7 +60,8 @@ public class TenantManagementController {
     @PostMapping("/members")
     @RequirePermission("member:manage")
     public Result<?> addMember(@RequestBody Map<String, Object> request) {
-        Long tenantId = request.get("tenantId") instanceof Number number ? number.longValue() : TenantContext.tenantId();
+        Long requestedTenantId = request.get("tenantId") instanceof Number number ? number.longValue() : null;
+        Long tenantId = resolveTenantId(requestedTenantId);
         return Result.success(tenantManagementService.addMember(tenantId, request));
     }
 
@@ -122,6 +127,19 @@ public class TenantManagementController {
     }
 
     private Long resolveTenantId(Long tenantId) {
-        return tenantId == null ? TenantContext.tenantId() : tenantId;
+        Long currentTenantId = TenantContext.tenantId();
+        if (tenantId == null || tenantId.equals(currentTenantId)) {
+            return currentTenantId;
+        }
+        if (!TenantContext.platformAdmin()) {
+            throw new BizException(403, "Cross-tenant administration requires platform administrator privileges");
+        }
+        return tenantId;
+    }
+
+    private void requirePlatformAdmin() {
+        if (!TenantContext.platformAdmin()) {
+            throw new BizException(403, "Platform administrator privileges are required");
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.aipal.service;
 
 import com.aipal.entity.WorkflowExecution;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -52,5 +53,7 @@ public interface WorkflowExecutionService {
      * @param triggerType 触发类型
      * @param params 触发参数
      */
-    void triggerWorkflow(Long workflowId, String triggerType, Map<String, Object> params);
+    String triggerWorkflow(Long workflowId, String triggerType, Map<String, Object> params);
+
+    List<WorkflowExecution> listExecutions(Long workflowId);
 }

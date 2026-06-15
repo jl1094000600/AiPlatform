@@ -121,7 +121,11 @@ import api from '../../api'
 import { hasPermission } from '../../utils/permissions'
 
 const props = defineProps({
-  benchmarkId: [String, Number]
+  benchmarkId: [String, Number],
+  evaluationIds: {
+    type: Array,
+    default: () => []
+  }
 })
 
 const emit = defineEmits(['back'])
@@ -142,32 +146,59 @@ const canRunBenchmark = hasPermission('benchmark:run')
 
 const loadResults = async () => {
   try {
-    const res = await api.getBenchmarkResult(props.benchmarkId)
-    if (res.data.code === 200) {
-      const data = res.data.data
-
-      summary.value = {
-        totalScore: data.totalScore || 0,
-        passRate: data.passRate || 0,
-        avgDuration: data.avgDuration || 0,
-        agentCount: data.agentCount || 0
+    const ids = props.evaluationIds.length > 0 ? props.evaluationIds : [props.benchmarkId]
+    const responses = await Promise.all(ids.filter(Boolean).map(id => api.getEvaluationResults(id)))
+    const evaluations = responses
+      .filter(response => response.data.code === 200)
+      .map(response => response.data.data)
+    const rows = evaluations.map((item, index) => {
+      const evaluation = item.evaluation || {}
+      let criteriaScores = []
+      try {
+        criteriaScores = JSON.parse(evaluation.resultData || '{}').criteriaScores || []
+      } catch (_) {
+        criteriaScores = []
       }
-
-      resultDetails.value = data.details || []
-
-      if (data.details && data.details.length > 0) {
-        metricColumns.value = Object.keys(data.details[0]).filter(
-          k => !['agentId', 'agentName', 'totalScore', 'rank'].includes(k)
-        )
+      const row = {
+        agentId: evaluation.agentId,
+        agentName: `Agent ${evaluation.agentId}`,
+        totalScore: evaluation.totalScore || 0,
+        rank: index + 1
       }
-
-      await nextTick()
-      renderBarChart(data.agentScores || [])
-      renderRadarChart(data.radarData || {})
-      renderTrendChart(data.trendData || [])
+      criteriaScores.forEach(score => {
+        row[score.criteriaName || score.criteriaCode] = score.score
+      })
+      row.__samples = item.details || []
+      return row
+    }).sort((a, b) => b.totalScore - a.totalScore)
+    rows.forEach((row, index) => { row.rank = index + 1 })
+    resultDetails.value = rows
+    const metricSet = new Set()
+    rows.forEach(row => Object.keys(row).filter(key => !['agentId', 'agentName', 'totalScore', 'rank', '__samples'].includes(key))
+      .forEach(key => metricSet.add(key)))
+    metricColumns.value = [...metricSet]
+    const samples = rows.flatMap(row => row.__samples)
+    const successful = samples.filter(sample => sample.status === 1).length
+    summary.value = {
+      totalScore: rows.length ? Math.round(rows.reduce((sum, row) => sum + row.totalScore, 0) / rows.length * 100) / 100 : 0,
+      passRate: samples.length ? Math.round(successful * 1000 / samples.length) / 10 : 0,
+      avgDuration: samples.length ? Math.round(samples.reduce((sum, sample) => sum + (sample.durationMs || 0), 0) / samples.length) : 0,
+      agentCount: rows.length
     }
+    const agentScores = rows.map(row => ({ agentName: row.agentName, score: row.totalScore }))
+    const indicators = metricColumns.value
+    const radarData = {
+      indicators,
+      agents: rows.map(row => row.agentName),
+      values: rows.map(row => indicators.map(metric => row[metric] || 0))
+    }
+    await nextTick()
+    renderBarChart(agentScores)
+    renderRadarChart(radarData)
+    renderTrendChart([])
   } catch (e) {
     console.error('加载测评结果失败', e)
+    ElMessage.error('加载测评结果失败')
   }
 }
 
@@ -352,10 +383,19 @@ const handleBack = () => {
 
 const handleExport = async () => {
   try {
-    const res = await api.exportBenchmarkReport(props.benchmarkId)
-    if (res.data.code === 200) {
-      ElMessage.success('报告已导出')
+    const ids = props.evaluationIds.length > 0 ? props.evaluationIds : [props.benchmarkId]
+    for (const id of ids.filter(Boolean)) {
+      const res = await api.exportEvaluation(id, 'csv')
+      const url = URL.createObjectURL(res.data)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `evaluation-${id}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
     }
+    ElMessage.success('报告已导出')
   } catch (e) {
     ElMessage.error('导出失败')
   }

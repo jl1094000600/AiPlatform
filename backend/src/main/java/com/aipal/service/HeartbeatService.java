@@ -3,13 +3,13 @@ package com.aipal.service;
 import com.aipal.dto.HeartbeatRequest;
 import com.aipal.entity.AgentHeartbeat;
 import com.aipal.mapper.AgentHeartbeatMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -35,7 +35,7 @@ public class HeartbeatService {
 
     public void recordHeartbeat(HeartbeatRequest request) {
         String instanceId = request.getInstanceId() != null ? request.getInstanceId() : "default";
-        String key = HEARTBEAT_KEY_PREFIX + request.getAgentId() + ":" + instanceId;
+        String key = heartbeatKey(String.valueOf(request.getAgentId()), instanceId);
 
         redisTemplate.opsForHash().put(key, "lastHeartbeat", LocalDateTime.now().toString());
         redisTemplate.opsForHash().put(key, "healthScore", String.valueOf(request.getHealthScore()));
@@ -66,7 +66,6 @@ public class HeartbeatService {
         log.debug("Agent {} instance {} heartbeat recorded", request.getAgentId(), instanceId);
     }
 
-    @Scheduled(fixedRate = 30000)
     public void detectOfflineAgents() {
         if (!detectLock.tryLock()) {
             log.debug("Another instance is detecting offline agents, skip");
@@ -74,36 +73,40 @@ public class HeartbeatService {
         }
 
         try {
-            Set<String> keys = scanKeys(HEARTBEAT_KEY_PREFIX + "*");
-            if (keys == null || keys.isEmpty()) {
-                return;
-            }
-
-            LocalDateTime now = LocalDateTime.now();
-            for (String key : keys) {
-                Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
-                if (lastHeartbeatStr == null) {
-                    continue;
-                }
-
-                LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
-                if (Duration.between(lastHeartbeat, now).compareTo(HEARTBEAT_TIMEOUT) > 0) {
-                    String keyWithoutPrefix = key.replace(HEARTBEAT_KEY_PREFIX, "");
-                    String[] parts = keyWithoutPrefix.split(":", 2);
-                    Long agentId;
-                    try {
-                        agentId = Long.parseLong(parts[0]);
-                    } catch (NumberFormatException e) {
-                        log.debug("Skipping agentCode heartbeat key in legacy detector: {}", key);
-                        continue;
-                    }
-                    String instanceId = parts.length > 1 ? parts[1] : "default";
-                    markAgentOffline(agentId, instanceId);
-                    log.warn("Agent {} instance {} marked offline due to heartbeat timeout", agentId, instanceId);
-                }
-            }
+            detectOfflineAgentsForCurrentTenant();
         } finally {
             detectLock.unlock();
+        }
+    }
+
+    private void detectOfflineAgentsForCurrentTenant() {
+        Set<String> keys = scanKeys(tenantHeartbeatPattern());
+        if (keys == null || keys.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (String key : keys) {
+            Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
+            if (lastHeartbeatStr == null) {
+                continue;
+            }
+
+            LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
+            if (Duration.between(lastHeartbeat, now).compareTo(HEARTBEAT_TIMEOUT) > 0) {
+                String keyWithoutPrefix = key.replace(tenantHeartbeatPrefix(), "");
+                String[] parts = keyWithoutPrefix.split(":", 2);
+                Long agentId;
+                try {
+                    agentId = Long.parseLong(parts[0]);
+                } catch (NumberFormatException e) {
+                    log.debug("Skipping agentCode heartbeat key in legacy detector: {}", key);
+                    continue;
+                }
+                String instanceId = parts.length > 1 ? parts[1] : "default";
+                markAgentOffline(agentId, instanceId);
+                log.warn("Agent {} instance {} marked offline due to heartbeat timeout", agentId, instanceId);
+            }
         }
     }
 
@@ -141,7 +144,7 @@ public class HeartbeatService {
     }
 
     public boolean isAgentOnline(Long agentId, String instanceId) {
-        String key = HEARTBEAT_KEY_PREFIX + agentId + ":" + instanceId;
+        String key = heartbeatKey(String.valueOf(agentId), instanceId);
         Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
         if (lastHeartbeatStr == null) {
             return false;
@@ -160,5 +163,17 @@ public class HeartbeatService {
                 .eq(AgentHeartbeat::getAgentId, agentId)
                 .eq(AgentHeartbeat::getInstanceId, instanceId)
         );
+    }
+
+    private String heartbeatKey(String agentIdentifier, String instanceId) {
+        return tenantHeartbeatPrefix() + agentIdentifier + ":" + instanceId;
+    }
+
+    private String tenantHeartbeatPattern() {
+        return tenantHeartbeatPrefix() + "*";
+    }
+
+    private String tenantHeartbeatPrefix() {
+        return HEARTBEAT_KEY_PREFIX + TenantContext.tenantId() + ":";
     }
 }

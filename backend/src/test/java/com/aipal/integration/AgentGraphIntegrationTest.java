@@ -10,6 +10,9 @@ import com.aipal.mapper.A2ATaskMapper;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.service.MonitorService;
+import com.aipal.security.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +37,20 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Transactional
 class AgentGraphIntegrationTest {
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(testContext());
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
+
+    private TenantContext.Context testContext() {
+        return new TenantContext.Context(1L, "test", 1L, "test", false, java.util.Set.of(), java.util.Set.of());
+    }
 
     @Autowired
     private MonitorService monitorService;

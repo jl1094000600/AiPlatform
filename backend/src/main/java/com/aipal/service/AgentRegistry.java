@@ -5,12 +5,12 @@ import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentVersion;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AiAgentVersionMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,12 +37,9 @@ public class AgentRegistry {
         this.a2aMessageService = a2aMessageService;
     }
 
-    @PostConstruct
-    public void init() {
-        refreshAgents();
-    }
-
     public void refreshAgents() {
+        String prefix = TenantContext.tenantId() + ":";
+        registeredAgents.keySet().removeIf(key -> key.startsWith(prefix));
         List<AiAgent> agents = agentMapper.selectList(
             new LambdaQueryWrapper<AiAgent>().eq(AiAgent::getStatus, 1)
         );
@@ -80,7 +77,7 @@ public class AgentRegistry {
         context.setChatClient(chatClient);
         context.setHandler(createAgentHandler(agent));
 
-        registeredAgents.put(agent.getAgentCode(), context);
+        registeredAgents.put(cacheKey(agent.getAgentCode()), context);
 
         a2aMessageService.registerHandler(agent.getAgentCode(), context.getHandler());
 
@@ -136,7 +133,7 @@ public class AgentRegistry {
     }
 
     private Object processAgentIntent(AiAgent agent, String intent, Map<String, Object> params) {
-        AgentContext ctx = registeredAgents.get(agent.getAgentCode());
+        AgentContext ctx = registeredAgents.get(cacheKey(agent.getAgentCode()));
         if (ctx != null && ctx.getChatClient() != null) {
             String result = ctx.getChatClient().prompt()
                 .user(intent)
@@ -148,20 +145,48 @@ public class AgentRegistry {
     }
 
     public AgentContext getAgent(String agentCode) {
-        return registeredAgents.get(agentCode);
+        String key = cacheKey(agentCode);
+        AgentContext context = registeredAgents.get(key);
+        if (context == null) {
+            AiAgent agent = agentMapper.selectOne(new LambdaQueryWrapper<AiAgent>()
+                    .eq(AiAgent::getAgentCode, agentCode)
+                    .eq(AiAgent::getStatus, 1)
+                    .last("LIMIT 1"));
+            if (agent != null) {
+                registerAgent(agent);
+                context = registeredAgents.get(key);
+            }
+        }
+        return context;
     }
 
     public List<AgentContext> getAllAgents() {
-        return registeredAgents.values().stream().toList();
+        String prefix = TenantContext.tenantId() + ":";
+        List<AgentContext> agents = registeredAgents.entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith(prefix))
+                .map(Map.Entry::getValue)
+                .toList();
+        if (agents.isEmpty()) {
+            refreshAgents();
+            agents = registeredAgents.entrySet().stream()
+                    .filter(entry -> entry.getKey().startsWith(prefix))
+                    .map(Map.Entry::getValue)
+                    .toList();
+        }
+        return agents;
     }
 
     public boolean isAgentRegistered(String agentCode) {
-        return registeredAgents.containsKey(agentCode);
+        return registeredAgents.containsKey(cacheKey(agentCode));
     }
 
     public void unregisterAgent(String agentCode) {
-        registeredAgents.remove(agentCode);
+        registeredAgents.remove(cacheKey(agentCode));
         log.info("Unregistered agent: {}", agentCode);
+    }
+
+    private String cacheKey(String agentCode) {
+        return TenantContext.tenantId() + ":" + agentCode;
     }
 
     @lombok.Data

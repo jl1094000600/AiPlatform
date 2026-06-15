@@ -7,9 +7,12 @@ import com.aipal.entity.AiAgent;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AgentRegistrationMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.security.TenantContext;
+import com.aipal.security.TenantTaskRunner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
@@ -44,6 +47,9 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
     private final AiAgentMapper agentMapper;
     private final AgentEventService agentEventService;
 
+    @Autowired
+    private TenantTaskRunner tenantTaskRunner;
+
     @Override
     public void recordHeartbeat(HeartbeatRequest request) {
         String agentCode = resolveAgentCode(request);
@@ -57,7 +63,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
             timeoutSeconds = registration.getHeartbeatTimeout();
         }
 
-        String key = HEARTBEAT_KEY_PREFIX + agentCode + ":" + instanceId;
+        String key = heartbeatKey(agentCode, instanceId);
 
         // 更新Redis心跳
         redisTemplate.opsForHash().put(key, "lastHeartbeat", LocalDateTime.now().toString());
@@ -199,7 +205,8 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
     }
 
     @Override
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedRateString = "${aipal.scheduling.heartbeat-rate-ms:30000}",
+            initialDelayString = "${aipal.scheduling.initial-delay-ms:5000}")
     public void detectOfflineAgents() {
         if (!detectLock.tryLock()) {
             log.debug("Another instance is detecting offline agents, skip");
@@ -207,45 +214,48 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
         }
 
         try {
-            Set<String> keys = scanKeys(HEARTBEAT_KEY_PREFIX + "*");
-            LocalDateTime now = LocalDateTime.now();
-            if (keys != null && !keys.isEmpty()) {
-                for (String key : keys) {
-                    try {
-                        Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
-                        if (lastHeartbeatStr == null) {
-                            continue;
-                        }
-
-                        LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
-
-                        String keyWithoutPrefix = key.replace(HEARTBEAT_KEY_PREFIX, "");
-                        String[] parts = keyWithoutPrefix.split(":", 2);
-                        String agentCode = parts[0];
-                        String instanceId = parts.length > 1 ? parts[1] : "default";
-
-                        AgentRegistration registration = getRegistration(agentCode, instanceId);
-                        int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
-                        if (registration != null && registration.getHeartbeatTimeout() != null) {
-                            timeoutSeconds = registration.getHeartbeatTimeout();
-                        }
-
-                        Duration timeout = Duration.ofSeconds(timeoutSeconds);
-                        if (Duration.between(lastHeartbeat, now).compareTo(timeout) > 0) {
-                            markAgentOffline(agentCode, instanceId);
-                            log.warn("Agent {} [{}] marked offline due to heartbeat timeout",
-                                    agentCode, instanceId);
-                        }
-                    } catch (Exception e) {
-                        log.warn("Error processing heartbeat key {}: {}", key, e.getMessage());
-                    }
-                }
-            }
-
-            markStaleDatabaseHeartbeatsOffline(now);
+            tenantTaskRunner.forEachActiveTenant("heartbeat-management", tenant -> detectOfflineAgentsForCurrentTenant());
         } finally {
             detectLock.unlock();
         }
+    }
+
+    private void detectOfflineAgentsForCurrentTenant() {
+        Set<String> keys = scanKeys(tenantHeartbeatPattern());
+        LocalDateTime now = LocalDateTime.now();
+        if (keys != null && !keys.isEmpty()) {
+            for (String key : keys) {
+                try {
+                    Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
+                    if (lastHeartbeatStr == null) {
+                        continue;
+                    }
+
+                    LocalDateTime lastHeartbeat = LocalDateTime.parse(lastHeartbeatStr.toString());
+
+                    String keyWithoutPrefix = key.replace(tenantHeartbeatPrefix(), "");
+                    String[] parts = keyWithoutPrefix.split(":", 2);
+                    String agentCode = parts[0];
+                    String instanceId = parts.length > 1 ? parts[1] : "default";
+
+                    AgentRegistration registration = getRegistration(agentCode, instanceId);
+                    int timeoutSeconds = (int) DEFAULT_HEARTBEAT_TIMEOUT.getSeconds();
+                    if (registration != null && registration.getHeartbeatTimeout() != null) {
+                        timeoutSeconds = registration.getHeartbeatTimeout();
+                    }
+
+                    Duration timeout = Duration.ofSeconds(timeoutSeconds);
+                    if (Duration.between(lastHeartbeat, now).compareTo(timeout) > 0) {
+                        markAgentOffline(agentCode, instanceId);
+                        log.warn("Agent {} [{}] marked offline due to heartbeat timeout",
+                                agentCode, instanceId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Error processing heartbeat key {}: {}", key, e.getMessage());
+                }
+            }
+        }
+        markStaleDatabaseHeartbeatsOffline(now);
     }
 
     private void markStaleDatabaseHeartbeatsOffline(LocalDateTime now) {
@@ -275,7 +285,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
 
     @Override
     public boolean isAgentOnline(String agentCode, String instanceId) {
-        String key = HEARTBEAT_KEY_PREFIX + agentCode + ":" + instanceId;
+        String key = heartbeatKey(agentCode, instanceId);
         Object lastHeartbeatStr = redisTemplate.opsForHash().get(key, "lastHeartbeat");
         if (lastHeartbeatStr == null) {
             return false;
@@ -377,5 +387,17 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
             return redisTemplate.keys(pattern);
         }
         return keys;
+    }
+
+    private String heartbeatKey(String agentCode, String instanceId) {
+        return tenantHeartbeatPrefix() + agentCode + ":" + instanceId;
+    }
+
+    private String tenantHeartbeatPattern() {
+        return tenantHeartbeatPrefix() + "*";
+    }
+
+    private String tenantHeartbeatPrefix() {
+        return HEARTBEAT_KEY_PREFIX + TenantContext.tenantId() + ":";
     }
 }

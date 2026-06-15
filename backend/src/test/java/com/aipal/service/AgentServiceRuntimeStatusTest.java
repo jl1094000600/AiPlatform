@@ -4,6 +4,7 @@ import com.aipal.entity.AgentHeartbeat;
 import com.aipal.entity.AiAgent;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.MonCallRecordMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
@@ -41,10 +42,13 @@ class AgentServiceRuntimeStatusTest {
         AgentVersionService agentVersionService = mock(AgentVersionService.class);
         MonCallRecordMapper callRecordMapper = mock(MonCallRecordMapper.class);
         AgentHeartbeatMapper heartbeatMapper = mock(AgentHeartbeatMapper.class);
+        AiModelMapper modelMapper = mock(AiModelMapper.class);
+        AgentRuntimeConfigService runtimeConfigService = mock(AgentRuntimeConfigService.class);
         when(agentMapper.selectPage(any(), any())).thenReturn(page);
         when(heartbeatMapper.selectList(any())).thenReturn(List.of(heartbeat));
 
-        AgentService service = new AgentService(agentMapper, agentVersionService, callRecordMapper, heartbeatMapper);
+        AgentService service = new AgentService(agentMapper, agentVersionService, callRecordMapper, heartbeatMapper,
+                modelMapper, runtimeConfigService);
         Page<AiAgent> result = service.listAgents(1, 20, null, null, null);
 
         AiAgent enriched = result.getRecords().get(0);

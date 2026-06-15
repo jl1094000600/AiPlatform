@@ -3,6 +3,7 @@ package com.aipal.controller;
 import cn.hutool.core.util.IdUtil;
 import com.aipal.common.Result;
 import com.aipal.dto.A2AMessage;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.A2AMessageService;
 import com.aipal.service.AgentRegistry;
 import jakarta.validation.Valid;
@@ -20,6 +21,7 @@ public class A2AController {
     private final AgentRegistry agentRegistry;
 
     @PostMapping("/send")
+    @RequirePermission("agent:invoke")
     public Result<String> sendMessage(@Valid @RequestBody A2AMessage message) {
         if (message.getSessionId() == null) {
             message.setSessionId(IdUtil.fastSimpleUUID());
@@ -29,6 +31,7 @@ public class A2AController {
     }
 
     @GetMapping("/session/{sessionId}/messages")
+    @RequirePermission("agent:list")
     public Result<List<A2AMessage>> getSessionMessages(
             @PathVariable String sessionId,
             @RequestParam(defaultValue = "100") long limit) {
@@ -36,6 +39,7 @@ public class A2AController {
     }
 
     @GetMapping("/response/{correlationId}")
+    @RequirePermission("agent:list")
     public Result<A2AMessage> getResponse(
             @PathVariable String correlationId,
             @RequestParam(defaultValue = "30000") long timeoutMs) {
@@ -43,11 +47,13 @@ public class A2AController {
     }
 
     @GetMapping("/agents")
+    @RequirePermission("agent:list")
     public Result<List<AgentRegistry.AgentContext>> getRegisteredAgents() {
         return Result.success(agentRegistry.getAllAgents());
     }
 
     @GetMapping("/agent/{agentCode}")
+    @RequirePermission("agent:list")
     public Result<AgentRegistry.AgentContext> getAgent(@PathVariable String agentCode) {
         AgentRegistry.AgentContext ctx = agentRegistry.getAgent(agentCode);
         if (ctx == null) {
@@ -57,6 +63,7 @@ public class A2AController {
     }
 
     @PostMapping("/agent/{agentCode}/refresh")
+    @RequirePermission("agent:update")
     public Result<Void> refreshAgent(@PathVariable String agentCode) {
         agentRegistry.refreshAgents();
         return Result.success(null);

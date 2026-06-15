@@ -330,14 +330,27 @@ const handleProceed = async () => {
   }
 
   try {
+    const metrics = ['exact_match', 'response_time_ms', 'f1', 'precision', 'recall', 'error_rate']
+    const payload = standards.value.map((standard, index) => ({
+      criteriaCode: `UI_${Date.now()}_${index}`,
+      criteriaName: standard.name,
+      description: `${standard.category || '通用'}测评标准`,
+      type: metrics[index % metrics.length],
+      formula: metrics[index % metrics.length],
+      weight: (standard.weight || 0) / 100,
+      thresholds: standard.threshold || ''
+    }))
     const res = await api.saveBenchmarkStandards({
-      standards: standards.value,
-      rules: scoringRules.value
+      standards: payload
     })
 
     if (res.data.code === 200) {
       ElMessage.success('测评标准已保存')
-      emit('next', { standards: standards.value, rules: scoringRules.value })
+      const created = Array.isArray(res.data.data) ? res.data.data : []
+      emit('next', {
+        standards: created,
+        criteriaCode: created.map(item => item.criteriaCode).join(',')
+      })
     } else {
       ElMessage.error(res.data.message || '保存失败')
     }

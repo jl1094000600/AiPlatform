@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { locale, setLocale, t } from '../i18n/index.js'
 import { filterNavByPermissions, hasPermission, isPlatformAdmin } from '../utils/permissions.js'
 
@@ -183,3 +184,47 @@ const testFallbackNavFiltering = () => {
 }
 
 testFallbackNavFiltering()
+
+const testBenchmarkAndWorkflowApiContracts = () => {
+  const source = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8')
+  const endpoints = [
+    '/benchmark/start/batch',
+    "'/datasets/' + datasetId + '/preview'",
+    '/datasets/generate',
+    "'/evaluations/batch/' + batchCode",
+    "'/evaluations/' + evaluationId + '/results'",
+    "'/evaluations/' + evaluationId + '/export'",
+    '/benchmark/standards/',
+    '/benchmark/statistics',
+    '/benchmark/leaderboard',
+    "'/workflows/' + id + '/deploy'",
+    "'/workflows/' + workflowId + '/executions'",
+    "'/workflows/executions/' + executionId",
+    "'/workflows/executions/' + executionId + '/cancel'"
+  ]
+  endpoints.forEach(endpoint => assert.ok(source.includes(endpoint), endpoint))
+}
+
+testBenchmarkAndWorkflowApiContracts()
+
+const testBenchmarkFlowUsesPersistedDatasetsAndBatchEvaluations = () => {
+  const parent = readFileSync(new URL('../views/DatasetBenchmark.vue', import.meta.url), 'utf8')
+  const selector = readFileSync(new URL('../components/benchmark/AgentSelector.vue', import.meta.url), 'utf8')
+  const result = readFileSync(new URL('../components/benchmark/ResultVisualization.vue', import.meta.url), 'utf8')
+  assert.ok(parent.includes(':criteria-code="criteriaCode"'))
+  assert.ok(selector.includes('startBatchBenchmark'))
+  assert.ok(selector.includes('getBatchEvaluations'))
+  assert.ok(result.includes('URL.createObjectURL'))
+}
+
+const testWorkflowEditorBuildsSupportedGraphContract = () => {
+  const source = readFileSync(new URL('../views/WorkflowEditor.vue', import.meta.url), 'utf8')
+  assert.equal(source.includes("{ type: 'LOOP'"), false)
+  assert.equal(source.includes("{ type: 'MERGE'"), false)
+  assert.ok(source.includes('connectToNode'))
+  assert.ok(source.includes('conditionField'))
+  assert.ok(source.includes('triggerConfig'))
+}
+
+testBenchmarkFlowUsesPersistedDatasetsAndBatchEvaluations()
+testWorkflowEditorBuildsSupportedGraphContract()

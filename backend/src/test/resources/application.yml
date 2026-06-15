@@ -1,0 +1,48 @@
+spring:
+  task:
+    scheduling:
+      enabled: false
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+jwt:
+  secret: test-only-jwt-secret-that-is-at-least-32-bytes-long
+  expiration: 86400000
+
+cors:
+  allowed-origins: http://localhost:3000
+
+security:
+  bootstrap-admin-password-hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  agent-heartbeat-secret: test-only-agent-heartbeat-secret-32-bytes
+
+aipal:
+  scheduling:
+    initial-delay-ms: 3600000
+  schema-initialization:
+    enabled: false
+
+spring-ai:
+  openai:
+    api-key:
+  anthropic:
+    api-key:

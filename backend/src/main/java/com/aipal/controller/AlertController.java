@@ -22,19 +22,19 @@ public class AlertController {
     }
 
     @PostMapping("/rules")
-    @RequirePermission("alert:view")
+    @RequirePermission("alert:manage")
     public Result<Boolean> createRule(@RequestBody AlertRule rule) {
         return Result.success(alertService.createRule(rule));
     }
 
     @PutMapping("/rules/{id}")
-    @RequirePermission("alert:view")
+    @RequirePermission("alert:manage")
     public Result<Boolean> updateRule(@PathVariable Long id, @RequestBody AlertRule rule) {
         return Result.success(alertService.updateRule(id, rule));
     }
 
     @DeleteMapping("/rules/{id}")
-    @RequirePermission("alert:view")
+    @RequirePermission("alert:manage")
     public Result<Boolean> deleteRule(@PathVariable Long id) {
         return Result.success(alertService.deleteRule(id));
     }
@@ -49,13 +49,13 @@ public class AlertController {
     }
 
     @PostMapping("/events/{id}/ack")
-    @RequirePermission("alert:view")
+    @RequirePermission("alert:manage")
     public Result<Boolean> acknowledge(@PathVariable Long id, @RequestParam(required = false) String user) {
         return Result.success(alertService.acknowledge(id, user));
     }
 
     @PostMapping("/evaluate")
-    @RequirePermission("alert:view")
+    @RequirePermission("alert:manage")
     public Result<Integer> evaluate() {
         return Result.success(alertService.evaluateRules());
     }

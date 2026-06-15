@@ -30,31 +30,33 @@
 
       <!-- Step 1: 数据集导入 -->
       <div v-show="activeTab === 0" class="tab-content">
-        <DatasetImport @next="goToStep(1)" />
+        <DatasetImport @next="(data) => goToStep(1, data)" />
       </div>
 
       <!-- Step 2: 模拟数据生成 -->
       <div v-show="activeTab === 1" class="tab-content">
         <SimDataGenerator
+          :dataset-id="datasetId"
           @back="goToStep(0)"
           @next="(data) => goToStep(2, data)"
         />
       </div>
 
-      <!-- Step 3: Agent选择与执行 -->
+      <!-- Step 3: 测评标准编辑 -->
       <div v-show="activeTab === 2" class="tab-content">
-        <AgentSelector
-          :dataset-id="datasetId"
+        <BenchmarkEditor
           @back="goToStep(1)"
           @next="(data) => goToStep(3, data)"
         />
       </div>
 
-      <!-- Step 4: 测评标准编辑 -->
+      <!-- Step 4: Agent选择与执行 -->
       <div v-show="activeTab === 3" class="tab-content">
-        <BenchmarkEditor
+        <AgentSelector
+          :dataset-id="datasetId"
+          :criteria-code="criteriaCode"
           @back="goToStep(2)"
-          @next="goToStep(4)"
+          @next="(data) => goToStep(4, data)"
         />
       </div>
 
@@ -62,6 +64,7 @@
       <div v-show="activeTab === 4" class="tab-content">
         <ResultVisualization
           :benchmark-id="benchmarkId"
+          :evaluation-ids="evaluationIds"
           @back="goToStep(3)"
         />
       </div>
@@ -145,12 +148,14 @@ import ResultVisualization from '../components/benchmark/ResultVisualization.vue
 const activeTab = ref(0)
 const datasetId = ref(null)
 const benchmarkId = ref(null)
+const evaluationIds = ref([])
+const criteriaCode = ref('')
 
 const tabs = [
   { id: 'import', name: '数据集导入', icon: '📁' },
   { id: 'generator', name: '模拟数据生成', icon: '⚙️' },
-  { id: 'agent', name: 'Agent选择', icon: '🤖' },
   { id: 'standard', name: '测评标准', icon: '📐' },
+  { id: 'agent', name: 'Agent选择', icon: '🤖' },
   { id: 'result', name: '结果可视化', icon: '📊' }
 ]
 
@@ -160,6 +165,13 @@ const historyLoading = ref(false)
 const historyError = ref(null)
 
 const goToStep = (step, data) => {
+  if (data) {
+    if (data.datasetId) datasetId.value = data.datasetId
+    if (data.criteriaCode) criteriaCode.value = data.criteriaCode
+    if (data.benchmarkId) benchmarkId.value = data.benchmarkId
+    if (data.evaluationIds) evaluationIds.value = data.evaluationIds
+  }
+
   // Validate step access - can only go forward if previous steps are complete
   if (step > activeTab.value) {
     // Check required data for jumping ahead
@@ -167,19 +179,13 @@ const goToStep = (step, data) => {
       ElMessage.warning('请先完成数据集导入')
       return
     }
-    if (step >= 3 && !benchmarkId.value) {
-      ElMessage.warning('请先完成Agent选择和执行')
+    if (step >= 3 && !criteriaCode.value) {
+      ElMessage.warning('请先保存测评标准')
       return
     }
-  }
-
-  // Handle data from child components
-  if (data) {
-    if (data.datasetId) {
-      datasetId.value = data.datasetId
-    }
-    if (data.benchmarkId) {
-      benchmarkId.value = data.benchmarkId
+    if (step >= 4 && !benchmarkId.value) {
+      ElMessage.warning('请先完成Agent选择和执行')
+      return
     }
   }
 
@@ -192,7 +198,7 @@ const loadHistory = async () => {
   try {
     const res = await api.getBenchmarkHistory()
     if (res.data.code === 200) {
-      historyList.value = res.data.data || []
+      historyList.value = res.data.data?.records || res.data.data || []
     } else {
       historyError.value = res.data.message || '加载历史记录失败'
     }
@@ -206,6 +212,7 @@ const loadHistory = async () => {
 
 const viewHistoryResult = (row) => {
   benchmarkId.value = row.id
+  evaluationIds.value = [row.id]
   showHistoryDialog.value = false
   activeTab.value = 4
 }

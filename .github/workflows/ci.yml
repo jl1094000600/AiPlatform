@@ -2,22 +2,34 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
   JAVA_VERSION: '21'
   NODE_VERSION: '20'
 
 jobs:
-  # Backend Build and Test
+  deployment-static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate Compose topology and mounts
+        run: node scripts/check-compose.mjs
+
   backend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,18 +38,14 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: 'maven'
+          distribution: temurin
+          cache: maven
 
-      - name: Build backend
-        run: mvn clean package -DskipTests=false
+      - name: Test and package backend
+        run: mvn -B clean verify
 
-      - name: Run tests
-        run: mvn test
-
-      - name: Build Docker image
-        run: |
-          docker build -f deploy/Dockerfile -t ai-platform-backend:${{ github.sha }} .
+      - name: Build backend image
+        run: docker build -f deploy/Dockerfile -t ai-platform-backend:${{ github.sha }} .
 
       - name: Upload backend artifact
         uses: actions/upload-artifact@v4
@@ -46,13 +54,11 @@ jobs:
           path: backend/target/*.jar
           retention-days: 7
 
-  # Frontend Build
   frontend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: front
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,17 +67,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: front/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm run test --if-present || true
+      - name: Run business tests
+        run: npm run test:business
 
       - name: Build frontend
         run: npm run build
+
+      - name: Build frontend image
+        run: docker build -t ai-platform-front:${{ github.sha }} .
 
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
@@ -80,37 +89,31 @@ jobs:
           path: front/dist
           retention-days: 7
 
-  # Docker Build and Push (only on main/develop push)
-  docker:
+  consumer-frontend:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: Build backend JAR
-        run: mvn clean package -DskipTests -f backend/pom.xml
-
       - name: Set up Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: front/package-lock.json
+      - name: Install shared frontend dependencies
+        working-directory: front
+        run: npm ci
+      - name: Build consumer frontend
+        working-directory: consumer-front
+        run: npm run build
 
-      - name: Build frontend
-        run: |
-          npm ci --prefix front
-          npm run build --prefix front
+  docker:
+    runs-on: ubuntu-latest
+    needs: [deployment-static, backend, frontend, consumer-frontend]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -118,22 +121,28 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push backend Docker image
+      - name: Build and push application images
+        env:
+          REGISTRY_USER: ${{ secrets.DOCKER_USERNAME }}
         run: |
-          docker build -f backend/deploy/Dockerfile -t ${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:${{ github.sha }} backend/
-          docker push ${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:${{ github.sha }}
-          docker tag ${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:latest
-          docker push ${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:latest
+          backend_image="$REGISTRY_USER/ai-platform-backend"
+          front_image="$REGISTRY_USER/ai-platform-front"
 
-  # Deploy to staging (only on develop branch)
+          docker build -f backend/deploy/Dockerfile -t "$backend_image:${{ github.sha }}" -t "$backend_image:latest" backend
+          docker build -f front/Dockerfile -t "$front_image:${{ github.sha }}" -t "$front_image:latest" front
+
+          docker push "$backend_image:${{ github.sha }}"
+          docker push "$backend_image:latest"
+          docker push "$front_image:${{ github.sha }}"
+          docker push "$front_image:latest"
+
   deploy-staging:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: docker
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     environment:
       name: staging
       url: https://staging.aipal.com
-
     steps:
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1
@@ -143,19 +152,20 @@ jobs:
           key: ${{ secrets.STAGING_SSH_KEY }}
           script: |
             cd /opt/ai-platform
-            docker-compose pull
-            docker-compose up -d
-            docker-compose logs --tail=50
+            export BACKEND_IMAGE=${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:${{ github.sha }}
+            export FRONT_IMAGE=${{ secrets.DOCKER_USERNAME }}/ai-platform-front:${{ github.sha }}
+            docker compose --env-file deploy/.env -f deploy/docker-compose.yml pull backend front
+            docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait
+            curl --fail http://localhost/health
+            curl --fail http://localhost/api/actuator/health
 
-  # Deploy to production (only on main branch)
   deploy-production:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: docker
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production
       url: https://aipal.com
-
     steps:
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1
@@ -165,6 +175,9 @@ jobs:
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           script: |
             cd /opt/ai-platform
-            docker-compose pull
-            docker-compose up -d
-            docker-compose logs --tail=50
+            export BACKEND_IMAGE=${{ secrets.DOCKER_USERNAME }}/ai-platform-backend:${{ github.sha }}
+            export FRONT_IMAGE=${{ secrets.DOCKER_USERNAME }}/ai-platform-front:${{ github.sha }}
+            docker compose --env-file deploy/.env -f deploy/docker-compose.yml pull backend front
+            docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --wait
+            curl --fail http://localhost/health
+            curl --fail http://localhost/api/actuator/health

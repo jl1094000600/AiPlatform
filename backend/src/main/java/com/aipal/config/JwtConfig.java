@@ -2,6 +2,7 @@ package com.aipal.config;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +12,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Component
 public class JwtConfig {
@@ -21,17 +23,28 @@ public class JwtConfig {
     @Value("${jwt.expiration}")
     private Long expiration;
 
+    @PostConstruct
+    public void validateConfiguration() {
+        if (secret == null || secret.isBlank()
+                || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException("jwt.secret must contain at least 32 bytes");
+        }
+        if (expiration == null || expiration <= 0) {
+            throw new IllegalStateException("jwt.expiration must be greater than zero");
+        }
+    }
+
     private SecretKey getSigningKey() {
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateToken(Long userId, String username) {
-        return generateToken(userId, username, 1L, "think_land", List.of(), List.of(), false);
-    }
-
     public String generateToken(Long userId, String username, Long tenantId, String tenantCode,
                                 List<String> roles, List<String> permissions, boolean platformAdmin) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        if (tenantCode == null || tenantCode.isBlank()) {
+            throw new IllegalArgumentException("tenantCode must not be blank");
+        }
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
@@ -61,7 +74,7 @@ public class JwtConfig {
         try {
             parseToken(token);
             return true;
-        } catch (JwtException e) {
+        } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
     }
@@ -80,13 +93,13 @@ public class JwtConfig {
         Claims claims = parseToken(token);
         Object value = claims.get("tenantId");
         if (value instanceof Number number) return number.longValue();
-        return value == null ? 1L : Long.parseLong(String.valueOf(value));
+        return value == null ? null : Long.parseLong(String.valueOf(value));
     }
 
     public String getTenantCodeFromToken(String token) {
         Claims claims = parseToken(token);
         Object value = claims.get("tenantCode");
-        return value == null ? "think_land" : String.valueOf(value);
+        return value == null ? null : String.valueOf(value);
     }
 
     @SuppressWarnings("unchecked")

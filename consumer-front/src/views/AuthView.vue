@@ -35,38 +35,65 @@
           <button type="button" :class="{ active: mode === 'login' }" @click="mode = 'login'">登录</button>
           <button type="button" :class="{ active: mode === 'register' }" @click="mode = 'register'">注册</button>
         </div>
-        <label>
-          手机号或邮箱
-          <input v-model="account" type="text" placeholder="name@example.com" />
-        </label>
-        <label>
-          密码
-          <input v-model="password" type="password" placeholder="请输入密码" />
-        </label>
-        <div class="form-row">
-          <label class="check-line">
-            <input type="checkbox" />
-            保持登录状态
-          </label>
-          <a href="#">忘记密码？</a>
+        <div v-if="mode === 'register'" class="form-notice" role="status">
+          当前版本暂不开放自助注册，请联系平台管理员为你开通账号并加入租户。
         </div>
-        <button class="submit-btn" type="submit">{{ mode === 'login' ? '进入 Think Land' : '创建账号' }}</button>
+        <label v-if="mode === 'login'">
+          用户名
+          <input v-model.trim="account" type="text" autocomplete="username" placeholder="请输入用户名" :disabled="loading" />
+        </label>
+        <label v-if="mode === 'login'">
+          密码
+          <input v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" :disabled="loading" />
+        </label>
+        <div v-if="mode === 'login'" class="form-row">
+          <span>账号由管理员统一开通</span>
+          <span>忘记密码请联系管理员</span>
+        </div>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+        <button class="submit-btn" type="submit" :disabled="loading || mode === 'register'">
+          {{ mode === 'login' ? (loading ? '正在登录...' : '进入 Think Land') : '请联系管理员开通' }}
+        </button>
       </form>
     </section>
   </main>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { authApi, saveAuth } from '@/api'
 
 const router = useRouter()
+const route = useRoute()
 const mode = ref('login')
 const account = ref('')
 const password = ref('')
+const loading = ref(false)
+const error = ref('')
 
-function submit() {
-  localStorage.setItem('consumer-auth', '1')
-  router.push('/workspace')
+watch(mode, () => {
+  error.value = ''
+})
+
+async function submit() {
+  if (mode.value === 'register') return
+  if (!account.value || !password.value) {
+    error.value = '请输入用户名和密码'
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+  try {
+    const login = await authApi.login({ username: account.value, password: password.value })
+    saveAuth(login)
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/workspace'
+    await router.replace(redirect)
+  } catch (requestError) {
+    error.value = requestError.message || '登录失败，请稍后重试'
+  } finally {
+    loading.value = false
+  }
 }
 </script>

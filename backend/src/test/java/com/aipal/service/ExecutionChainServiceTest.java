@@ -7,6 +7,9 @@ import com.aipal.entity.AiAgent;
 import com.aipal.mapper.A2ATaskMapper;
 import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.security.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +33,17 @@ import static org.mockito.Mockito.when;
 @SpringBootTest
 @Transactional
 class ExecutionChainServiceTest {
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(new TenantContext.Context(
+                1L, "test", 1L, "test", false, java.util.Set.of(), java.util.Set.of()));
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Autowired
     private MonitorService monitorService;

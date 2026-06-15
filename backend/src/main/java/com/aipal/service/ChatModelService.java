@@ -2,6 +2,7 @@ package com.aipal.service;
 
 import com.aipal.entity.AiModel;
 import com.aipal.mapper.AiModelMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -15,7 +16,6 @@ import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,12 +39,9 @@ public class ChatModelService {
         this.modelMapper = modelMapper;
     }
 
-    @PostConstruct
-    public void init() {
-        refreshModels();
-    }
-
     public void refreshModels() {
+        String prefix = TenantContext.tenantId() + ":";
+        chatClients.keySet().removeIf(key -> key.startsWith(prefix));
         List<AiModel> models = modelMapper.selectList(
             new LambdaQueryWrapper<AiModel>().eq(AiModel::getStatus, 1)
         );
@@ -62,7 +59,7 @@ public class ChatModelService {
     public void registerModel(AiModel model) {
         ChatClient chatClient = createChatClient(model);
         if (chatClient != null) {
-            chatClients.put(model.getModelCode(), chatClient);
+            chatClients.put(cacheKey(model.getModelCode()), chatClient);
             log.info("Registered chat client for model: {}", model.getModelCode());
         }
     }
@@ -125,7 +122,8 @@ public class ChatModelService {
     }
 
     public ChatClient getChatClient(String modelCode) {
-        ChatClient client = chatClients.get(modelCode);
+        String key = cacheKey(modelCode);
+        ChatClient client = chatClients.get(key);
         if (client == null) {
             AiModel model = modelMapper.selectOne(
                 new LambdaQueryWrapper<AiModel>()
@@ -134,7 +132,7 @@ public class ChatModelService {
             );
             if (model != null) {
                 registerModel(model);
-                client = chatClients.get(modelCode);
+                client = chatClients.get(key);
             }
         }
         return client;
@@ -164,7 +162,11 @@ public class ChatModelService {
     }
 
     public void unregisterModel(String modelCode) {
-        chatClients.remove(modelCode);
+        chatClients.remove(cacheKey(modelCode));
         log.info("Unregistered model: {}", modelCode);
+    }
+
+    private String cacheKey(String modelCode) {
+        return TenantContext.tenantId() + ":" + modelCode;
     }
 }

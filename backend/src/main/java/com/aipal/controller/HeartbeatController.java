@@ -3,6 +3,8 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.dto.HeartbeatRequest;
 import com.aipal.entity.AgentHeartbeat;
+import com.aipal.security.HeartbeatAuthenticator;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.HeartbeatManagementService;
 import com.aipal.service.HeartbeatService;
 import jakarta.validation.Valid;
@@ -16,19 +18,25 @@ public class HeartbeatController {
 
     private final HeartbeatService heartbeatService;
     private final HeartbeatManagementService heartbeatManagementService;
+    private final HeartbeatAuthenticator heartbeatAuthenticator;
 
     @PostMapping("/report")
-    public Result<Void> reportHeartbeat(@Valid @RequestBody HeartbeatRequest request) {
-        heartbeatManagementService.recordHeartbeat(request);
+    public Result<Void> reportHeartbeat(
+            @RequestHeader("X-Agent-Heartbeat-Token") String token,
+            @Valid @RequestBody HeartbeatRequest request) {
+        heartbeatAuthenticator.authenticateAndRun(
+                request.getTenantCode(), token, () -> heartbeatManagementService.recordHeartbeat(request));
         return Result.success(null);
     }
 
     @GetMapping("/status/{agentId}")
+    @RequirePermission("agent:list")
     public Result<Boolean> getStatus(@PathVariable Long agentId) {
         return Result.success(heartbeatService.isAgentOnline(agentId));
     }
 
     @GetMapping("/detail/{agentId}")
+    @RequirePermission("agent:list")
     public Result<AgentHeartbeat> getHeartbeat(@PathVariable Long agentId) {
         AgentHeartbeat heartbeat = heartbeatService.getHeartbeat(agentId);
         if (heartbeat == null) {
@@ -38,6 +46,7 @@ public class HeartbeatController {
     }
 
     @PostMapping("/detect-offline")
+    @RequirePermission("agent:update")
     public Result<Void> detectOfflineAgents() {
         heartbeatService.detectOfflineAgents();
         return Result.success(null);

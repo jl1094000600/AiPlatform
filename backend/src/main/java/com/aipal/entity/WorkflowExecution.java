@@ -14,6 +14,9 @@ public class WorkflowExecution {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField(fill = FieldFill.INSERT)
+    private Long tenantId;
+
     /** 执行ID */
     private String executionId;
 
@@ -48,4 +51,7 @@ public class WorkflowExecution {
     private LocalDateTime endTime;
 
     private LocalDateTime createTime;
+
+    @TableField(exist = false)
+    private String workflowName;
 }

@@ -11,6 +11,10 @@ public final class TenantContext {
     }
 
     public static void set(Context context) {
+        if (context == null) {
+            HOLDER.remove();
+            return;
+        }
         HOLDER.set(context);
     }
 
@@ -20,7 +24,10 @@ public final class TenantContext {
 
     public static Long tenantId() {
         Context context = HOLDER.get();
-        return context == null || context.tenantId() == null ? 1L : context.tenantId();
+        if (context == null || context.tenantId() == null) {
+            throw new IllegalStateException("Tenant context is required for tenant-scoped operations");
+        }
+        return context.tenantId();
     }
 
     public static Long userId() {
@@ -47,6 +54,16 @@ public final class TenantContext {
 
     public static void clear() {
         HOLDER.remove();
+    }
+
+    public static void runWithContext(Context context, Runnable task) {
+        Context previous = HOLDER.get();
+        try {
+            set(context);
+            task.run();
+        } finally {
+            set(previous);
+        }
     }
 
     public record Context(Long userId, String username, Long tenantId, String tenantCode,

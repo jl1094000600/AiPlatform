@@ -1,8 +1,8 @@
 package com.aipal.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
-import java.util.Map;
 
 /**
  * 创建编排请求
@@ -18,6 +18,7 @@ public class WorkflowRequest {
     private String description;
 
     @NotBlank(message = "triggerType 不能为空")
+    @Pattern(regexp = "(?i)MANUAL|SCHEDULE|EVENT", message = "triggerType must be MANUAL, SCHEDULE or EVENT")
     private String triggerType; // MANUAL / SCHEDULE / EVENT
 
     private String triggerConfig;

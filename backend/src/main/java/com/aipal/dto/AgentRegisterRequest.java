@@ -9,6 +9,10 @@ import lombok.Data;
  */
 @Data
 public class AgentRegisterRequest {
+    @NotBlank(message = "tenantCode 不能为空")
+    @Size(max = 64, message = "tenantCode 长度不能超过64")
+    private String tenantCode;
+
     @NotBlank(message = "agentCode 不能为空")
     @Size(max = 64, message = "agentCode 长度不能超过64")
     private String agentCode;

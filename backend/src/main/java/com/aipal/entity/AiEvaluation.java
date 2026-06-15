@@ -14,10 +14,18 @@ public class AiEvaluation {
     private String description;
     private Long datasetId;
     private Long agentId;
+    private String batchCode;
     private String criteriaConfig;
     private String resultData;
     private Double totalScore;
     private Integer status;
+    private Integer totalSamples;
+    private Integer completedSamples;
+    private Integer successSamples;
+    private Integer failedSamples;
+    private Integer cancelRequested;
+    private Long retryOfId;
+    private String errorMessage;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Long executorId;

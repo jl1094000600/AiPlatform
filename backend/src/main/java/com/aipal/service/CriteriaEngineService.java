@@ -2,16 +2,24 @@ package com.aipal.service;
 
 import com.aipal.dto.CriteriaConfigRequest;
 import com.aipal.dto.EvaluationResult;
+import com.aipal.entity.AiEvaluation;
 import com.aipal.entity.AiEvaluationCriteria;
+import com.aipal.entity.AiEvaluationSample;
 import com.aipal.mapper.AiEvaluationCriteriaMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,193 +28,199 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class CriteriaEngineService {
 
-    private final AiEvaluationCriteriaMapper criteriaMapper;
+    private static final Pattern COMPARISON = Pattern.compile(
+            "^([a-zA-Z][a-zA-Z0-9_]*)\\s*(>=|<=|==|=|!=|>|<)\\s*(-?\\d+(?:\\.\\d+)?)$");
+    private static final Pattern MULTIPLICATION = Pattern.compile(
+            "^([a-zA-Z][a-zA-Z0-9_]*)\\s*\\*\\s*(-?\\d+(?:\\.\\d+)?)$");
+    private static final List<String> DEFAULT_METRICS = List.of(
+            "exact_match", "precision", "recall", "f1", "error_rate", "response_time_ms");
 
-    private static final Pattern FORMULA_PATTERN = Pattern.compile("(\\w+)\\s*([><=!]+)\\s*([\\d.]+)");
+    private final AiEvaluationCriteriaMapper criteriaMapper;
+    private final ObjectMapper objectMapper;
 
     public EvaluationResult evaluate(Long evaluationId, Object agentResponse) {
-        List<AiEvaluationCriteria> criteriaList = criteriaMapper.selectList(
-                new QueryWrapper<AiEvaluationCriteria>().eq("status", 1)
-        );
+        Map<String, Double> metrics = numericMetrics(agentResponse);
+        return buildResult("EVAL_" + evaluationId, loadCriteria(null), metrics);
+    }
 
-        EvaluationResult result = new EvaluationResult();
-        result.setEvaluationCode("EVAL_" + evaluationId);
-        result.setCriteriaScores(new ArrayList<>());
-
-        double totalScore = 0;
-        double totalWeight = 0;
-
-        for (AiEvaluationCriteria criteria : criteriaList) {
-            double score = calculateScore(criteria, agentResponse);
-            double weight = criteria.getWeight() != null ? criteria.getWeight() : 1.0;
-
-            EvaluationResult.CriteriaScore cs = new EvaluationResult.CriteriaScore();
-            cs.setCriteriaCode(criteria.getCriteriaCode());
-            cs.setCriteriaName(criteria.getCriteriaName());
-            cs.setScore(score);
-            cs.setWeight(weight);
-            cs.setDetails("Formula: " + criteria.getFormula() + ", Score: " + score);
-
-            result.getCriteriaScores().add(cs);
-
-            totalScore += score * weight;
-            totalWeight += weight;
-        }
-
-        result.setTotalScore(totalWeight > 0 ? totalScore / totalWeight : 0);
-        log.info("Evaluation completed. Total score: {}", result.getTotalScore());
-
-        return result;
+    public EvaluationResult evaluateSamples(AiEvaluation evaluation, List<AiEvaluationSample> samples) {
+        if (samples == null || samples.isEmpty()) throw new IllegalArgumentException("Evaluation has no sample results");
+        Map<String, Double> metrics = aggregateMetrics(samples);
+        return buildResult(evaluation.getEvaluationCode(), loadCriteria(evaluation.getCriteriaConfig()), metrics);
     }
 
     public double calculateScore(AiEvaluationCriteria criteria, Object response) {
-        if (criteria.getFormula() == null || criteria.getFormula().isEmpty()) {
-            return defaultScoreCalculation(response);
-        }
-
-        try {
-            return parseAndExecuteFormula(criteria.getFormula(), response);
-        } catch (Exception e) {
-            log.error("Failed to calculate score for criteria: {}", criteria.getCriteriaCode(), e);
-            return defaultScoreCalculation(response);
-        }
+        ScoreOutcome outcome = scoreCriteria(criteria, numericMetrics(response));
+        if (!outcome.success()) throw new IllegalArgumentException(outcome.details());
+        return outcome.score();
     }
 
-    private double parseAndExecuteFormula(String formula, Object response) {
-        String processedFormula = processFormulaVariables(formula, response);
+    private EvaluationResult buildResult(String evaluationCode, List<AiEvaluationCriteria> criteriaList,
+                                         Map<String, Double> metrics) {
+        EvaluationResult result = new EvaluationResult();
+        result.setEvaluationCode(evaluationCode);
+        result.setCriteriaScores(new ArrayList<>());
 
-        if (processedFormula.contains("avg(")) {
-            return calculateAverage(processedFormula, response);
-        } else if (processedFormula.contains("sum(")) {
-            return calculateSum(processedFormula, response);
-        } else if (processedFormula.contains("count(")) {
-            return calculateCount(processedFormula, response);
+        double weightedScore = 0;
+        double successfulWeight = 0;
+        for (AiEvaluationCriteria criteria : criteriaList) {
+            ScoreOutcome outcome = scoreCriteria(criteria, metrics);
+            double weight = criteria.getWeight() == null ? 1.0 : criteria.getWeight();
+            EvaluationResult.CriteriaScore item = new EvaluationResult.CriteriaScore();
+            item.setCriteriaCode(criteria.getCriteriaCode());
+            item.setCriteriaName(criteria.getCriteriaName());
+            item.setWeight(weight);
+            item.setDetails(outcome.details());
+            if (outcome.success()) {
+                item.setScore(outcome.score());
+                weightedScore += outcome.score() * weight;
+                successfulWeight += weight;
+            }
+            result.getCriteriaScores().add(item);
         }
-
-        return evaluateComparisonFormula(processedFormula);
-    }
-
-    private String processFormulaVariables(String formula, Object response) {
-        String result = formula;
-        result = result.replaceAll("response\\.", "response.");
-        result = result.replaceAll("\\$\\{(\\w+)\\}", getValueFromResponse("$1", response));
+        if (successfulWeight == 0) throw new IllegalStateException("No evaluation criteria could be calculated");
+        result.setTotalScore(round(weightedScore / successfulWeight));
         return result;
     }
 
-    private String getValueFromResponse(String key, Object response) {
-        if (response instanceof Map) {
-            Map<?, ?> map = (Map<?, ?>) response;
-            Object value = map.get(key);
-            return value != null ? value.toString() : "0";
+    private List<AiEvaluationCriteria> loadCriteria(String criteriaConfig) {
+        QueryWrapper<AiEvaluationCriteria> wrapper = new QueryWrapper<AiEvaluationCriteria>().eq("status", 1);
+        if (criteriaConfig != null && !criteriaConfig.isBlank()) {
+            List<String> codes = List.of(criteriaConfig.split(",")).stream().map(String::trim)
+                    .filter(value -> !value.isBlank()).toList();
+            if (!codes.isEmpty()) wrapper.in("criteria_code", codes);
         }
-        return "0";
+        List<AiEvaluationCriteria> criteria = criteriaMapper.selectList(wrapper);
+        if (!criteria.isEmpty()) return criteria;
+        return DEFAULT_METRICS.stream().map(this::defaultCriteria).toList();
     }
 
-    private double calculateAverage(String formula, Object response) {
-        Pattern avgPattern = Pattern.compile("avg\\((\\w+)\\)");
-        Matcher matcher = avgPattern.matcher(formula);
-        if (matcher.find()) {
-            String field = matcher.group(1);
-            return extractNumericAverage(field, response);
-        }
-        return 0;
+    private AiEvaluationCriteria defaultCriteria(String metric) {
+        AiEvaluationCriteria criteria = new AiEvaluationCriteria();
+        criteria.setCriteriaCode(metric);
+        criteria.setCriteriaName(metric);
+        criteria.setType(metric);
+        criteria.setFormula(metric);
+        criteria.setWeight("response_time_ms".equals(metric) ? 0.5 : 1.0);
+        return criteria;
     }
 
-    private double calculateSum(String formula, Object response) {
-        Pattern sumPattern = Pattern.compile("sum\\((\\w+)\\)");
-        Matcher matcher = sumPattern.matcher(formula);
-        if (matcher.find()) {
-            String field = matcher.group(1);
-            return extractNumericSum(field, response);
+    private ScoreOutcome scoreCriteria(AiEvaluationCriteria criteria, Map<String, Double> metrics) {
+        String formula = criteria.getFormula();
+        if (formula == null || formula.isBlank()) formula = criteria.getType();
+        if (formula == null || formula.isBlank()) formula = criteria.getCriteriaCode();
+        if (formula == null || formula.isBlank()) return ScoreOutcome.failure("Criterion has no metric or formula");
+        String normalized = formula.trim().toLowerCase(Locale.ROOT);
+
+        if (metrics.containsKey(normalized)) {
+            return ScoreOutcome.success(metricToScore(normalized, metrics.get(normalized)),
+                    normalized + "=" + metrics.get(normalized));
         }
-        return 0;
+
+        Matcher comparison = COMPARISON.matcher(normalized);
+        if (comparison.matches()) {
+            String metric = comparison.group(1);
+            Double value = metrics.get(metric);
+            if (value == null) return ScoreOutcome.failure("Unknown metric: " + metric);
+            double threshold = Double.parseDouble(comparison.group(3));
+            boolean matched = compare(value, comparison.group(2), threshold);
+            return ScoreOutcome.success(matched ? 100.0 : 0.0,
+                    metric + "=" + value + " " + comparison.group(2) + " " + threshold);
+        }
+
+        Matcher multiplication = MULTIPLICATION.matcher(normalized);
+        if (multiplication.matches()) {
+            String metric = multiplication.group(1);
+            Double value = metrics.get(metric);
+            if (value == null) return ScoreOutcome.failure("Unknown metric: " + metric);
+            return ScoreOutcome.success(clamp(value * Double.parseDouble(multiplication.group(2))),
+                    metric + "=" + value);
+        }
+        return ScoreOutcome.failure("Unsupported formula: " + formula);
     }
 
-    private double calculateCount(String formula, Object response) {
-        Pattern countPattern = Pattern.compile("count\\((\\w+)\\)");
-        Matcher matcher = countPattern.matcher(formula);
-        if (matcher.find()) {
-            String field = matcher.group(1);
-            return extractFieldCount(field, response);
+    private Map<String, Double> aggregateMetrics(List<AiEvaluationSample> samples) {
+        Map<String, Double> sums = new LinkedHashMap<>();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (AiEvaluationSample sample : samples) {
+            if (sample.getMetricsData() == null || sample.getMetricsData().isBlank()) continue;
+            try {
+                Map<String, Object> values = objectMapper.readValue(sample.getMetricsData(), new TypeReference<>() {});
+                for (Map.Entry<String, Object> entry : values.entrySet()) {
+                    if (entry.getValue() instanceof Number number) {
+                        sums.merge(entry.getKey(), number.doubleValue(), Double::sum);
+                        counts.merge(entry.getKey(), 1, Integer::sum);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Ignoring invalid sample metrics for sample {}", sample.getId(), e);
+            }
         }
-        return 0;
+        Map<String, Double> metrics = new LinkedHashMap<>();
+        sums.forEach((key, value) -> metrics.put(key, value / counts.get(key)));
+        long failed = samples.stream().filter(sample -> sample.getStatus() != null && sample.getStatus() == 2).count();
+        metrics.put("error_rate", (double) failed / samples.size());
+        metrics.putIfAbsent("response_time_ms", samples.stream().filter(sample -> sample.getDurationMs() != null)
+                .mapToLong(AiEvaluationSample::getDurationMs).average().orElse(0));
+        return metrics;
     }
 
-    private double evaluateComparisonFormula(String formula) {
-        Matcher matcher = FORMULA_PATTERN.matcher(formula);
-        if (matcher.find()) {
-            String field = matcher.group(1);
-            String operator = matcher.group(2);
-            double threshold = Double.parseDouble(matcher.group(3));
-
-            double value = extractNumericValue(field);
-            return applyOperator(value, operator, threshold);
+    private Map<String, Double> numericMetrics(Object response) {
+        Map<String, Double> metrics = new LinkedHashMap<>();
+        if (response instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> {
+                if (key != null && value instanceof Number number) {
+                    metrics.put(key.toString().toLowerCase(Locale.ROOT), number.doubleValue());
+                }
+            });
         }
-
-        try {
-            return Double.parseDouble(formula);
-        } catch (NumberFormatException e) {
-            return 50.0;
-        }
+        return metrics;
     }
 
-    private double applyOperator(double value, String operator, double threshold) {
-        return switch (operator) {
-            case ">" -> value > threshold ? 100 : 0;
-            case ">=" -> value >= threshold ? 100 : 0;
-            case "<" -> value < threshold ? 100 : 0;
-            case "<=" -> value <= threshold ? 100 : 0;
-            case "=" -> Math.abs(value - threshold) < 0.001 ? 100 : 0;
-            case "!=" -> Math.abs(value - threshold) >= 0.001 ? 100 : 0;
-            default -> 50.0;
+    private double metricToScore(String metric, double value) {
+        return switch (metric) {
+            case "error_rate" -> clamp((1 - value) * 100);
+            case "response_time", "response_time_ms", "latency" -> clamp(100 - value / 10.0);
+            default -> clamp(value <= 1 ? value * 100 : value);
         };
     }
 
-    private double extractNumericValue(String field) {
-        try {
-            Pattern pattern = Pattern.compile(field + "[^\\d]*([\\d.]+)");
-            return 75.0;
-        } catch (Exception e) {
-            return 50.0;
-        }
+    private boolean compare(double value, String operator, double threshold) {
+        return switch (operator) {
+            case ">" -> value > threshold;
+            case ">=" -> value >= threshold;
+            case "<" -> value < threshold;
+            case "<=" -> value <= threshold;
+            case "=", "==" -> Double.compare(value, threshold) == 0;
+            case "!=" -> Double.compare(value, threshold) != 0;
+            default -> false;
+        };
     }
 
-    private double extractNumericAverage(String field, Object response) {
-        return 75.0 + Math.random() * 20;
+    private double clamp(double value) {
+        return Math.max(0, Math.min(100, value));
     }
 
-    private double extractNumericSum(String field, Object response) {
-        return 500.0 + Math.random() * 100;
-    }
-
-    private double extractFieldCount(String field, Object response) {
-        return 10.0 + Math.random() * 5;
-    }
-
-    private double defaultScoreCalculation(Object response) {
-        if (response == null) return 0;
-        if (response instanceof Map) {
-            Map<?, ?> map = (Map<?, ?>) response;
-            if (map.containsKey("score")) {
-                try {
-                    return Double.parseDouble(map.get("score").toString());
-                } catch (NumberFormatException ignored) {}
-            }
-        }
-        return 75.0;
+    private double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     public AiEvaluationCriteria createCriteria(CriteriaConfigRequest request) {
+        validateCriteriaRequest(request);
         AiEvaluationCriteria criteria = new AiEvaluationCriteria();
-        criteria.setCriteriaCode(request.getCriteriaCode() != null ? request.getCriteriaCode() : generateCriteriaCode());
-        criteria.setCriteriaName(request.getCriteriaName() != null ? request.getCriteriaName() : request.getCriteriaCode());
+        criteria.setCriteriaCode(request.getCriteriaCode() == null || request.getCriteriaCode().isBlank()
+                ? "CR_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT)
+                : request.getCriteriaCode().trim());
+        criteria.setCriteriaName(request.getCriteriaName() == null || request.getCriteriaName().isBlank()
+                ? criteria.getCriteriaCode() : request.getCriteriaName().trim());
         criteria.setDescription(request.getDescription());
+        criteria.setType(request.getType());
         criteria.setFormula(request.getFormula());
-        criteria.setWeight(request.getWeight() != null ? request.getWeight() : 1.0);
+        criteria.setWeight(request.getWeight() == null ? 1.0 : request.getWeight());
         criteria.setThresholds(request.getThresholds());
         criteria.setStatus(1);
-        criteria.setCreateTime(java.time.LocalDateTime.now());
-        criteria.setUpdateTime(java.time.LocalDateTime.now());
+        criteria.setCreateTime(LocalDateTime.now());
+        criteria.setUpdateTime(LocalDateTime.now());
         criteriaMapper.insert(criteria);
         return criteria;
     }
@@ -216,22 +230,37 @@ public class CriteriaEngineService {
     }
 
     public boolean updateCriteria(CriteriaConfigRequest request, Long criteriaId) {
+        validateCriteriaRequest(request);
         AiEvaluationCriteria criteria = criteriaMapper.selectById(criteriaId);
-        if (criteria != null) {
-            if (request.getFormula() != null) criteria.setFormula(request.getFormula());
-            if (request.getWeight() != null) criteria.setWeight(request.getWeight());
-            if (request.getThresholds() != null) criteria.setThresholds(request.getThresholds());
-            criteria.setUpdateTime(java.time.LocalDateTime.now());
-            return criteriaMapper.updateById(criteria) > 0;
-        }
-        return false;
+        if (criteria == null) return false;
+        if (request.getCriteriaName() != null) criteria.setCriteriaName(request.getCriteriaName());
+        if (request.getDescription() != null) criteria.setDescription(request.getDescription());
+        if (request.getType() != null) criteria.setType(request.getType());
+        if (request.getFormula() != null) criteria.setFormula(request.getFormula());
+        if (request.getWeight() != null) criteria.setWeight(request.getWeight());
+        if (request.getThresholds() != null) criteria.setThresholds(request.getThresholds());
+        criteria.setUpdateTime(LocalDateTime.now());
+        return criteriaMapper.updateById(criteria) > 0;
     }
 
     public boolean deleteCriteria(Long id) {
         return criteriaMapper.deleteById(id) > 0;
     }
 
-    private String generateCriteriaCode() {
-        return "CR_" + System.currentTimeMillis();
+    private void validateCriteriaRequest(CriteriaConfigRequest request) {
+        if (request == null) throw new IllegalArgumentException("Criteria request is required");
+        if (request.getWeight() != null && request.getWeight() <= 0) {
+            throw new IllegalArgumentException("Criteria weight must be positive");
+        }
+    }
+
+    private record ScoreOutcome(boolean success, Double score, String details) {
+        private static ScoreOutcome success(double score, String details) {
+            return new ScoreOutcome(true, Math.round(score * 100.0) / 100.0, details);
+        }
+
+        private static ScoreOutcome failure(String details) {
+            return new ScoreOutcome(false, null, details);
+        }
     }
 }

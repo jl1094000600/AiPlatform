@@ -2,6 +2,7 @@ package com.aipal.config;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -12,6 +13,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 @Component
+@ConditionalOnProperty(name = "aipal.schema-initialization.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class SkillSchemaInitializer {
 

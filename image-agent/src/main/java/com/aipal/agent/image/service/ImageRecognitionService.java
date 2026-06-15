@@ -128,7 +128,7 @@ public class ImageRecognitionService {
         String imageUrl = "url".equalsIgnoreCase(inputType) ? inputData : null;
         String base64Data = "base64".equalsIgnoreCase(inputType) ? inputData : null;
 
-        if (!StringUtils.hasText(openaiApiKey) || "dummy-key-for-init".equals(openaiApiKey)) {
+        if (!StringUtils.hasText(openaiApiKey)) {
             return "图像识别请求已接收，当前未配置可用的 OpenAI API Key，无法执行真实识别。";
         }
 

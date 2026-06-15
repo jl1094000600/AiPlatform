@@ -7,6 +7,7 @@ import com.aipal.dto.LoginRequest;
 import com.aipal.dto.LoginResponse;
 import com.aipal.dto.SwitchTenantRequest;
 import com.aipal.entity.SysUser;
+import com.aipal.security.RequirePermission;
 import com.aipal.security.TenantContext;
 import com.aipal.service.TenantAuthService;
 import com.aipal.service.UserService;
@@ -45,19 +46,29 @@ public class AuthController {
                 .filter(tenant -> tenantId.equals(tenant.getId()))
                 .findFirst()
                 .map(tenant -> tenant.getTenantCode())
-                .orElse("think_land");
+                .orElseThrow(() -> new SecurityException("用户未加入有效租户"));
         String token = jwtConfig.generateToken(user.getId(), user.getUsername(), tenantId, tenantCode,
                 roles, permissions, tenantAuthService.isPlatformAdmin(user));
         return Result.success(tenantAuthService.buildLoginResponse(user, token, tenantId));
     }
 
     @PostMapping("/register")
+    @RequirePermission("member:manage")
     public Result<Boolean> register(@Valid @RequestBody SysUser user) {
+        if (user.getUsername() == null || user.getUsername().isBlank()) {
+            return Result.badRequest("用户名不能为空");
+        }
+        if (user.getPassword() == null || user.getPassword().length() < 8) {
+            return Result.badRequest("密码长度不能少于 8 位");
+        }
         SysUser existingUser = userService.getUserByUsername(user.getUsername());
         if (existingUser != null) {
             return Result.badRequest("用户名已存在");
         }
+        user.setId(null);
         user.setPassword(PasswordEncoder.encode(user.getPassword()));
+        user.setDefaultTenantId(null);
+        user.setPlatformAdmin(0);
         user.setStatus(1);
         return Result.success(userService.saveUser(user));
     }
@@ -95,7 +106,7 @@ public class AuthController {
                 .filter(tenant -> tenantId.equals(tenant.getId()))
                 .findFirst()
                 .map(tenant -> tenant.getTenantCode())
-                .orElse("think_land");
+                .orElseThrow(() -> new SecurityException("用户未加入有效租户"));
         String token = jwtConfig.generateToken(user.getId(), user.getUsername(), tenantId, tenantCode,
                 roles, permissions, tenantAuthService.isPlatformAdmin(user));
         return Result.success(tenantAuthService.buildLoginResponse(user, token, tenantId));

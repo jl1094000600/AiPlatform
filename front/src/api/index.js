@@ -264,13 +264,19 @@ export default {
   },
 
   // Benchmark APIs
-  getBenchmarkHistory() {
-    return api.get('/benchmark/history')
+  getBenchmarkHistory(params) {
+    return api.get('/benchmark/history', { params })
   },
   uploadDataset(formData) {
     return api.post('/benchmark/dataset/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
+  },
+  getDatasetPreview(datasetId, limit = 100) {
+    return api.get('/datasets/' + datasetId + '/preview', { params: { limit } })
+  },
+  generateDataset(data) {
+    return api.post('/datasets/generate', data)
   },
   generateSimData(data) {
     return api.post('/benchmark/simdata/generate', data)
@@ -278,17 +284,47 @@ export default {
   startBenchmark(data) {
     return api.post('/benchmark/start', data)
   },
+  startBatchBenchmark(data) {
+    return api.post('/benchmark/start/batch', data)
+  },
   getBenchmarkProgress(benchmarkId) {
     return api.get('/benchmark/progress/' + benchmarkId)
   },
+  getBatchEvaluations(batchCode) {
+    return api.get('/evaluations/batch/' + batchCode)
+  },
+  getEvaluationResults(evaluationId) {
+    return api.get('/evaluations/' + evaluationId + '/results')
+  },
+  exportEvaluation(evaluationId, format = 'csv') {
+    return api.get('/evaluations/' + evaluationId + '/export', {
+      params: { format },
+      responseType: 'blob'
+    })
+  },
   saveBenchmarkStandards(data) {
     return api.post('/benchmark/standards', data)
+  },
+  getBenchmarkStandards() {
+    return api.get('/benchmark/standards')
+  },
+  updateBenchmarkStandard(id, data) {
+    return api.put('/benchmark/standards/' + id, data)
+  },
+  deleteBenchmarkStandard(id) {
+    return api.delete('/benchmark/standards/' + id)
   },
   getBenchmarkResult(benchmarkId) {
     return api.get('/benchmark/result/' + benchmarkId)
   },
   exportBenchmarkReport(benchmarkId) {
     return api.get('/benchmark/export/' + benchmarkId, { responseType: 'blob' })
+  },
+  getBenchmarkStatistics(params) {
+    return api.get('/benchmark/statistics', { params })
+  },
+  getBenchmarkLeaderboard(params) {
+    return api.get('/benchmark/leaderboard', { params })
   },
 
   // Workflow APIs
@@ -307,14 +343,23 @@ export default {
   deleteWorkflow(id) {
     return api.delete('/workflows/' + id)
   },
-  triggerWorkflow(id) {
-    return api.post('/workflows/' + id + '/trigger')
+  deployWorkflow(id) {
+    return api.post('/workflows/' + id + '/deploy')
+  },
+  triggerWorkflow(id, data, triggerType = 'MANUAL') {
+    return api.post('/workflows/' + id + '/trigger', data, { params: { triggerType } })
   },
   getWorkflowExecutions(workflowId) {
     return api.get('/workflows/' + workflowId + '/executions')
   },
   getAllWorkflowExecutions() {
     return api.get('/workflows/executions')
+  },
+  getWorkflowExecution(executionId) {
+    return api.get('/workflows/executions/' + executionId)
+  },
+  cancelWorkflowExecution(executionId) {
+    return api.post('/workflows/executions/' + executionId + '/cancel')
   },
 
   // Business dashboard APIs

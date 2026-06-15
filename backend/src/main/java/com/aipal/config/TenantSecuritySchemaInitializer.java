@@ -1,7 +1,8 @@
 package com.aipal.config;
 
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -11,13 +12,28 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 
 @Component
-@RequiredArgsConstructor
+@ConditionalOnProperty(name = "aipal.schema-initialization.enabled", havingValue = "true", matchIfMissing = true)
 public class TenantSecuritySchemaInitializer {
     private static final String DEFAULT_TENANT_CODE = "aiplatform";
     private static final String DEFAULT_TENANT_NAME = "AIPlatform";
     private final DataSource dataSource;
+    private final String bootstrapAdminPasswordHash;
+
+    public TenantSecuritySchemaInitializer(
+            DataSource dataSource,
+            @Value("${security.bootstrap-admin-password-hash}") String bootstrapAdminPasswordHash) {
+        if (bootstrapAdminPasswordHash == null || !bootstrapAdminPasswordHash.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException(
+                    "security.bootstrap-admin-password-hash must be an explicit 64-character SHA-256 hash");
+        }
+        this.dataSource = dataSource;
+        this.bootstrapAdminPasswordHash = bootstrapAdminPasswordHash.toLowerCase(Locale.ROOT);
+    }
 
     @PostConstruct
     public void initialize() {
@@ -26,6 +42,7 @@ public class TenantSecuritySchemaInitializer {
             createTables(statement);
             upgradeSystemTables(connection, statement);
             upgradeBusinessTables(connection, statement);
+            upgradeTenantUniqueIndexes(connection, statement);
             seedDefaultTenant(statement);
             seedPermissions(statement);
             seedMenus(statement);
@@ -150,7 +167,7 @@ public class TenantSecuritySchemaInitializer {
                 "ai_a2a_task", "ai_agent", "ai_agent_graph_edge", "ai_agent_heartbeat",
                 "ai_agent_quality_result", "ai_agent_quality_run", "ai_agent_registration",
                 "ai_agent_registration_event", "ai_agent_runtime_config", "ai_agent_version",
-                "ai_dataset", "ai_evaluation", "ai_evaluation_criteria", "ai_model",
+                "ai_dataset", "ai_evaluation", "ai_evaluation_criteria", "ai_evaluation_sample", "ai_model",
                 "ai_output_governance_record", "ai_skill", "ai_tts_config", "ai_tts_task",
                 "ai_user_memory", "ai_workflow", "ai_workflow_execution", "alert_event",
                 "alert_rule", "automation_approval", "automation_build_run", "automation_code_requirement_feedback", "automation_code_quality_issue",
@@ -165,6 +182,42 @@ public class TenantSecuritySchemaInitializer {
                 "prompt_engineering_prompt", "prompt_engineering_test_case",
                 "prompt_engineering_version", "rag_ingestion_record", "sys_audit_log"
         );
+    }
+
+    private void upgradeTenantUniqueIndexes(Connection connection, Statement statement) throws SQLException {
+        ensureTenantUniqueIndex(connection, statement, "ai_dataset", "uk_dataset_code",
+                List.of("tenant_id", "dataset_code"));
+        ensureTenantUniqueIndex(connection, statement, "ai_evaluation", "uk_evaluation_code",
+                List.of("tenant_id", "evaluation_code"));
+        ensureTenantUniqueIndex(connection, statement, "ai_evaluation_criteria", "uk_criteria_code",
+                List.of("tenant_id", "criteria_code"));
+        ensureTenantUniqueIndex(connection, statement, "ai_workflow", "uk_workflow_code",
+                List.of("tenant_id", "workflow_code"));
+        ensureTenantUniqueIndex(connection, statement, "ai_agent_registration", "uk_agent_instance",
+                List.of("tenant_id", "agent_code", "instance_id"));
+    }
+
+    private void ensureTenantUniqueIndex(Connection connection, Statement statement, String tableName,
+                                         String indexName, List<String> desiredColumns) throws SQLException {
+        if (!tableExists(connection, tableName)) return;
+        Map<Short, String> existingColumns = new TreeMap<>();
+        try (ResultSet indexes = connection.getMetaData().getIndexInfo(
+                connection.getCatalog(), null, tableName, true, false)) {
+            while (indexes.next()) {
+                String currentName = indexes.getString("INDEX_NAME");
+                String columnName = indexes.getString("COLUMN_NAME");
+                if (currentName != null && currentName.equalsIgnoreCase(indexName) && columnName != null) {
+                    existingColumns.put(indexes.getShort("ORDINAL_POSITION"), columnName.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        List<String> currentColumns = existingColumns.values().stream().toList();
+        if (currentColumns.equals(desiredColumns)) return;
+        if (!currentColumns.isEmpty()) {
+            statement.executeUpdate("ALTER TABLE " + tableName + " DROP INDEX " + indexName);
+        }
+        statement.executeUpdate("ALTER TABLE " + tableName + " ADD UNIQUE KEY " + indexName
+                + " (" + String.join(", ", desiredColumns) + ")");
     }
 
     private void seedDefaultTenant(Statement statement) throws SQLException {
@@ -183,8 +236,8 @@ public class TenantSecuritySchemaInitializer {
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_user (id, username, password, real_name, default_tenant_id, platform_admin, status)
-                VALUES (1, 'admin', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', '系统管理员', 1, 1, 1)
-                """);
+                VALUES (1, 'admin', '%s', '系统管理员', 1, 1, 1)
+                """.formatted(bootstrapAdminPasswordHash));
     }
 
     private void seedPermissions(Statement statement) throws SQLException {
@@ -199,7 +252,7 @@ public class TenantSecuritySchemaInitializer {
                 {"governance:list", "AI 治理查看"}, {"governance:manage", "AI 治理管理"},
                 {"prompt:list", "提示词查看"}, {"prompt:create", "提示词新建"}, {"prompt:update", "提示词编辑"}, {"prompt:evaluate", "提示词评测"}, {"prompt:publish", "提示词发布"},
                 {"tenant:manage", "租户管理"}, {"member:manage", "成员管理"}, {"role:manage", "角色权限管理"}, {"menu:manage", "菜单权限管理"},
-                {"audit:view", "审计查看"}, {"billing:view", "账单查看"}, {"alert:view", "告警查看"}, {"customer:manage", "客户管理"},
+                {"audit:view", "审计查看"}, {"billing:view", "账单查看"}, {"alert:view", "告警查看"}, {"alert:manage", "告警管理"}, {"customer:manage", "客户管理"},
                 {"workflow:manage", "工作流管理"}, {"benchmark:view", "基准测试查看"}, {"benchmark:run", "基准测试执行"},
                 {"benchmark:manage", "基准测试标准管理"}, {"tts:invoke", "语音合成调用"}, {"tts:manage", "语音配置管理"},
                 {"monitor:view", "监控查看"}, {"graph:manage", "调用图谱管理"}

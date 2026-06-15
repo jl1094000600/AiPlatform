@@ -6,12 +6,12 @@ spring:
     name: marketing-agent
   ai:
     openai:
-      api-key: dummy-key-for-init
+      api-key: ${OPENAI_API_KEY}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    password: Jl19951106
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   data:
     redis:
       host: localhost
@@ -45,4 +45,6 @@ agent:
   platform:
     registry-url: http://localhost:8080/api/v1/registry/agents
     heartbeat-url: http://localhost:8080/api/v1/heartbeat/report
+    tenant-code: ${AI_PLATFORM_TENANT_CODE:aiplatform}
+    heartbeat-secret: ${AGENT_HEARTBEAT_SECRET:}
     a2a-url: http://localhost:8080/api/v1/a2a/message

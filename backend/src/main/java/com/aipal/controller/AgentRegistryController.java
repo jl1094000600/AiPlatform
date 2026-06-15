@@ -4,6 +4,8 @@ import com.aipal.dto.AgentRegisterRequest;
 import com.aipal.dto.AgentRegisterResponse;
 import com.aipal.dto.HeartbeatRequest;
 import com.aipal.entity.AgentRegistration;
+import com.aipal.security.RequirePermission;
+import com.aipal.security.HeartbeatAuthenticator;
 import com.aipal.service.AgentRegistryService;
 import com.aipal.service.HeartbeatManagementService;
 import jakarta.validation.Valid;
@@ -26,6 +28,7 @@ public class AgentRegistryController {
 
     private final AgentRegistryService agentRegistryService;
     private final HeartbeatManagementService heartbeatManagementService;
+    private final HeartbeatAuthenticator heartbeatAuthenticator;
 
     /**
      * Push模式注册Agent
@@ -34,9 +37,11 @@ public class AgentRegistryController {
      */
     @PostMapping
     public ResponseEntity<AgentRegisterResponse> register(
+            @RequestHeader("X-Agent-Heartbeat-Token") String token,
             @Valid @RequestBody AgentRegisterRequest request) {
         log.info("Received agent registration request: {}", request.getAgentCode());
-        AgentRegisterResponse response = agentRegistryService.register(request);
+        AgentRegisterResponse response = heartbeatAuthenticator.authenticateAndCall(
+                request.getTenantCode(), token, () -> agentRegistryService.register(request));
         return ResponseEntity.ok(response);
     }
 
@@ -47,6 +52,7 @@ public class AgentRegistryController {
      * @return 无内容
      */
     @DeleteMapping("/{agentCode}")
+    @RequirePermission("agent:delete")
     public ResponseEntity<Void> unregister(
             @PathVariable String agentCode,
             @RequestParam(defaultValue = "default") String instanceId) {
@@ -62,6 +68,7 @@ public class AgentRegistryController {
      * @return 注册信息
      */
     @GetMapping("/{agentCode}")
+    @RequirePermission("agent:list")
     public ResponseEntity<AgentRegistration> getRegistration(
             @PathVariable String agentCode,
             @RequestParam(defaultValue = "default") String instanceId) {
@@ -77,6 +84,7 @@ public class AgentRegistryController {
      * @return 注册列表
      */
     @GetMapping
+    @RequirePermission("agent:list")
     public ResponseEntity<List<AgentRegistration>> getAllRegistrations() {
         List<AgentRegistration> registrations = agentRegistryService.getAllRegistrations();
         return ResponseEntity.ok(registrations);
@@ -87,6 +95,7 @@ public class AgentRegistryController {
      * @return 无内容
      */
     @PostMapping("/refresh")
+    @RequirePermission("agent:update")
     public ResponseEntity<Void> refreshRegistrations() {
         agentRegistryService.refreshRegistrations();
         return ResponseEntity.noContent().build();
@@ -98,6 +107,7 @@ public class AgentRegistryController {
      * @return 无内容
      */
     @PostMapping("/heartbeat")
+    @RequirePermission("agent:update")
     public ResponseEntity<Void> heartbeat(@Valid @RequestBody HeartbeatRequest request) {
         heartbeatManagementService.recordHeartbeat(request);
         return ResponseEntity.ok().build();
@@ -110,6 +120,7 @@ public class AgentRegistryController {
      * @return 是否在线
      */
     @GetMapping("/{agentCode}/probe")
+    @RequirePermission("agent:list")
     public ResponseEntity<Boolean> probeAgent(
             @PathVariable String agentCode,
             @RequestParam(defaultValue = "default") String instanceId) {

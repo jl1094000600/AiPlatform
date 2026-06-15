@@ -1,6 +1,7 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.entity.MonCallRecord;
 import com.aipal.service.CallRecordService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class MonitorControllerTest {
     @Test
     @WithMockUser
     void testListRecords() throws Exception {
-        Page<Object> mockPage = new Page<>(1, 20);
+        Page<MonCallRecord> mockPage = new Page<>(1, 20);
         when(callRecordService.listCallRecords(anyInt(), anyInt(), any(), any(), any()))
                 .thenReturn(mockPage);
 
@@ -63,7 +64,7 @@ class MonitorControllerTest {
     @Test
     @WithMockUser
     void testGetRealtimeData() throws Exception {
-        when(callRecordService.countOnlineAgents()).thenReturn(10);
+        when(callRecordService.countOnlineAgents()).thenReturn(10L);
         when(callRecordService.getCurrentQps()).thenReturn(50.0);
         when(callRecordService.getAvgResponseTime()).thenReturn(100.0);
 

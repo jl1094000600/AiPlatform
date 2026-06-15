@@ -7,8 +7,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestTemplate;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -40,7 +46,7 @@ public class HeartbeatService {
         try {
             restTemplate.postForEntity(
                     agentConfig.getPlatform().getRegistryUrl(),
-                    buildRegistrationRequest(),
+                    registrationEntity(),
                     Map.class);
             log.info("Agent registered with platform: {} [{}]",
                     agentConfig.getCode(), agentConfig.getInstanceId());
@@ -54,7 +60,7 @@ public class HeartbeatService {
         try {
             restTemplate.postForEntity(
                     agentConfig.getPlatform().getHeartbeatUrl(),
-                    buildHeartbeatRequest(),
+                    heartbeatEntity(),
                     Void.class);
             consecutiveFailures = 0;
             log.debug("Heartbeat reported successfully");
@@ -71,6 +77,7 @@ public class HeartbeatService {
 
     Map<String, Object> buildRegistrationRequest() {
         Map<String, Object> request = new HashMap<>();
+        request.put("tenantCode", agentConfig.getPlatform().getTenantCode());
         request.put("agentCode", agentConfig.getCode());
         request.put("agentName", agentConfig.getName());
         request.put("description", agentConfig.getDescription());
@@ -83,8 +90,16 @@ public class HeartbeatService {
         return request;
     }
 
+    private HttpEntity<Map<String, Object>> registrationEntity() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Agent-Heartbeat-Token", heartbeatToken(
+                agentConfig.getPlatform().getHeartbeatSecret(), agentConfig.getPlatform().getTenantCode()));
+        return new HttpEntity<>(buildRegistrationRequest(), headers);
+    }
+
     HeartbeatRequest buildHeartbeatRequest() {
         HeartbeatRequest request = new HeartbeatRequest();
+        request.setTenantCode(agentConfig.getPlatform().getTenantCode());
         request.setAgentCode(agentConfig.getCode());
         request.setInstanceId(agentConfig.getInstanceId());
         request.setHealthScore(calculateHealthScore());
@@ -100,6 +115,26 @@ public class HeartbeatService {
         request.setMetadata(metadata);
 
         return request;
+    }
+
+    private HttpEntity<HeartbeatRequest> heartbeatEntity() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Agent-Heartbeat-Token", heartbeatToken(
+                agentConfig.getPlatform().getHeartbeatSecret(), agentConfig.getPlatform().getTenantCode()));
+        return new HttpEntity<>(buildHeartbeatRequest(), headers);
+    }
+
+    private String heartbeatToken(String secret, String tenantCode) {
+        if (secret == null || secret.length() < 32) {
+            throw new IllegalStateException("agent.platform.heartbeat-secret must contain at least 32 characters");
+        }
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(tenantCode.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to calculate heartbeat token", exception);
+        }
     }
 
     private int calculateHealthScore() {

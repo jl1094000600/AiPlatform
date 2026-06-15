@@ -11,6 +11,7 @@ import com.aipal.entity.AiDataset;
 import com.aipal.entity.AiModel;
 import com.aipal.mapper.AiDatasetMapper;
 import com.aipal.mapper.AiModelMapper;
+import com.aipal.security.TenantContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -38,8 +40,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -59,6 +62,7 @@ public class ModelTrainingService {
     private static final String TRAINING_DATASET_FORMAT = "jsonl";
 
     private final Map<String, ModelTrainingJob> jobs = new ConcurrentHashMap<>();
+    private final ExecutorService trainingExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ObjectMapper objectMapper = new ObjectMapper();
     @Autowired(required = false)
     private AiDatasetMapper datasetMapper;
@@ -159,13 +163,16 @@ public class ModelTrainingService {
     }
 
     public List<ModelTrainingJob> listJobs() {
-        return jobs.values().stream()
+        String prefix = TenantContext.tenantId() + ":";
+        return jobs.entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith(prefix))
+                .map(Map.Entry::getValue)
                 .sorted(Comparator.comparing(ModelTrainingJob::getCreateTime).reversed())
                 .toList();
     }
 
     public ModelTrainingJob getJob(String id) {
-        ModelTrainingJob job = jobs.get(id);
+        ModelTrainingJob job = jobs.get(jobKey(id));
         if (job == null) {
             throw new IllegalArgumentException("Training job does not exist: " + id);
         }
@@ -209,10 +216,21 @@ public class ModelTrainingService {
         job.setLogPath(logPath.toString());
         job.setMetricsPath(metricsPath.toString());
         job.setCreateTime(LocalDateTime.now());
-        jobs.put(jobId, job);
+        jobs.put(jobKey(jobId), job);
 
-        CompletableFuture.runAsync(() -> runTraining(job, normalized, logPath, metricsPath));
+        TenantContext.Context context = TenantContext.get();
+        trainingExecutor.submit(() -> TenantContext.runWithContext(
+                context, () -> runTraining(job, normalized, logPath, metricsPath)));
         return job;
+    }
+
+    private String jobKey(String jobId) {
+        return TenantContext.tenantId() + ":" + jobId;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        trainingExecutor.shutdownNow();
     }
 
     private void runTraining(ModelTrainingJob job, ModelTrainingRequest request, Path logPath, Path metricsPath) {

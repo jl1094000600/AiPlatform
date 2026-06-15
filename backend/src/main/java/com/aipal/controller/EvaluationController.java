@@ -6,13 +6,21 @@ import com.aipal.dto.CriteriaConfigRequest;
 import com.aipal.dto.EvaluationRequest;
 import com.aipal.entity.AiEvaluation;
 import com.aipal.entity.AiEvaluationCriteria;
+import com.aipal.entity.AiEvaluationSample;
 import com.aipal.security.RequirePermission;
 import com.aipal.service.CriteriaEngineService;
 import com.aipal.service.EvaluationService;
 import com.aipal.service.EvaluationStatisticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -60,6 +68,51 @@ public class EvaluationController {
         return Result.success(evaluationService.getEvaluationStatus(evaluationCode));
     }
 
+    @GetMapping("/{id}/progress")
+    @RequirePermission("benchmark:view")
+    public Result<Map<String, Object>> getProgress(@PathVariable Long id) {
+        return Result.success(evaluationService.getEvaluationProgress(id));
+    }
+
+    @GetMapping("/{id}/details")
+    @RequirePermission("benchmark:view")
+    public Result<List<AiEvaluationSample>> getDetails(@PathVariable Long id) {
+        return Result.success(evaluationService.getEvaluationDetails(id));
+    }
+
+    @GetMapping("/{id}/results")
+    @RequirePermission("benchmark:view")
+    public Result<Map<String, Object>> getResults(@PathVariable Long id) {
+        return Result.success(evaluationService.getEvaluationResult(id));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @RequirePermission("benchmark:run")
+    public Result<Boolean> cancel(@PathVariable Long id) {
+        return Result.success(evaluationService.cancelEvaluation(id));
+    }
+
+    @PostMapping("/{id}/retry")
+    @RequirePermission("benchmark:run")
+    public Result<String> retry(@PathVariable Long id) {
+        return Result.success(evaluationService.retryEvaluation(id));
+    }
+
+    @GetMapping("/{id}/export")
+    @RequirePermission("benchmark:view")
+    public ResponseEntity<byte[]> export(@PathVariable Long id,
+                                         @RequestParam(defaultValue = "json") String format) {
+        String normalized = format.toLowerCase();
+        byte[] content = evaluationService.exportEvaluation(id, normalized);
+        MediaType mediaType = "csv".equals(normalized)
+                ? MediaType.parseMediaType("text/csv;charset=UTF-8") : MediaType.APPLICATION_JSON;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(mediaType);
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename("evaluation-" + id + "." + normalized, StandardCharsets.UTF_8).build());
+        return ResponseEntity.ok().headers(headers).body(content);
+    }
+
     @GetMapping("/batch/{batchCode}")
     @RequirePermission("benchmark:view")
     public Result<List<AiEvaluation>> getBatchEvaluations(@PathVariable String batchCode) {
@@ -71,8 +124,11 @@ public class EvaluationController {
     public Result<Map<String, Object>> getStatistics(
             @RequestParam(required = false) Long datasetId,
             @RequestParam(required = false) Long agentId,
-            @RequestParam(required = false) String timeRange) {
-        return Result.success(statisticsService.getEvaluationStatistics(datasetId, agentId, timeRange));
+            @RequestParam(required = false) String timeRange,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return Result.success(statisticsService.getEvaluationStatistics(
+                datasetId, agentId, timeRange, startDate, endDate));
     }
 
     @GetMapping("/leaderboard")

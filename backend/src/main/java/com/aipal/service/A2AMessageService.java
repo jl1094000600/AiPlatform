@@ -6,6 +6,7 @@ import com.aipal.entity.A2ATask;
 import com.aipal.entity.AiAgent;
 import com.aipal.mapper.A2ATaskMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.security.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -74,7 +75,7 @@ public class A2AMessageService {
             message.setTimestamp(LocalDateTime.now());
         }
 
-        String streamKey = STREAM_KEY_PREFIX + message.getSessionId();
+        String streamKey = streamKey(message.getSessionId());
 
         try {
             // Persist task to database for graph data
@@ -147,12 +148,12 @@ public class A2AMessageService {
     }
 
     public void registerHandler(String agentCode, Function<A2AMessage, A2AMessage> handler) {
-        agentHandlers.put(agentCode, handler);
+        agentHandlers.put(handlerKey(agentCode), handler);
         log.info("Registered A2A handler for agent: {}", agentCode);
     }
 
     public void processMessage(String sessionId) {
-        String streamKey = STREAM_KEY_PREFIX + sessionId;
+        String streamKey = streamKey(sessionId);
 
         try {
             ensureConsumerGroup(streamKey);
@@ -201,7 +202,7 @@ public class A2AMessageService {
             return;
         }
 
-        Function<A2AMessage, A2AMessage> handler = agentHandlers.get(message.getTargetAgent());
+        Function<A2AMessage, A2AMessage> handler = agentHandlers.get(handlerKey(message.getTargetAgent()));
         if (handler != null) {
             updateA2ATaskStatus(message.getMessageId(), "RUNNING", null);
             A2AMessage response = handler.apply(message);
@@ -236,7 +237,7 @@ public class A2AMessageService {
     }
 
     public List<A2AMessage> getSessionMessages(String sessionId, long limit) {
-        String streamKey = STREAM_KEY_PREFIX + sessionId;
+        String streamKey = streamKey(sessionId);
         List<A2AMessage> messages = new ArrayList<>();
 
         List<MapRecord<String, Object, Object>> records;
@@ -263,5 +264,13 @@ public class A2AMessageService {
             }
         }
         return messages;
+    }
+
+    private String streamKey(String sessionId) {
+        return STREAM_KEY_PREFIX + TenantContext.tenantId() + ":" + sessionId;
+    }
+
+    private String handlerKey(String agentCode) {
+        return TenantContext.tenantId() + ":" + agentCode;
     }
 }

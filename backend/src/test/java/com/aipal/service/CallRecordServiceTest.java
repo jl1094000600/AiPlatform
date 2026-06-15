@@ -2,6 +2,9 @@ package com.aipal.service;
 
 import com.aipal.entity.MonCallRecord;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.aipal.security.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +20,17 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Transactional
 class CallRecordServiceTest {
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(new TenantContext.Context(
+                1L, "test", 1L, "test", false, java.util.Set.of(), java.util.Set.of()));
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Autowired
     private CallRecordService callRecordService;

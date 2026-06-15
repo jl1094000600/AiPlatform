@@ -69,8 +69,11 @@ public class TenantAuthService {
         List<SysUserTenant> memberships = userTenantMapper.selectList(new LambdaQueryWrapper<SysUserTenant>()
                 .eq(SysUserTenant::getUserId, user.getId())
                 .eq(SysUserTenant::getStatus, 1));
-        if (requestedTenantId != null && memberships.stream().anyMatch(item -> requestedTenantId.equals(item.getTenantId()))) {
-            return requestedTenantId;
+        if (requestedTenantId != null) {
+            if (memberships.stream().anyMatch(item -> requestedTenantId.equals(item.getTenantId()))) {
+                return requestedTenantId;
+            }
+            throw new SecurityException("无权访问指定租户");
         }
         if (user.getDefaultTenantId() != null && memberships.stream().anyMatch(item -> user.getDefaultTenantId().equals(item.getTenantId()))) {
             return user.getDefaultTenantId();
@@ -80,14 +83,14 @@ public class TenantAuthService {
                 .map(SysUserTenant::getTenantId)
                 .findFirst()
                 .or(() -> memberships.stream().map(SysUserTenant::getTenantId).findFirst())
-                .orElse(1L);
+                .orElseThrow(() -> new SecurityException("用户未加入任何有效租户"));
     }
 
     public List<AuthTenant> listUserTenants(Long userId) {
         List<SysUserTenant> memberships = userTenantMapper.selectList(new LambdaQueryWrapper<SysUserTenant>()
                 .eq(SysUserTenant::getUserId, userId)
                 .eq(SysUserTenant::getStatus, 1));
-        if (memberships.isEmpty()) return List.of(toAuthTenant(requireTenant(1L), 1));
+        if (memberships.isEmpty()) return List.of();
         Map<Long, Integer> defaultFlags = memberships.stream()
                 .collect(Collectors.toMap(SysUserTenant::getTenantId, item -> item.getDefaultTenant() == null ? 0 : item.getDefaultTenant(), (a, b) -> a));
         return tenantMapper.selectList(new LambdaQueryWrapper<SysTenant>()
@@ -181,7 +184,10 @@ public class TenantAuthService {
 
     private SysTenant requireTenant(Long tenantId) {
         SysTenant tenant = tenantMapper.selectById(tenantId);
-        if (tenant == null) throw new IllegalArgumentException("租户不存在：" + tenantId);
+        if (tenant == null || !Objects.equals(tenant.getStatus(), 1)
+                || (tenant.getExpireTime() != null && !tenant.getExpireTime().isAfter(java.time.LocalDateTime.now()))) {
+            throw new SecurityException("租户不存在或不可用：" + tenantId);
+        }
         return tenant;
     }
 

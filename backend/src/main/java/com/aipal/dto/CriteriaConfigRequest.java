@@ -7,6 +7,7 @@ public class CriteriaConfigRequest {
     private String criteriaCode;
     private String criteriaName;
     private String description;
+    private String type;
     private String formula;
     private Double weight;
     private String thresholds;

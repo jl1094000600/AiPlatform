@@ -4,6 +4,9 @@ import com.aipal.dto.ModelTrainingRequest;
 import com.aipal.dto.ModelTrainingDatasetImportRequest;
 import com.aipal.dto.ModelTrainingDatasetMockRequest;
 import com.aipal.dto.ModelTrainingDatasetSaveRequest;
+import com.aipal.security.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -13,6 +16,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ModelTrainingServiceTest {
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(new TenantContext.Context(
+                1L, "tester", 1L, "tenant-1", false, java.util.Set.of(), java.util.Set.of()));
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Test
     void rejectsTrainDataOutsideProjectRoot() {

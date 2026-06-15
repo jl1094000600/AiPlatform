@@ -11,14 +11,19 @@ import com.aipal.entity.AiEvaluationCriteria;
 import com.aipal.security.RequirePermission;
 import com.aipal.service.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/benchmark")
+@RequestMapping("/api/v1/benchmark")
 @RequiredArgsConstructor
 public class BenchmarkController {
 
@@ -149,17 +154,16 @@ public class BenchmarkController {
         try {
             if (request.containsKey("standards") && request.get("standards") instanceof List) {
                 List<?> standards = (List<?>) request.get("standards");
-                int created = 0;
+                List<AiEvaluationCriteria> created = new ArrayList<>();
                 for (Object item : standards) {
                     if (item instanceof Map) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> standard = (Map<String, Object>) item;
                         CriteriaConfigRequest criteriaRequest = mapToCriteriaRequest(standard);
-                        criteriaEngineService.createCriteria(criteriaRequest);
-                        created++;
+                        created.add(criteriaEngineService.createCriteria(criteriaRequest));
                     }
                 }
-                return Result.success("Created " + created + " standards");
+                return Result.success(created);
             } else {
                 CriteriaConfigRequest criteriaRequest = mapToCriteriaRequest(request);
                 return Result.success(criteriaEngineService.createCriteria(criteriaRequest));
@@ -172,9 +176,11 @@ public class BenchmarkController {
     private CriteriaConfigRequest mapToCriteriaRequest(Map<String, Object> map) {
         CriteriaConfigRequest request = new CriteriaConfigRequest();
         request.setCriteriaCode(map.get("criteriaCode") != null ? map.get("criteriaCode").toString() : null);
-        request.setCriteriaName(map.get("criteriaName") != null ? map.get("criteriaName").toString() : null);
+        Object criteriaName = map.get("criteriaName") != null ? map.get("criteriaName") : map.get("name");
+        request.setCriteriaName(criteriaName != null ? criteriaName.toString() : null);
         request.setDescription(map.get("description") != null ? map.get("description").toString() : null);
         request.setFormula(map.get("formula") != null ? map.get("formula").toString() : null);
+        request.setType(map.get("type") != null ? map.get("type").toString() : null);
         if (map.get("weight") != null) {
             request.setWeight(Double.parseDouble(map.get("weight").toString()));
         }
@@ -214,12 +220,15 @@ public class BenchmarkController {
      */
     @GetMapping("/export/{id}")
     @RequirePermission("benchmark:view")
-    public Result<String> exportResult(@PathVariable Long id) {
+    public ResponseEntity<byte[]> exportResult(@PathVariable Long id) {
         String report = statisticsService.generateEvaluationReport(id);
         if (report == null) {
-            return Result.error("Evaluation not found");
+            return ResponseEntity.notFound().build();
         }
-        return Result.success(report);
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_PLAIN)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=benchmark-" + id + ".txt")
+                .body(report.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

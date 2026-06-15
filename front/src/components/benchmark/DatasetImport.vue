@@ -21,11 +21,11 @@
         </svg>
       </div>
       <p class="upload-text">将文件拖拽到此处，或<span class="upload-link" @click="triggerFileInput">点击上传</span></p>
-      <p class="upload-hint">{{ canUpload ? '支持 .csv, .json, .jsonl, .xlsx, .txt, .xml 文件' : '当前账号无基准测试执行权限' }}</p>
+      <p class="upload-hint">{{ canUpload ? '支持 .csv, .json, .jsonl, .xls, .xlsx, .txt, .xml 文件' : '当前账号无基准测试执行权限' }}</p>
       <input
         ref="fileInputRef"
         type="file"
-        accept=".csv,.json,.jsonl,.xlsx,.txt,.xml"
+        accept=".csv,.json,.jsonl,.xls,.xlsx,.txt,.xml"
         :disabled="!canUpload"
         style="display: none"
         @change="handleFileChange"
@@ -145,7 +145,7 @@ const processFiles = (files) => {
     ElMessage.warning('当前账号无基准测试执行权限')
     return
   }
-  const validExtensions = ['.csv', '.json', '.jsonl', '.xlsx', '.txt', '.xml']
+  const validExtensions = ['.csv', '.json', '.jsonl', '.xls', '.xlsx', '.txt', '.xml']
   const validFiles = files.filter(file => {
     const ext = '.' + file.name.split('.').pop().toLowerCase()
     return validExtensions.includes(ext)
@@ -173,22 +173,23 @@ const parseFile = async (fileObj) => {
   try {
     const formData = new FormData()
     formData.append('file', fileObj.file)
+    formData.append('datasetName', fileObj.name.replace(/\.[^.]+$/, ''))
+    formData.append('format', fileObj.name.split('.').pop().toLowerCase())
 
     const res = await api.uploadDataset(formData)
 
     if (res.data.code === 200) {
       fileObj.status = 'success'
-      fileObj.datasetId = res.data.data.datasetId
+      fileObj.datasetId = res.data.data.id
 
       if (!datasetId.value) {
-        datasetId.value = res.data.data.datasetId
+        datasetId.value = res.data.data.id
       }
 
-      if (res.data.data.preview) {
-        previewData.value = res.data.data.preview
-        if (previewData.value.length > 0) {
-          previewColumns.value = Object.keys(previewData.value[0])
-        }
+      const previewResponse = await api.getDatasetPreview(fileObj.datasetId)
+      if (previewResponse.data.code === 200) {
+        previewData.value = previewResponse.data.data || []
+        previewColumns.value = previewData.value.length > 0 ? Object.keys(previewData.value[0]) : []
       }
 
       ElMessage.success(`文件 ${fileObj.name} 解析成功`)
@@ -224,6 +225,7 @@ const getFileIcon = (filename) => {
     csv: '📄',
     json: '📋',
     jsonl: '📋',
+    xls: '📊',
     xlsx: '📊',
     txt: '📝',
     xml: '📰'

@@ -27,7 +27,8 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -192,7 +193,8 @@ public class AutomationBuildTestExecutionService {
             builder.directory(workDir.toFile());
             builder.redirectErrorStream(true);
             Process process = builder.start();
-            CompletableFuture<String> logFuture = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
+            FutureTask<String> logFuture = new FutureTask<>(() -> readProcessOutput(process));
+            Thread.ofVirtual().name("automation-build-log").start(logFuture);
             boolean finished = process.waitFor(Math.max(10, timeoutSeconds == null ? 600 : timeoutSeconds), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
@@ -317,7 +319,7 @@ public class AutomationBuildTestExecutionService {
         return log.toString();
     }
 
-    private String readFutureLog(CompletableFuture<String> logFuture) {
+    private String readFutureLog(Future<String> logFuture) {
         try {
             return logFuture.get(2, TimeUnit.SECONDS);
         } catch (Exception e) {

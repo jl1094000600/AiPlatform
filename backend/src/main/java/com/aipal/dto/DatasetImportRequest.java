@@ -9,6 +9,8 @@ public class DatasetImportRequest {
     private String description;
     private String category;
     private String format;
+    private String sourceUrl;
+    private Integer count;
     private List<FieldSchema> fields;
 
     @Data
@@ -17,6 +19,8 @@ public class DatasetImportRequest {
         private String fieldType;
         private String ruleType;
         private String ruleConfig;
+        private String startDate;
+        private String endDate;
         private Boolean nullable;
     }
 }

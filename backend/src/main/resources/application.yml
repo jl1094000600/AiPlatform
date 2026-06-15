@@ -1,14 +1,28 @@
 server:
   port: 8080
 
+management:
+  endpoints:
+    web:
+      base-path: /api/actuator
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
 spring:
   application:
     name: ai-platform
+  servlet:
+    multipart:
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:55MB}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: Jl19951106
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ai_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   data:
     redis:
       host: localhost
@@ -31,8 +45,8 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 jwt:
-  secret: aWFnYWlwbGF0Zm9ybXMyMDI2c2VjcmV0a2V5
-  expiration: 86400000
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
 
 logging:
   level:
@@ -42,13 +56,29 @@ logging:
     com.baomidou.mybatisplus: warn
 
 cors:
-  allowed-origins: http://localhost:3000,http://localhost:5173
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3100,http://localhost:5173}
+
+security:
+  bootstrap-admin-password-hash: ${BOOTSTRAP_ADMIN_PASSWORD_HASH}
+  agent-heartbeat-secret: ${AGENT_HEARTBEAT_SECRET}
+
+aipal:
+  scheduling:
+    workflow-trigger-delay-ms: ${WORKFLOW_TRIGGER_DELAY_MS:60000}
+    initial-delay-ms: ${SCHEDULING_INITIAL_DELAY_MS:30000}
+  requirements:
+    storage-root: ${REQUIREMENT_STORAGE_ROOT:${java.io.tmpdir}/aiplatform-requirements}
+    max-image-bytes: ${REQUIREMENT_MAX_IMAGE_BYTES:15728640}
+    max-audio-bytes: ${REQUIREMENT_MAX_AUDIO_BYTES:52428800}
+    max-attachments: ${REQUIREMENT_MAX_ATTACHMENTS:20}
+    retention-days: ${REQUIREMENT_RETENTION_DAYS:30}
+    cleanup-delay-ms: ${REQUIREMENT_CLEANUP_DELAY_MS:3600000}
 
 spring-ai:
   openai:
-    api-key: ${OPENAI_API_KEY:your-api-key-here}
+    api-key: ${OPENAI_API_KEY:}
   anthropic:
-    api-key: ${ANTHROPIC_API_KEY:your-api-key-here}
+    api-key: ${ANTHROPIC_API_KEY:}
 
 tts:
   provider: edge

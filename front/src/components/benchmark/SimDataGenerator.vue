@@ -148,6 +148,7 @@ import api from '../../api'
 import { hasPermission } from '../../utils/permissions'
 
 const emit = defineEmits(['back', 'next'])
+const props = defineProps({ datasetId: [String, Number] })
 
 const templates = [
   { id: 1, name: '用户信息', icon: '👤', description: '生成用户基本信息，包含姓名、邮箱、手机等' },
@@ -167,9 +168,7 @@ const canGenerate = computed(() => {
   return canRunBenchmark.value && selectedTemplate.value && fieldRules.value.length > 0
 })
 
-const canProceed = computed(() => {
-  return generatedData.value && generatedData.value.length > 0
-})
+const canProceed = computed(() => Boolean(generatedData.value?.datasetId || props.datasetId))
 
 const generatedData = ref(null)
 
@@ -245,14 +244,32 @@ const handleGenerate = async () => {
   generating.value = true
 
   try {
-    const res = await api.generateSimData({
-      templateId: selectedTemplate.value.id,
+    const res = await api.generateDataset({
+      datasetName: `${selectedTemplate.value.name}-${Date.now()}`,
+      format: 'json',
       count: generateCount.value,
-      rules: fieldRules.value
+      fields: fieldRules.value.map(rule => ({
+        fieldName: rule.fieldName,
+        fieldType: rule.fieldType,
+        ruleType: rule.generator === 'choice' ? 'enum' : rule.generator,
+        ruleConfig: rule.generator === 'range'
+          ? `${rule.min ?? 0},${rule.max ?? 100}`
+          : rule.generator === 'choice'
+            ? rule.choices
+            : rule.generator === 'fixed'
+              ? rule.fixedValue
+              : rule.generator === 'sequence'
+                ? `${rule.startValue ?? 1},${rule.step ?? 1}`
+                : rule.pattern,
+        startDate: rule.fieldType === 'date' ? new Date(Date.now() - 31536000000).toISOString().slice(0, 10) : null,
+        endDate: rule.fieldType === 'date' ? new Date().toISOString().slice(0, 10) : null
+      }))
     })
 
     if (res.data.code === 200) {
-      generatedData.value = res.data.data
+      const dataset = res.data.data
+      const previewResponse = await api.getDatasetPreview(dataset.id)
+      generatedData.value = { datasetId: dataset.id, preview: previewResponse.data.data || [] }
       ElMessage.success(`成功生成 ${generateCount.value} 条模拟数据`)
     } else {
       ElMessage.error(res.data.message || '生成失败')
@@ -276,8 +293,8 @@ const handleBack = () => {
 }
 
 const handleProceed = () => {
-  if (generatedData.value) {
-    emit('next', { simData: generatedData.value, rules: fieldRules.value })
+  if (generatedData.value?.datasetId || props.datasetId) {
+    emit('next', { datasetId: generatedData.value?.datasetId || props.datasetId })
   } else {
     ElMessage.warning('请先生成模拟数据')
   }

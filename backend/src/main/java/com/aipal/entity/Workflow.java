@@ -14,6 +14,9 @@ public class Workflow {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField(fill = FieldFill.INSERT)
+    private Long tenantId;
+
     /** 编排编码 */
     private String workflowCode;
 

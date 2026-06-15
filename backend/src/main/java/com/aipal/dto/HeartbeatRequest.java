@@ -2,6 +2,7 @@ package com.aipal.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 import java.util.Map;
@@ -11,6 +12,9 @@ import java.util.Map;
  */
 @Data
 public class HeartbeatRequest {
+    @NotBlank
+    private String tenantCode;
+
     private String agentCode;
 
     /** 实例ID，默认 "default" */
