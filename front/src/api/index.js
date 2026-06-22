@@ -373,6 +373,23 @@ export default {
     return api.get('/business-dashboard/exceptions')
   },
 
+  // Platform analytics APIs
+  getPlatformAnalyticsOverview(params) {
+    return api.get('/analytics/overview', { params })
+  },
+  getPlatformAnalyticsBadcases(params) {
+    return api.get('/analytics/badcases', { params })
+  },
+  getPlatformAnalyticsTokenCost(params) {
+    return api.get('/analytics/token-cost', { params })
+  },
+  getPlatformAnalyticsPipelines(params) {
+    return api.get('/analytics/pipelines', { params })
+  },
+  getPlatformAnalyticsModelValue(params) {
+    return api.get('/analytics/models/value', { params })
+  },
+
   // Billing APIs
   getBillingUsage(params) {
     return api.get('/billing/usage', { params })
@@ -471,6 +488,30 @@ export default {
   createAutomationPipeline(data) {
     return api.post('/automation/pipelines', data)
   },
+  createAsrSession(data = {}) {
+    return api.post('/asr/sessions', data)
+  },
+  uploadRequirementAttachment(requestId, file) {
+    const data = new FormData()
+    data.append('requestId', requestId)
+    data.append('file', file)
+    return api.post('/requirements/attachments', data, { timeout: 120000 })
+  },
+  getRequirementAttachments(requestId) {
+    return api.get('/requirements/attachments', { params: { requestId } })
+  },
+  updateRequirementAttachmentResult(id, resultText) {
+    return api.put('/requirements/attachments/' + id + '/result', { resultText })
+  },
+  retryRequirementAttachment(id) {
+    return api.post('/requirements/attachments/' + id + '/retry')
+  },
+  deleteRequirementAttachment(id) {
+    return api.delete('/requirements/attachments/' + id)
+  },
+  mergeRequirementDraft(originalText, attachmentIds) {
+    return api.post('/requirements/drafts/merge', { originalText, attachmentIds })
+  },
   getAutomationPipeline(id) {
     return api.get('/automation/pipelines/' + id)
   },
@@ -545,6 +586,12 @@ export default {
   },
   getAutomationDeployRuns(pipelineId) {
     return api.get('/automation/pipelines/' + pipelineId + '/deploy-runs')
+  },
+  getBadCases(params) {
+    return api.get('/badcases', { params })
+  },
+  getBadCaseStatistics() {
+    return api.get('/badcases/statistics')
   },
   getAutomationBuildRuns(pipelineId) {
     return api.get('/automation/pipelines/' + pipelineId + '/build-runs')

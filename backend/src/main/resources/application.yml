@@ -14,6 +14,8 @@ management:
 spring:
   application:
     name: ai-platform
+  config:
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
   servlet:
     multipart:
       max-file-size: ${MULTIPART_MAX_FILE_SIZE:50MB}
@@ -73,6 +75,18 @@ aipal:
     max-attachments: ${REQUIREMENT_MAX_ATTACHMENTS:20}
     retention-days: ${REQUIREMENT_RETENTION_DAYS:30}
     cleanup-delay-ms: ${REQUIREMENT_CLEANUP_DELAY_MS:3600000}
+  asr:
+    dashscope:
+      endpoint: ${DASHSCOPE_ASR_ENDPOINT:wss://dashscope.aliyuncs.com/api-ws/v1/inference}
+      model: ${DASHSCOPE_ASR_MODEL:paraformer-realtime-v2}
+    realtime:
+      sample-rate: ${REALTIME_ASR_SAMPLE_RATE:16000}
+      format: ${REALTIME_ASR_FORMAT:pcm_s16le}
+      session-ttl-seconds: ${REALTIME_ASR_SESSION_TTL_SECONDS:120}
+      connect-timeout-seconds: ${REALTIME_ASR_CONNECT_TIMEOUT_SECONDS:10}
+      max-duration-seconds: ${REALTIME_ASR_MAX_DURATION_SECONDS:300}
+      max-audio-bytes: ${REALTIME_ASR_MAX_AUDIO_BYTES:15728640}
+      max-frame-bytes: ${REALTIME_ASR_MAX_FRAME_BYTES:32768}
 
 spring-ai:
   openai:

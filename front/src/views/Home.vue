@@ -139,6 +139,7 @@ const fallbackNavGroups = computed(() => [
     icon: Promotion,
     children: [
       navItem('/automation', t('nav.automation'), Promotion),
+      navItem('/badcases', 'Badcase Analysis', DataAnalysis),
       navItem('/workflows', '工作流编排', Connection),
       navItem('/code-quality', t('nav.codeQuality'), Finished),
       navItem('/ai-output-governance', 'AI产出治理', Connection),
@@ -165,6 +166,7 @@ const fallbackNavGroups = computed(() => [
     label: '运营观测',
     icon: Monitor,
     children: [
+      navItem('/platform-analytics', '平台分析', DataAnalysis),
       navItem('/monitor', t('nav.monitor'), Monitor),
       navItem('/graph', t('nav.graph'), Connection),
       navItem('/benchmark', '数据集测评', DataAnalysis),
@@ -232,7 +234,9 @@ function readUser() {
 function navItem(path, label, icon) {
   const routePermissions = {
     '/dashboard': 'dashboard:view',
+    '/platform-analytics': 'dashboard:view',
     '/automation': 'automation:list',
+    '/badcases': 'automation:list',
     '/workflows': 'workflow:manage',
     '/code-quality': 'code-quality:list',
     '/ai-output-governance': 'governance:list',

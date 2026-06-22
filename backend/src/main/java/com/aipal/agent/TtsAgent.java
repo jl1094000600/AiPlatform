@@ -8,6 +8,7 @@ import com.aipal.service.A2AMessageService;
 import com.aipal.service.AgentRegistry;
 import com.aipal.service.HeartbeatService;
 import com.aipal.service.TtsService;
+import com.aipal.security.TenantTaskRunner;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -25,6 +26,7 @@ public class TtsAgent implements ApplicationRunner {
     private final AgentRegistry agentRegistry;
     private final A2AMessageService a2aMessageService;
     private final HeartbeatService heartbeatService;
+    private final TenantTaskRunner tenantTaskRunner;
 
     @Value("${tts.agent.code:tts-agent}")
     private String agentCode;
@@ -38,11 +40,13 @@ public class TtsAgent implements ApplicationRunner {
     public TtsAgent(TtsService ttsService,
                     AgentRegistry agentRegistry,
                     A2AMessageService a2aMessageService,
-                    HeartbeatService heartbeatService) {
+                    HeartbeatService heartbeatService,
+                    TenantTaskRunner tenantTaskRunner) {
         this.ttsService = ttsService;
         this.agentRegistry = agentRegistry;
         this.a2aMessageService = a2aMessageService;
         this.heartbeatService = heartbeatService;
+        this.tenantTaskRunner = tenantTaskRunner;
     }
 
     @Override
@@ -53,9 +57,10 @@ public class TtsAgent implements ApplicationRunner {
         }
 
         Function<A2AMessage, A2AMessage> handler = this::handleMessage;
-        a2aMessageService.registerHandler(agentCode, handler);
+        tenantTaskRunner.forEachActiveTenant("tts-agent-registration",
+                tenant -> a2aMessageService.registerHandler(agentCode, handler));
 
-        log.info("TTS Agent registered with code: {}", agentCode);
+        log.info("TTS Agent registered for active tenants with code: {}", agentCode);
     }
 
     private A2AMessage handleMessage(A2AMessage message) {

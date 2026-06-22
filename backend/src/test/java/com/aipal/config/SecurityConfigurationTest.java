@@ -45,6 +45,8 @@ class SecurityConfigurationTest {
         String deploymentGuide = Files.readString(Path.of("../docs/deployment-ubuntu.md"));
 
         assertTrue(application.contains("${DB_PASSWORD}"));
+        assertTrue(application.contains("optional:file:.env[.properties]"));
+        assertTrue(application.contains("optional:file:../.env[.properties]"));
         assertTrue(application.contains("${JWT_SECRET}"));
         assertTrue(application.contains("${BOOTSTRAP_ADMIN_PASSWORD_HASH}"));
         assertTrue(application.contains("${AGENT_HEARTBEAT_SECRET}"));

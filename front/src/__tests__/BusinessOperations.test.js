@@ -94,6 +94,25 @@ const testAutomationPrdTemplateEndpoints = () => {
 
 testAutomationPrdTemplateEndpoints()
 
+const testAutomationMultimodalRequirementEntry = () => {
+  const apiSource = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8')
+  const viewSource = readFileSync(new URL('../views/AutomationPipeline.vue', import.meta.url), 'utf8')
+  const endpoints = [
+    '/requirements/attachments',
+    "'/requirements/attachments/' + id + '/result'",
+    "'/requirements/attachments/' + id + '/retry'",
+    '/requirements/drafts/merge'
+  ]
+  endpoints.forEach(endpoint => assert.ok(apiSource.includes(endpoint), endpoint))
+  assert.ok(viewSource.includes('添加图片'))
+  assert.ok(viewSource.includes('添加音频'))
+  assert.ok(viewSource.includes('浏览器录音'))
+  assert.ok(viewSource.includes('MediaRecorder'))
+  assert.ok(viewSource.includes('mergeRequirementDraft'))
+}
+
+testAutomationMultimodalRequirementEntry()
+
 const testAutomationDirectoryTreeSelectionPayload = () => {
   const selectedDirectory = 'backend/src/main/java/com/aipal'
   const form = { backendOutputPath: selectedDirectory }

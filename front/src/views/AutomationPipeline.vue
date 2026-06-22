@@ -219,7 +219,7 @@
       </div>
     </el-drawer>
 
-    <el-dialog v-model="createVisible" :title="t('automation.createTitle')" width="680px">
+    <el-dialog v-model="createVisible" :title="t('automation.createTitle')" width="820px">
       <el-form :model="form" label-position="top">
         <el-form-item :label="t('automation.productLine')">
           <el-input v-model="form.productLine" placeholder="Core Platform" />
@@ -231,7 +231,78 @@
           <el-input v-model="form.requirementTitle" placeholder="Automated delivery loop" />
         </el-form-item>
         <el-form-item :label="t('automation.requirementSummary')">
-          <el-input v-model="form.requirementSummary" type="textarea" :rows="4" />
+          <div class="requirement-input">
+            <el-input v-model="form.requirementSummary" type="textarea" :rows="5" />
+            <div class="requirement-toolbar">
+              <input ref="imageInputRef" class="hidden-file-input" type="file" accept="image/*" multiple @change="handleFileSelection($event, 'IMAGE')" />
+              <input ref="audioInputRef" class="hidden-file-input" type="file" accept="audio/*" multiple @change="handleFileSelection($event, 'AUDIO')" />
+              <el-button size="small" @click="imageInputRef?.click()">添加图片</el-button>
+              <el-button size="small" @click="audioInputRef?.click()">添加音频</el-button>
+              <el-button size="small" :type="recording ? 'danger' : 'default'" @click="toggleRecording">
+                {{ recording ? '停止录音' : '浏览器录音' }}
+              </el-button>
+              <el-button
+                size="small"
+                :type="realtimeAsrActive ? 'danger' : 'primary'"
+                plain
+                :loading="realtimeAsrConnecting"
+                @click="toggleRealtimeAsr"
+              >
+                {{ realtimeAsrActive ? '停止实时语音' : '实时语音输入' }}
+              </el-button>
+              <span v-if="uploadingCount" class="requirement-hint">正在上传 {{ uploadingCount }} 个文件...</span>
+            </div>
+            <div v-if="realtimeAsrActive || realtimeAsrPartial || realtimeAsrStatus" class="realtime-asr-panel">
+              <span class="realtime-asr-dot" :class="{ active: realtimeAsrActive }"></span>
+              <span>{{ realtimeAsrStatus || '实时识别中' }}</span>
+              <strong v-if="realtimeAsrPartial">{{ realtimeAsrPartial }}</strong>
+            </div>
+
+            <div v-if="requirementAttachments.length" class="requirement-attachments">
+              <div v-for="attachment in requirementAttachments" :key="attachment.id" class="requirement-attachment">
+                <div class="attachment-head">
+                  <div>
+                    <strong>{{ attachment.fileName }}</strong>
+                    <span>{{ attachment.mediaType === 'IMAGE' ? '图片' : '音频' }} · {{ formatFileSize(attachment.fileSize) }}</span>
+                  </div>
+                  <el-tag size="small" :type="attachmentStatusType(attachment.latestTask?.status)">
+                    {{ attachmentStatusText(attachment.latestTask?.status) }}
+                  </el-tag>
+                </div>
+                <el-input
+                  v-if="attachment.latestTask?.status === 'SUCCEEDED'"
+                  v-model="attachmentEdits[attachment.id]"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="可修改图片或语音解析结果"
+                  @input="attachmentDirty.add(attachment.id)"
+                />
+                <p v-if="attachment.latestTask?.status === 'FAILED'" class="attachment-error">
+                  {{ attachment.latestTask?.errorMessage || '解析失败，请重试' }}
+                </p>
+                <div class="attachment-actions">
+                  <el-button
+                    v-if="attachment.latestTask?.status === 'SUCCEEDED'"
+                    size="small"
+                    :disabled="!attachmentDirty.has(attachment.id)"
+                    @click="saveAttachmentResult(attachment)"
+                  >保存解析结果</el-button>
+                  <el-button
+                    v-if="attachment.latestTask?.status === 'FAILED'"
+                    size="small"
+                    @click="retryAttachment(attachment)"
+                  >重试解析</el-button>
+                  <el-button size="small" type="danger" plain @click="deleteAttachment(attachment)">删除</el-button>
+                </div>
+              </div>
+              <div class="requirement-merge-row">
+                <span>解析结果可编辑，合并后会写入上方需求描述。</span>
+                <el-button size="small" type="primary" :loading="mergingRequirement" @click="mergeRequirementDraft">
+                  合并到需求描述
+                </el-button>
+              </div>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item :label="t('automation.openModel')">
           <el-select v-model="form.modelId" filterable clearable style="width: 100%" @change="selectPipelineModel">
@@ -479,10 +550,11 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import api from '../api'
 import { useI18n } from '../i18n'
+import { downsampleFloat32, float32ToPcm16Buffer } from '../utils/pcm'
 
 const { t } = useI18n()
 
@@ -560,6 +632,56 @@ const form = reactive({
   frontendOutputPath: 'front/src/generated',
   backendOutputPath: 'backend/src/main/java/com/aipal/generated'
 })
+
+const createRequirementRequestId = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`
+}
+
+const imageInputRef = ref(null)
+const audioInputRef = ref(null)
+const requirementRequestId = ref(createRequirementRequestId())
+const requirementAttachments = ref([])
+const attachmentEdits = reactive({})
+const attachmentDirty = reactive(new Set())
+const uploadingCount = ref(0)
+const recording = ref(false)
+const realtimeAsrActive = ref(false)
+const realtimeAsrConnecting = ref(false)
+const realtimeAsrPartial = ref('')
+const realtimeAsrStatus = ref('')
+const realtimeAsrSessionId = ref('')
+const mergingRequirement = ref(false)
+const requirementOriginalText = ref('')
+const requirementDraftMerged = ref(false)
+const requirementMergeStale = ref(false)
+let requirementPollTimer = null
+let mediaRecorder = null
+let microphoneStream = null
+let recordingChunks = []
+let discardRecording = false
+let realtimeAsrSocket = null
+let realtimeAsrStream = null
+let realtimeAudioContext = null
+let realtimeAudioSource = null
+let realtimeAudioProcessor = null
+let realtimePcmQueue = []
+let realtimePcmSampleCount = 0
+
+const REALTIME_ASR_SAMPLE_RATE = 16000
+const REALTIME_ASR_FRAME_SAMPLES = REALTIME_ASR_SAMPLE_RATE / 10
+
+const processingRequirementAttachments = computed(() => requirementAttachments.value.some(item =>
+  ['PENDING', 'RUNNING'].includes(item.latestTask?.status)
+))
+
+const successfulRequirementAttachments = computed(() => requirementAttachments.value.filter(item =>
+  item.latestTask?.status === 'SUCCEEDED'
+))
+
+const failedRequirementAttachments = computed(() => requirementAttachments.value.filter(item =>
+  item.latestTask?.status === 'FAILED'
+))
 
 const summaryCards = computed(() => [
   { label: t('automation.total'), value: summary.value.totalPipelines || 0 },
@@ -762,9 +884,510 @@ const loadAll = async () => {
   }
 }
 
+const requirementErrorMessage = (error, fallback) => (
+  error?.response?.data?.message || error?.message || fallback
+)
+
+const formatFileSize = (value) => {
+  const size = Number(value || 0)
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+const attachmentStatusText = (status) => ({
+  PENDING: '等待解析',
+  RUNNING: '解析中',
+  SUCCEEDED: '解析完成',
+  FAILED: '解析失败'
+}[status] || '等待上传')
+
+const attachmentStatusType = (status) => {
+  if (status === 'SUCCEEDED') return 'success'
+  if (status === 'FAILED') return 'danger'
+  if (status === 'RUNNING') return 'warning'
+  return 'info'
+}
+
+const stopRequirementPolling = () => {
+  if (requirementPollTimer) {
+    clearInterval(requirementPollTimer)
+    requirementPollTimer = null
+  }
+}
+
+const refreshRequirementAttachments = async () => {
+  const response = await api.getRequirementAttachments(requirementRequestId.value)
+  requirementAttachments.value = response.data.data || []
+  requirementAttachments.value.forEach(attachment => {
+    if (!attachmentDirty.has(attachment.id)) {
+      attachmentEdits[attachment.id] = attachment.latestTask?.editedResult
+        ?? attachment.latestTask?.resultText
+        ?? ''
+    }
+  })
+  if (!processingRequirementAttachments.value) stopRequirementPolling()
+}
+
+const startRequirementPolling = () => {
+  if (requirementPollTimer) return
+  requirementPollTimer = setInterval(async () => {
+    try {
+      await refreshRequirementAttachments()
+    } catch (error) {
+      stopRequirementPolling()
+      ElMessage.error(requirementErrorMessage(error, '刷新附件解析状态失败'))
+    }
+  }, 1800)
+}
+
+const validateRequirementFile = (file, mediaType) => {
+  const expectedPrefix = mediaType === 'IMAGE' ? 'image/' : 'audio/'
+  const maxBytes = mediaType === 'IMAGE' ? 15 * 1024 * 1024 : 50 * 1024 * 1024
+  if (!file.type?.startsWith(expectedPrefix)) {
+    ElMessage.warning(`${file.name} 不是支持的${mediaType === 'IMAGE' ? '图片' : '音频'}文件`)
+    return false
+  }
+  if (file.size > maxBytes) {
+    ElMessage.warning(`${file.name} 超过 ${mediaType === 'IMAGE' ? '15MB' : '50MB'} 限制`)
+    return false
+  }
+  return true
+}
+
+const uploadRequirementFiles = async (files, mediaType) => {
+  const acceptedFiles = Array.from(files || []).filter(file => validateRequirementFile(file, mediaType))
+  if (!acceptedFiles.length) return
+  uploadingCount.value += acceptedFiles.length
+  requirementMergeStale.value = true
+  await Promise.all(acceptedFiles.map(async file => {
+    try {
+      await api.uploadRequirementAttachment(requirementRequestId.value, file)
+    } catch (error) {
+      ElMessage.error(requirementErrorMessage(error, `${file.name} 上传失败`))
+    } finally {
+      uploadingCount.value -= 1
+    }
+  }))
+  await refreshRequirementAttachments()
+  if (processingRequirementAttachments.value) startRequirementPolling()
+}
+
+const handleFileSelection = async (event, mediaType) => {
+  const input = event.target
+  await uploadRequirementFiles(input.files, mediaType)
+  input.value = ''
+}
+
+const withQueryParam = (url, key, value) => {
+  if (!value) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+}
+
+const websocketUrlFromPath = (path) => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+const buildAsrWebSocketUrl = (session) => {
+  const sessionId = session.sessionId || session.id || realtimeAsrSessionId.value
+  const token = session.wsToken || session.websocketToken || session.token || session.accessToken
+  let wsUrl = session.wsUrl || session.websocketUrl || session.url
+
+  if (wsUrl) {
+    if (wsUrl.startsWith('http://') || wsUrl.startsWith('https://')) {
+      wsUrl = wsUrl.replace(/^http/, 'ws')
+    }
+    if (wsUrl.startsWith('/')) {
+      wsUrl = websocketUrlFromPath(wsUrl)
+    } else if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+      wsUrl = websocketUrlFromPath(wsUrl)
+    }
+    return wsUrl.includes('token=') ? wsUrl : withQueryParam(wsUrl, 'token', token)
+  }
+
+  if (!sessionId) return ''
+  return withQueryParam(websocketUrlFromPath(`/api/asr/realtime?sessionId=${encodeURIComponent(sessionId)}`), 'token', token)
+}
+
+const resetRealtimePcmQueue = () => {
+  realtimePcmQueue = []
+  realtimePcmSampleCount = 0
+}
+
+const sendRealtimePcmFrames = (sendRemaining = false) => {
+  if (!realtimeAsrSocket || realtimeAsrSocket.readyState !== WebSocket.OPEN) return
+  const targetSamples = sendRemaining ? realtimePcmSampleCount : REALTIME_ASR_FRAME_SAMPLES
+
+  while (realtimePcmSampleCount >= targetSamples && targetSamples > 0) {
+    const frame = new Float32Array(targetSamples)
+    let offset = 0
+
+    while (offset < targetSamples && realtimePcmQueue.length) {
+      const chunk = realtimePcmQueue[0]
+      const take = Math.min(chunk.length, targetSamples - offset)
+      frame.set(chunk.subarray(0, take), offset)
+      offset += take
+
+      if (take === chunk.length) {
+        realtimePcmQueue.shift()
+      } else {
+        realtimePcmQueue[0] = chunk.subarray(take)
+      }
+    }
+
+    realtimePcmSampleCount -= targetSamples
+    realtimeAsrSocket.send(float32ToPcm16Buffer(frame))
+    if (sendRemaining) break
+  }
+}
+
+const enqueueRealtimeSamples = (samples) => {
+  if (!samples.length) return
+  realtimePcmQueue.push(samples)
+  realtimePcmSampleCount += samples.length
+  sendRealtimePcmFrames()
+}
+
+const appendRealtimeFinalText = (text) => {
+  const finalText = (text || '').trim()
+  if (!finalText) return
+  const current = form.requirementSummary.trimEnd()
+  form.requirementSummary = current ? `${current}\n${finalText}` : finalText
+  realtimeAsrPartial.value = ''
+  realtimeAsrStatus.value = '已写入需求描述'
+}
+
+const cleanupRealtimeAsr = ({ closeSocket = true } = {}) => {
+  realtimeAudioProcessor?.disconnect()
+  realtimeAudioSource?.disconnect()
+  realtimeAsrStream?.getTracks().forEach(track => track.stop())
+  realtimeAudioContext?.close()
+  if (closeSocket && realtimeAsrSocket) {
+    if (realtimeAsrSocket.readyState === WebSocket.OPEN) {
+      sendRealtimePcmFrames(true)
+      realtimeAsrSocket.send(JSON.stringify({ type: 'stop' }))
+    }
+    realtimeAsrSocket.close(1000, 'client stop')
+  }
+
+  realtimeAsrStream = null
+  realtimeAudioContext = null
+  realtimeAudioSource = null
+  realtimeAudioProcessor = null
+  realtimeAsrSocket = null
+  realtimeAsrSessionId.value = ''
+  resetRealtimePcmQueue()
+}
+
+const stopRealtimeAsr = ({ completed = false, keepStatus = false } = {}) => {
+  realtimeAsrActive.value = false
+  realtimeAsrConnecting.value = false
+  cleanupRealtimeAsr()
+  realtimeAsrPartial.value = ''
+  if (!keepStatus) {
+    realtimeAsrStatus.value = completed ? '实时识别已完成' : ''
+  }
+}
+
+const handleRealtimeAsrMessage = (event) => {
+  if (typeof event.data !== 'string') return
+  let message = {}
+  try {
+    message = JSON.parse(event.data)
+  } catch {
+    return
+  }
+
+  const eventType = String(message.type || message.event || message.status || '').toLowerCase()
+  const text = message.text || message.result || message.transcript || message.sentence || ''
+
+  if (eventType === 'ready') {
+    realtimeAsrStatus.value = '实时识别已连接'
+    return
+  }
+  if (eventType === 'partial') {
+    realtimeAsrPartial.value = text
+    realtimeAsrStatus.value = '实时识别中'
+    return
+  }
+  if (eventType === 'final') {
+    appendRealtimeFinalText(text)
+    return
+  }
+  if (eventType === 'completed') {
+    stopRealtimeAsr({ completed: true })
+    return
+  }
+  if (eventType === 'error') {
+    stopRealtimeAsr({ keepStatus: true })
+    realtimeAsrStatus.value = '实时识别已中断'
+    ElMessage.error(message.message || text || '实时语音识别失败')
+  }
+}
+
+const connectRealtimeAsrSocket = (wsUrl, sessionId) => new Promise((resolve, reject) => {
+  const socket = new WebSocket(wsUrl)
+  socket.binaryType = 'arraybuffer'
+  realtimeAsrSocket = socket
+  socket.onmessage = handleRealtimeAsrMessage
+
+  socket.onopen = () => {
+    socket.send(JSON.stringify({
+      type: 'start',
+      sessionId,
+      format: 'pcm_s16le',
+      sampleRate: REALTIME_ASR_SAMPLE_RATE,
+      channels: 1,
+      frameDurationMs: 100
+    }))
+    resolve(socket)
+  }
+  socket.onerror = () => reject(new Error('实时语音连接失败'))
+})
+
+const startRealtimeAudioProcessing = (stream) => {
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext
+  if (!AudioContextConstructor) {
+    throw new Error('当前浏览器不支持 AudioContext')
+  }
+
+  realtimeAsrStream = stream
+  realtimeAudioContext = new AudioContextConstructor()
+  realtimeAudioSource = realtimeAudioContext.createMediaStreamSource(stream)
+  realtimeAudioProcessor = realtimeAudioContext.createScriptProcessor(4096, 1, 1)
+  realtimeAudioProcessor.onaudioprocess = event => {
+    const output = event.outputBuffer.getChannelData(0)
+    output.fill(0)
+    if (!realtimeAsrActive.value || !realtimeAsrSocket || realtimeAsrSocket.readyState !== WebSocket.OPEN) return
+    const input = event.inputBuffer.getChannelData(0)
+    try {
+      const samples = downsampleFloat32(input, realtimeAudioContext.sampleRate, REALTIME_ASR_SAMPLE_RATE)
+      enqueueRealtimeSamples(samples)
+    } catch (error) {
+      stopRealtimeAsr({ keepStatus: true })
+      realtimeAsrStatus.value = '实时识别音频处理失败'
+      ElMessage.error(error.message || '实时识别音频处理失败')
+    }
+  }
+  realtimeAudioSource.connect(realtimeAudioProcessor)
+  realtimeAudioProcessor.connect(realtimeAudioContext.destination)
+}
+
+const toggleRealtimeAsr = async () => {
+  if (realtimeAsrActive.value || realtimeAsrConnecting.value) {
+    stopRealtimeAsr()
+    return
+  }
+  if (recording.value) {
+    ElMessage.warning('请先停止浏览器录音')
+    return
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof WebSocket === 'undefined') {
+    ElMessage.warning('当前浏览器不支持实时语音输入，请使用添加音频或浏览器录音')
+    return
+  }
+
+  realtimeAsrConnecting.value = true
+  realtimeAsrStatus.value = '正在创建识别会话...'
+  realtimeAsrPartial.value = ''
+
+  try {
+    const response = await api.createAsrSession({
+      requestId: requirementRequestId.value,
+      format: 'pcm_s16le',
+      sampleRate: REALTIME_ASR_SAMPLE_RATE,
+      channels: 1,
+      frameDurationMs: 100
+    })
+    const session = response.data?.data || response.data || {}
+    realtimeAsrSessionId.value = session.sessionId || session.id || ''
+    const wsUrl = buildAsrWebSocketUrl(session)
+    if (!wsUrl) throw new Error('后端未返回实时识别 WebSocket 地址')
+
+    realtimeAsrStatus.value = '正在连接实时识别...'
+    realtimeAsrSocket = await connectRealtimeAsrSocket(wsUrl, realtimeAsrSessionId.value)
+    realtimeAsrSocket.onerror = () => {
+      if (realtimeAsrActive.value || realtimeAsrConnecting.value) {
+        stopRealtimeAsr({ keepStatus: true })
+        realtimeAsrStatus.value = '实时识别连接异常'
+        ElMessage.error('实时语音连接异常')
+      }
+    }
+    realtimeAsrSocket.onclose = () => {
+      if (realtimeAsrActive.value) {
+        stopRealtimeAsr({ keepStatus: true })
+        realtimeAsrStatus.value = '实时识别连接已断开'
+        ElMessage.warning('实时语音连接已断开')
+      }
+    }
+
+    realtimeAsrStatus.value = '正在请求麦克风权限...'
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    })
+    realtimeAsrActive.value = true
+    realtimeAsrConnecting.value = false
+    realtimeAsrStatus.value = '实时识别中'
+    startRealtimeAudioProcessing(stream)
+  } catch (error) {
+    stopRealtimeAsr({ keepStatus: true })
+    realtimeAsrStatus.value = ''
+    const fallback = error?.response?.status === 404
+      ? '实时语音会话接口暂不可用，请使用添加音频或浏览器录音'
+      : '启动实时语音输入失败'
+    ElMessage.error(requirementErrorMessage(error, fallback))
+  }
+}
+
+const releaseMicrophone = () => {
+  microphoneStream?.getTracks().forEach(track => track.stop())
+  microphoneStream = null
+  mediaRecorder = null
+  recordingChunks = []
+}
+
+const toggleRecording = async () => {
+  if (recording.value) {
+    mediaRecorder?.stop()
+    return
+  }
+  if (realtimeAsrActive.value || realtimeAsrConnecting.value) {
+    ElMessage.warning('请先停止实时语音输入')
+    return
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    ElMessage.warning('当前浏览器不支持录音，请改为上传音频文件')
+    return
+  }
+  try {
+    discardRecording = false
+    microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const options = MediaRecorder.isTypeSupported('audio/webm') ? { mimeType: 'audio/webm' } : undefined
+    mediaRecorder = new MediaRecorder(microphoneStream, options)
+    recordingChunks = []
+    mediaRecorder.ondataavailable = event => {
+      if (event.data.size) recordingChunks.push(event.data)
+    }
+    mediaRecorder.onstop = async () => {
+      const chunks = [...recordingChunks]
+      const shouldUpload = !discardRecording && chunks.length > 0
+      recording.value = false
+      releaseMicrophone()
+      if (shouldUpload) {
+        const file = new File(chunks, `recording-${Date.now()}.webm`, { type: 'audio/webm' })
+        await uploadRequirementFiles([file], 'AUDIO')
+      }
+    }
+    mediaRecorder.start()
+    recording.value = true
+  } catch (error) {
+    releaseMicrophone()
+    ElMessage.error(requirementErrorMessage(error, '无法访问麦克风'))
+  }
+}
+
+const saveAttachmentResult = async (attachment) => {
+  try {
+    await api.updateRequirementAttachmentResult(attachment.id, attachmentEdits[attachment.id] || '')
+    attachmentDirty.delete(attachment.id)
+    requirementMergeStale.value = true
+    await refreshRequirementAttachments()
+    ElMessage.success('解析结果已保存')
+    return true
+  } catch (error) {
+    ElMessage.error(requirementErrorMessage(error, '保存解析结果失败'))
+    return false
+  }
+}
+
+const retryAttachment = async (attachment) => {
+  try {
+    await api.retryRequirementAttachment(attachment.id)
+    attachmentDirty.delete(attachment.id)
+    requirementMergeStale.value = true
+    await refreshRequirementAttachments()
+    startRequirementPolling()
+  } catch (error) {
+    ElMessage.error(requirementErrorMessage(error, '重试解析失败'))
+  }
+}
+
+const deleteAttachment = async (attachment) => {
+  try {
+    await api.deleteRequirementAttachment(attachment.id)
+    attachmentDirty.delete(attachment.id)
+    delete attachmentEdits[attachment.id]
+    requirementMergeStale.value = true
+    await refreshRequirementAttachments()
+    if (!requirementAttachments.value.length && requirementDraftMerged.value) {
+      form.requirementSummary = requirementOriginalText.value
+      requirementDraftMerged.value = false
+      requirementMergeStale.value = false
+    }
+  } catch (error) {
+    ElMessage.error(requirementErrorMessage(error, '删除附件失败'))
+  }
+}
+
+const mergeRequirementDraft = async () => {
+  if (uploadingCount.value || processingRequirementAttachments.value) {
+    ElMessage.warning('请等待图片和音频解析完成')
+    return false
+  }
+  for (const attachment of successfulRequirementAttachments.value) {
+    if (attachmentDirty.has(attachment.id)) {
+      const saved = await saveAttachmentResult(attachment)
+      if (!saved) return false
+    }
+  }
+  const attachmentIds = successfulRequirementAttachments.value.map(item => item.id)
+  if (!attachmentIds.length && !form.requirementSummary.trim()) {
+    ElMessage.warning('请填写需求描述或添加可用的图片、音频')
+    return false
+  }
+  mergingRequirement.value = true
+  try {
+    if (!requirementDraftMerged.value) requirementOriginalText.value = form.requirementSummary
+    const originalText = requirementDraftMerged.value ? requirementOriginalText.value : form.requirementSummary
+    const response = await api.mergeRequirementDraft(originalText, attachmentIds)
+    form.requirementSummary = response.data.data?.draftText || response.data.data?.mergedText || originalText
+    requirementDraftMerged.value = true
+    requirementMergeStale.value = false
+    ElMessage.success('已合并到需求描述，可继续编辑')
+    return true
+  } catch (error) {
+    ElMessage.error(requirementErrorMessage(error, '合并需求描述失败'))
+    return false
+  } finally {
+    mergingRequirement.value = false
+  }
+}
+
+const resetRequirementAttachments = () => {
+  stopRequirementPolling()
+  requirementRequestId.value = createRequirementRequestId()
+  requirementAttachments.value = []
+  Object.keys(attachmentEdits).forEach(key => delete attachmentEdits[key])
+  attachmentDirty.clear()
+  requirementOriginalText.value = ''
+  requirementDraftMerged.value = false
+  requirementMergeStale.value = false
+}
+
 const createPipeline = async () => {
   if (!form.productLine || !form.projectName || !form.requirementTitle) {
     ElMessage.warning(t('automation.required'))
+    return
+  }
+  if (realtimeAsrActive.value || realtimeAsrConnecting.value) {
+    ElMessage.warning('请先停止实时语音输入')
     return
   }
   if (!form.modelId) {
@@ -786,6 +1409,18 @@ const createPipeline = async () => {
   if (form.codeQualityEnabled && !form.qualityModelCode) {
     ElMessage.warning('请选择代码评估模型')
     return
+  }
+  if (uploadingCount.value || processingRequirementAttachments.value) {
+    ElMessage.warning('请等待图片和音频解析完成后再创建流水线')
+    return
+  }
+  if (failedRequirementAttachments.value.length) {
+    ElMessage.warning('存在解析失败的附件，请重试或删除后再创建流水线')
+    return
+  }
+  if (requirementAttachments.value.length && requirementMergeStale.value) {
+    const merged = await mergeRequirementDraft()
+    if (!merged) return
   }
   await api.createAutomationPipeline(form)
   ElMessage.success(t('automation.created'))
@@ -812,6 +1447,7 @@ const createPipeline = async () => {
     frontendOutputPath: 'front/src/generated',
     backendOutputPath: 'backend/src/main/java/com/aipal/generated'
   })
+  resetRequirementAttachments()
   await loadAll()
 }
 
@@ -1015,10 +1651,24 @@ const regeneratePrd = async () => {
 
 const submitPrdReview = async (status) => {
   if (!currentApproval.value) return
+  let comment = status === 'SUCCESS' ? 'PRD approved' : 'PRD rejected'
+  if (status === 'REJECTED') {
+    try {
+      const result = await ElMessageBox.prompt('Please enter the PRD rejection reason', 'Reject PRD', {
+        confirmButtonText: 'Submit',
+        cancelButtonText: 'Cancel',
+        inputPattern: /\S+/,
+        inputErrorMessage: 'Rejection reason is required'
+      })
+      comment = result.value
+    } catch {
+      return
+    }
+  }
   await api.approveAutomation(currentApproval.value.id, {
     status,
     reviewedBy: 'admin',
-    comment: status === 'SUCCESS' ? 'PRD approved' : 'PRD rejected',
+    comment,
     artifactContent: prdContent.value
   })
   ElMessage.success(status === 'SUCCESS' ? 'PRD 已通过' : 'PRD 已拒绝')
@@ -1070,10 +1720,24 @@ const regenerateCode = async () => {
 
 const submitCodeReview = async (status) => {
   if (!currentCodeApproval.value) return
+  let comment = status === 'SUCCESS' ? 'Code approved' : 'Code rejected'
+  if (status === 'REJECTED') {
+    try {
+      const result = await ElMessageBox.prompt('Please enter the code rejection reason', 'Reject Code', {
+        confirmButtonText: 'Submit',
+        cancelButtonText: 'Cancel',
+        inputPattern: /\S+/,
+        inputErrorMessage: 'Rejection reason is required'
+      })
+      comment = result.value
+    } catch {
+      return
+    }
+  }
   await api.approveAutomation(currentCodeApproval.value.id, {
     status,
     reviewedBy: 'admin',
-    comment: status === 'SUCCESS' ? 'Code approved' : 'Code rejected'
+    comment
   })
   ElMessage.success(status === 'SUCCESS' ? t('automation.codeApproved') : t('automation.codeRejected'))
   codeVisible.value = false
@@ -1156,8 +1820,33 @@ watch(detailVisible, visible => {
   if (!visible) stopDetailPolling()
 })
 
+watch(createVisible, visible => {
+  if (visible) {
+    if (processingRequirementAttachments.value) startRequirementPolling()
+    return
+  }
+  stopRequirementPolling()
+  if (realtimeAsrActive.value || realtimeAsrConnecting.value) {
+    stopRealtimeAsr()
+  }
+  if (recording.value && mediaRecorder) {
+    discardRecording = true
+    mediaRecorder.stop()
+  }
+})
+
 onMounted(loadAll)
-onUnmounted(stopDetailPolling)
+onUnmounted(() => {
+  stopDetailPolling()
+  stopRequirementPolling()
+  if (recording.value && mediaRecorder) {
+    discardRecording = true
+    mediaRecorder.stop()
+  } else {
+    releaseMicrophone()
+  }
+  stopRealtimeAsr()
+})
 </script>
 
 <style scoped>
@@ -1167,6 +1856,24 @@ onUnmounted(stopDetailPolling)
 .page-head h2 { font-size: 24px; margin-bottom: 6px; }
 .page-head p { color: var(--text-muted); }
 .inline-field { display: flex; gap: 10px; width: 100%; }
+.requirement-input { width: 100%; }
+.requirement-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.hidden-file-input { display: none; }
+.requirement-hint { color: var(--text-muted); font-size: 12px; }
+.realtime-asr-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 8px 10px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 12px; }
+.realtime-asr-panel strong { color: #111827; font-weight: 600; word-break: break-word; }
+.realtime-asr-dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; flex-shrink: 0; }
+.realtime-asr-dot.active { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, .15); }
+.requirement-attachments { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.requirement-attachment { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; background: #f8fafc; }
+.attachment-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.attachment-head div { min-width: 0; }
+.attachment-head strong, .attachment-head span { display: block; word-break: break-all; }
+.attachment-head strong { color: #111827; font-size: 13px; }
+.attachment-head span { color: var(--text-muted); font-size: 12px; margin-top: 3px; }
+.attachment-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.attachment-error { color: #b91c1c; font-size: 12px; margin: 6px 0; }
+.requirement-merge-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--text-muted); font-size: 12px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .template-toolbar { display: grid; grid-template-columns: 1fr 180px auto; gap: 10px; margin-bottom: 12px; }
 .template-meta { color: var(--text-muted); font-size: 12px; margin-bottom: 10px; word-break: break-all; }
@@ -1252,5 +1959,6 @@ onUnmounted(stopDetailPolling)
   .manual-feedback-form { grid-template-columns: 1fr; }
   .form-grid, .template-toolbar { grid-template-columns: 1fr; }
   .inline-field { flex-direction: column; }
+  .requirement-merge-row { align-items: flex-start; flex-direction: column; }
 }
 </style>

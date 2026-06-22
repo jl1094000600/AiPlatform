@@ -112,6 +112,7 @@ public class AutomationPipelineService {
     private final CodeQualityService codeQualityService;
     private final AiOutputGovernanceService outputGovernanceService;
     private final UserMemoryService userMemoryService;
+    private final BadCaseService badCaseService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
@@ -436,6 +437,9 @@ public class AutomationPipelineService {
         stage.setUpdateTime(now);
         stageRunMapper.updateById(stage);
         outputGovernanceService.markStageReviewed(stage.getPipelineId(), stage.getId(), STATUS_SUCCESS.equals(nextStatus));
+        if (STATUS_REJECTED.equals(nextStatus)) {
+            badCaseService.captureRejectedApproval(requirePipeline(stage.getPipelineId()), stage, approval);
+        }
         refreshPipelineProgress(stage.getPipelineId());
         if (STATUS_SUCCESS.equals(nextStatus) && STAGE_REQUIREMENT_ANALYSIS.equals(stage.getStageKey())) {
             startCodeGeneration(stage.getPipelineId(), true);
@@ -549,6 +553,9 @@ public class AutomationPipelineService {
         feedback.setReviewedBy(feedbackRequest.getReviewedBy());
         feedback.setCreateTime(LocalDateTime.now());
         codeRequirementFeedbackMapper.insert(feedback);
+        if (FEEDBACK_FAILED.equals(status)) {
+            badCaseService.captureFailedCodeFeedback(requirePipeline(pipelineId), batch, feedback);
+        }
 
         boolean doubleFailed = isDoubleFailed(batch.getId());
         if (doubleFailed) {

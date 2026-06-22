@@ -1,127 +1,159 @@
 <template>
-  <div class="login-page">
-    <!-- Left Panel - Decorative -->
-    <div class="login-panel-left">
-      <div class="panel-content">
-        <div class="brand-section">
-          <div class="brand-logo">
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="4" y="4" width="48" height="48" rx="12" stroke="white" stroke-width="2" fill="none"/>
-              <circle cx="28" cy="28" r="10" stroke="white" stroke-width="2" fill="none"/>
-              <circle cx="28" cy="28" r="4" fill="white"/>
-              <line x1="28" y1="4" x2="28" y2="18" stroke="white" stroke-width="2"/>
-              <line x1="28" y1="38" x2="28" y2="52" stroke="white" stroke-width="2"/>
-              <line x1="4" y1="28" x2="18" y2="28" stroke="white" stroke-width="2"/>
-              <line x1="38" y1="28" x2="52" y2="28" stroke="white" stroke-width="2"/>
-            </svg>
-          </div>
-          <h1 class="brand-title">Agent中台</h1>
-          <p class="brand-tagline">业务协作与运行管理平台</p>
-        </div>
-
-        <div class="features-list">
-          <div class="feature-item" v-for="(feature, index) in features" :key="index">
-            <div class="feature-icon">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M4 10L8 14L16 6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <span>{{ feature }}</span>
-          </div>
-        </div>
-
-        <div class="decoration-circles">
-          <div class="circle circle-1"></div>
-          <div class="circle circle-2"></div>
-          <div class="circle circle-3"></div>
+  <main class="login-page">
+    <section class="login-panel-left" aria-label="AI 平台品牌信息">
+      <canvas ref="brandCanvas" class="brand-canvas" aria-hidden="true" />
+      <div class="brand-content">
+        <div class="brand-hero">
+          <p class="brand-title">AI 平台</p>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Right Panel - Login Form -->
-    <div class="login-panel-right">
+    <section class="login-panel-right">
       <div class="login-container">
-        <div class="login-card animate-fade-in-up">
-          <div class="login-header">
-            <h2 class="login-title">欢迎回来</h2>
-            <p class="login-subtitle">请登录您的账户继续</p>
-          </div>
-
-          <el-form :model="form" @submit.prevent="handleLogin" class="login-form">
-            <div class="form-item">
-              <label class="form-label">用户名 / 邮箱</label>
-              <el-input
-                v-model="form.username"
-                placeholder="请输入用户名或邮箱"
-                size="large"
-                :prefix-icon="User"
-                class="custom-input"
-              />
-            </div>
-
-            <div class="form-item">
-              <label class="form-label">密码</label>
-              <el-input
-                v-model="form.password"
-                type="password"
-                placeholder="请输入密码"
-                size="large"
-                show-password
-                :prefix-icon="Lock"
-                class="custom-input"
-                @keyup.enter="handleLogin"
-              />
-            </div>
-
-            <div class="form-options">
-              <label class="remember-me">
-                <input type="checkbox" v-model="rememberMe" />
-                <span>记住我</span>
-              </label>
-              <a href="#" class="forgot-link">忘记密码？</a>
-            </div>
-
-            <el-button
-              type="primary"
-              size="large"
-              native-type="submit"
-              class="login-btn"
-              :loading="loading"
-            >
-              {{ loading ? '登录中...' : '登 录' }}
-            </el-button>
-          </el-form>
-
-          <div class="login-footer">
-            <p class="footer-hint">请使用管理员分配的账号登录</p>
-          </div>
+        <div class="brand-lockup">
+          <el-icon class="brand-mark" :size="34"><Box /></el-icon>
+          <span>AI 平台</span>
         </div>
 
-        <p class="copyright">© 2024 Agent中台. All rights reserved.</p>
+        <header class="login-header">
+          <h1 class="login-title">欢迎回来</h1>
+          <p class="login-subtitle">登录以访问您的 AI 运维控制台</p>
+        </header>
+
+        <el-form :model="form" class="login-form" @submit.prevent="handleLogin">
+          <div class="form-item">
+            <label class="form-label" for="login-username">用户名</label>
+            <el-input
+              id="login-username"
+              v-model="form.username"
+              class="custom-input"
+              placeholder="请输入用户名"
+              size="large"
+              :prefix-icon="User"
+              autocomplete="username"
+            />
+          </div>
+
+          <div class="form-item">
+            <label class="form-label" for="login-password">密码</label>
+            <el-input
+              id="login-password"
+              v-model="form.password"
+              class="custom-input"
+              type="password"
+              placeholder="请输入密码"
+              size="large"
+              show-password
+              :prefix-icon="Lock"
+              autocomplete="current-password"
+              @keyup.enter="handleLogin"
+            />
+          </div>
+
+          <div class="form-options">
+            <el-checkbox v-model="rememberMe">记住我</el-checkbox>
+          </div>
+
+          <el-button
+            type="primary"
+            size="large"
+            native-type="submit"
+            class="login-btn"
+            :loading="loading"
+          >
+            {{ loading ? '登录中...' : '登录' }}
+          </el-button>
+        </el-form>
       </div>
-    </div>
-  </div>
+    </section>
+  </main>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { Box, Lock, User } from '@element-plus/icons-vue'
 import api from '../api'
 
 const router = useRouter()
 const form = reactive({ username: '', password: '' })
 const loading = ref(false)
 const rememberMe = ref(false)
+const brandCanvas = ref(null)
 
-const features = [
-  '服务注册与管理',
-  '实时心跳监控',
-  '调用关系图谱',
-  '模型与接口管理',
-  '成本与审计追踪'
-]
+let animationFrame = 0
+let resizeObserver = null
+let prefersReducedMotion = false
+
+const resizeCanvas = () => {
+  const canvas = brandCanvas.value
+  if (!canvas) return
+  const bounds = canvas.getBoundingClientRect()
+  const scale = Math.min(window.devicePixelRatio || 1, 2)
+  canvas.width = Math.max(1, Math.floor(bounds.width * scale))
+  canvas.height = Math.max(1, Math.floor(bounds.height * scale))
+}
+
+const drawBrandBackground = (time = 0) => {
+  const canvas = brandCanvas.value
+  if (!canvas) return
+
+  const context = canvas.getContext('2d')
+  const scale = Math.min(window.devicePixelRatio || 1, 2)
+  const width = canvas.width / scale
+  const height = canvas.height / scale
+  const phase = time / 1000
+  context.setTransform(scale, 0, 0, scale, 0, 0)
+  context.clearRect(0, 0, width, height)
+  context.fillStyle = '#071b36'
+  context.fillRect(0, 0, width, height)
+
+  const streamCount = 42
+  for (let index = 0; index < streamCount; index += 1) {
+    const seed = (index * 53) % 97
+    const x = width * (0.12 + ((index * 29) % 84) / 100)
+    const speed = 0.1 + (seed % 7) * 0.018
+    const offset = (phase * speed + seed * 0.037) % 1
+    const y = height * (0.44 + offset * 0.48)
+    const trail = 14 + (seed % 5) * 7
+
+    context.fillStyle = `rgba(37, 99, 235, ${0.12 + (seed % 4) * 0.04})`
+    context.fillRect(x, y - trail, 1, trail)
+    context.fillStyle = `rgba(96, 165, 250, ${0.5 + (seed % 3) * 0.12})`
+    context.fillRect(x - 1, y - 1, 3, 3)
+  }
+
+  const signalCount = 14
+  for (let index = 0; index < signalCount; index += 1) {
+    const seed = (index * 31) % 71
+    const x = width * (0.28 + index * 0.047)
+    const travel = (phase * (0.055 + (seed % 4) * 0.012) + seed * 0.02) % 1
+    const y = height * (0.56 + travel * 0.34)
+    context.fillStyle = 'rgba(59, 130, 246, 0.16)'
+    context.fillRect(x, y - 22, 1, 22)
+    context.fillStyle = '#3b82f6'
+    context.fillRect(x - 2, y - 2, 4, 4)
+  }
+
+  if (!prefersReducedMotion) {
+    animationFrame = window.requestAnimationFrame(drawBrandBackground)
+  }
+}
+
+onMounted(() => {
+  prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  resizeCanvas()
+  resizeObserver = new ResizeObserver(resizeCanvas)
+  resizeObserver.observe(brandCanvas.value)
+  drawBrandBackground()
+})
+
+onBeforeUnmount(() => {
+  window.cancelAnimationFrame(animationFrame)
+  resizeObserver?.disconnect()
+})
 
 const handleLogin = async () => {
   if (!form.username || !form.password) {
@@ -149,348 +181,203 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-/* ============================================
-   Login Page Layout
-   ============================================ */
 .login-page {
-  display: flex;
+  display: grid;
+  grid-template-columns: clamp(520px, 42.7vw, 720px) minmax(0, 1fr);
   min-height: 100vh;
-  background: #f8fafc;
+  background: #ffffff;
 }
 
-/* ============================================
-   Left Panel - Decorative
-   ============================================ */
 .login-panel-left {
-  flex: 1;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
   position: relative;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px;
+  background-color: #071b36;
 }
 
-.panel-content {
+.brand-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.brand-content {
   position: relative;
-  z-index: 2;
-  max-width: 480px;
-}
-
-.brand-section {
-  text-align: center;
-  margin-bottom: 60px;
-}
-
-.brand-logo {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 24px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
+  z-index: 1;
   display: flex;
-  align-items: center;
+  min-height: 100vh;
+  flex-direction: column;
   justify-content: center;
-  backdrop-filter: blur(10px);
-  animation: floatLogo 3s ease-in-out infinite;
+  padding: clamp(64px, 8vw, 132px) clamp(56px, 5.7vw, 96px);
+  padding-bottom: clamp(180px, 24vh, 300px);
+  color: #ffffff;
 }
 
-@keyframes floatLogo {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+.brand-hero {
+  max-width: 100%;
 }
 
 .brand-title {
-  font-size: 36px;
-  font-weight: 700;
-  color: white;
-  margin-bottom: 12px;
-  letter-spacing: 0;
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(52px, 5vw, 78px);
+  font-weight: 750;
+  line-height: 1.08;
 }
 
-.brand-tagline {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.8);
-  letter-spacing: 0;
-}
-
-.features-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.feature-item {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: white;
-  font-size: 15px;
-  opacity: 0;
-  animation: slideInLeft 0.5s ease forwards;
-}
-
-.feature-item:nth-child(1) { animation-delay: 0.2s; }
-.feature-item:nth-child(2) { animation-delay: 0.35s; }
-.feature-item:nth-child(3) { animation-delay: 0.5s; }
-.feature-item:nth-child(4) { animation-delay: 0.65s; }
-.feature-item:nth-child(5) { animation-delay: 0.8s; }
-
-@keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.feature-icon {
-  width: 28px;
-  height: 28px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* Decorative Circles */
-.decoration-circles {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.circle {
-  position: absolute;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.circle-1 {
-  width: 300px;
-  height: 300px;
-  top: -100px;
-  right: -80px;
-  animation: pulse 4s ease-in-out infinite;
-}
-
-.circle-2 {
-  width: 200px;
-  height: 200px;
-  bottom: -60px;
-  left: -60px;
-  animation: pulse 4s ease-in-out infinite 1s;
-}
-
-.circle-3 {
-  width: 150px;
-  height: 150px;
-  top: 50%;
-  right: 20%;
-  animation: pulse 4s ease-in-out infinite 2s;
-}
-
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(1.1); opacity: 0.8; }
-}
-
-/* ============================================
-   Right Panel - Login Form
-   ============================================ */
 .login-panel-right {
-  width: 520px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 60px;
+  min-width: 0;
+  padding: 56px 48px;
+  background: #ffffff;
 }
 
 .login-container {
-  width: 100%;
-  max-width: 400px;
+  width: min(100%, 512px);
+  padding: 0 22px;
+  animation: form-enter 320ms var(--ease-out) both;
 }
 
-.login-card {
-  background: white;
-  border-radius: 24px;
-  padding: 48px 40px;
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.05),
-    0 10px 20px -5px rgba(0, 0, 0, 0.08);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 46px;
+  color: #111827;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.login-card:hover {
-  transform: translateY(-4px);
-  box-shadow:
-    0 8px 12px -2px rgba(0, 0, 0, 0.08),
-    0 20px 40px -10px rgba(0, 0, 0, 0.12);
+.brand-mark {
+  color: #2563eb;
 }
 
 .login-header {
-  text-align: center;
-  margin-bottom: 36px;
+  margin-bottom: 46px;
 }
 
 .login-title {
-  font-size: 28px;
+  margin: 0;
+  color: #111827;
+  font-size: 40px;
   font-weight: 700;
-  color: #1a1a2e;
-  margin-bottom: 8px;
+  line-height: 1.2;
 }
 
 .login-subtitle {
-  font-size: 14px;
+  margin: 14px 0 0;
   color: #64748b;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
 .login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  display: grid;
+  gap: 28px;
 }
 
 .form-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  gap: 10px;
 }
 
 .form-label {
-  font-size: 13px;
+  color: #1f2937;
+  font-size: 15px;
   font-weight: 600;
-  color: #374151;
-  letter-spacing: 0.02em;
+  line-height: 1.4;
 }
 
 .custom-input :deep(.el-input__wrapper) {
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
+  min-height: 58px;
+  padding: 0 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
   box-shadow: none;
-  transition: all 0.2s ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .custom-input :deep(.el-input__wrapper:hover) {
-  border-color: #c7d2fe;
-  background: white;
+  border-color: #93c5fd;
 }
 
 .custom-input :deep(.el-input__wrapper.is-focus) {
-  border-color: #667eea;
-  background: white;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
 }
 
 .custom-input :deep(.el-input__inner) {
-  color: #1a1a2e;
-  font-size: 15px;
+  color: #111827;
+  font-size: 16px;
 }
 
-.custom-input :deep(.el-input__prefix) {
+.custom-input :deep(.el-input__inner::placeholder) {
   color: #94a3b8;
+}
+
+.custom-input :deep(.el-input__prefix-inner),
+.custom-input :deep(.el-input__suffix-inner) {
+  color: #64748b;
 }
 
 .form-options {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  min-height: 20px;
+  margin-top: -2px;
 }
 
-.remember-me {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #64748b;
+.form-options :deep(.el-checkbox__label) {
+  color: #475569;
+  font-size: 14px;
 }
 
-.remember-me input {
-  width: 16px;
-  height: 16px;
-  accent-color: #667eea;
+.form-options :deep(.el-checkbox__inner) {
+  width: 18px;
+  height: 18px;
+  border-color: #cbd5e1;
+  border-radius: 4px;
 }
 
-.forgot-link {
-  font-size: 13px;
-  color: #667eea;
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.2s;
-}
-
-.forgot-link:hover {
-  color: #764ba2;
+.form-options :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
+  border-color: #2563eb;
+  background: #2563eb;
 }
 
 .login-btn {
   width: 100%;
-  height: 52px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  border-radius: 12px;
-  color: white;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  height: 56px;
   margin-top: 8px;
-}
-
-.login-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-}
-
-.login-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.login-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.login-footer {
-  margin-top: 32px;
-  text-align: center;
-}
-
-.footer-hint {
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.highlight {
-  color: #667eea;
+  border-radius: 8px;
+  background: #2563eb;
+  border-color: #2563eb;
+  box-shadow: none;
+  color: #ffffff;
+  font-size: 17px;
   font-weight: 600;
 }
 
-.copyright {
-  text-align: center;
-  margin-top: 24px;
-  font-size: 12px;
-  color: #94a3b8;
+.login-btn:hover:not(.is-loading),
+.login-btn:focus-visible:not(.is-loading) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.2);
 }
 
-/* ============================================
-   Animations
-   ============================================ */
-@keyframes fadeInUp {
+.login-btn:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 3px;
+}
+
+@keyframes form-enter {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -498,31 +385,76 @@ const handleLogin = async () => {
   }
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@media (max-width: 1320px) {
+  .login-page {
+    grid-template-columns: clamp(460px, 41vw, 570px) minmax(0, 1fr);
+  }
 }
 
-/* ============================================
-   Responsive
-   ============================================ */
-@media (max-width: 1024px) {
+@media (max-width: 1100px) {
+  .login-page {
+    grid-template-columns: clamp(440px, 40vw, 520px) minmax(0, 1fr);
+  }
+
+  .login-panel-right {
+    padding: 48px 32px;
+  }
+
+  .login-container {
+    padding: 0;
+  }
+
+  .brand-content {
+    padding-inline: 48px;
+  }
+
+}
+
+@media (max-width: 960px) {
+  .login-page {
+    display: block;
+  }
+
   .login-panel-left {
     display: none;
   }
 
   .login-panel-right {
-    width: 100%;
+    min-height: 100vh;
     padding: 40px 24px;
+  }
+
+  .login-container {
+    width: min(100%, 440px);
   }
 }
 
 @media (max-width: 480px) {
-  .login-card {
-    padding: 32px 24px;
+  .login-panel-right {
+    padding: 32px 20px;
+  }
+
+  .brand-lockup {
+    margin-bottom: 34px;
+    font-size: 21px;
+  }
+
+  .login-header {
+    margin-bottom: 36px;
   }
 
   .login-title {
-    font-size: 24px;
+    font-size: 32px;
+  }
+
+  .login-form {
+    gap: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-container {
+    animation: none;
   }
 }
 </style>
