@@ -21,6 +21,9 @@ import com.aipal.mapper.AutomationGeneratedCodeFileMapper;
 import com.aipal.mapper.AutomationPipelineMapper;
 import com.aipal.mapper.AutomationStageRunMapper;
 import com.aipal.security.TenantTaskRunner;
+import com.aipal.service.memory.MemoryContext;
+import com.aipal.service.memory.MemoryOrchestrator;
+import com.aipal.service.memory.MemoryRecallRequest;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -28,6 +31,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -58,6 +62,7 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AutomationPipelineService {
 
@@ -117,6 +122,9 @@ public class AutomationPipelineService {
 
     @Autowired
     private TenantTaskRunner tenantTaskRunner;
+
+    @Autowired
+    private MemoryOrchestrator memoryOrchestrator;
 
     @Autowired
     @Qualifier("tenantAwareExecutor")
@@ -705,7 +713,7 @@ public class AutomationPipelineService {
         stage.setStatus(STATUS_RUNNING);
         stage.setStartTime(start);
 
-        String prdContent = generatePrdContent(request, job);
+        String prdContent = generatePrdContent(pipeline, request, job);
         saveArtifact(stage, prdContent);
         stage.setOutputSummary("PRD 已生成：" + stage.getArtifactPath());
         stage.setEndTime(LocalDateTime.now());
@@ -1067,7 +1075,8 @@ public class AutomationPipelineService {
 
         try {
             String systemPrompt = "You are an enterprise full-stack engineer. Return pure JSON only, without Markdown fences.";
-            String userPrompt = buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot);
+            String userPrompt = buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot)
+                    + memoryPromptSection(pipeline, prdContent);
             ModelCallResult result = callModel(model, systemPrompt, userPrompt);
             applyTokenUsage(job, result);
             String content = result.content();
@@ -1150,6 +1159,23 @@ public class AutomationPipelineService {
                 pipeline.getFrontendOutputPath(),
                 prdContent == null ? "" : prdContent
         );
+    }
+
+    private String memoryPromptSection(AutomationPipeline pipeline, String requestSummary) {
+        try {
+            String projectKey = (safe(pipeline.getProductLine()) + ":" + safe(pipeline.getProjectName())).replaceAll("^:+|:+$", "");
+            MemoryContext context = memoryOrchestrator.prepareContext(
+                    new MemoryRecallRequest(null, projectKey, requestSummary));
+            return context.shouldInject() ? "\n\n" + context.promptSection() : "";
+        } catch (RuntimeException exception) {
+            // Memory is auxiliary during the AUDIT rollout and must not block delivery.
+            log.warn("Memory context preparation failed for pipeline {}: {}", pipeline.getId(), exception.getMessage());
+            return "";
+        }
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private List<GeneratedFile> parseGeneratedCodeFiles(String modelContent, AutomationPipeline pipeline) throws IOException {
@@ -1602,7 +1628,7 @@ public class AutomationPipelineService {
         return files;
     }
 
-    private String generatePrdContent(AutomationPipelineRequest request, AutomationGenerationJob job) {
+    private String generatePrdContent(AutomationPipeline pipeline, AutomationPipelineRequest request, AutomationGenerationJob job) {
         AiModel model = request.getModelId() == null ? null : modelMapper.selectById(request.getModelId());
         String fallback = buildFallbackPrd(request);
         String templateContent = readPrdTemplateContent(request.getTemplateFile());
@@ -1616,7 +1642,8 @@ public class AutomationPipelineService {
                     ? model.getEndpoint() + "chat/completions"
                     : model.getEndpoint() + "/chat/completions";
             String systemPrompt = "You are a senior product manager. Return a structured Markdown PRD with background, goals, user stories, functional requirements, non-functional requirements, acceptance criteria, and risks.";
-            String userPrompt = buildPrdPrompt(request, templateContent);
+            String userPrompt = buildPrdPrompt(request, templateContent)
+                    + memoryPromptSection(pipeline, request.getRequirementSummary());
             Map<String, Object> body = Map.of(
                     "model", model.getModelCode(),
                     "temperature", model.getDefaultTemperature() == null ? BigDecimal.ONE : model.getDefaultTemperature(),

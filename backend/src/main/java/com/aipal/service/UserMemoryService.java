@@ -4,8 +4,11 @@ import com.aipal.entity.AiModel;
 import com.aipal.entity.AiUserMemory;
 import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.AiUserMemoryMapper;
+import com.aipal.memory.MemoryScopeType;
 import com.aipal.security.TenantContext;
 import com.aipal.security.TenantTaskRunner;
+import com.aipal.service.memory.MemoryCaptureEvent;
+import com.aipal.service.memory.MemoryCaptureService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -47,10 +50,40 @@ public class UserMemoryService {
     @Autowired
     private TenantTaskRunner tenantTaskRunner;
 
+    @Autowired
+    private MemoryCaptureService memoryCaptureService;
+
     public void appendPipelineMemory(String userKey, Long userId, String username,
                                      Long pipelineId, Long stageRunId, String stage,
                                      String inputSummary, String outputSummary,
                                      Integer inputTokens, Integer outputTokens, Integer totalTokens) {
+        String effectiveUserKey = normalizeUserKey(userKey, userId, username);
+        memoryCaptureService.capture(new MemoryCaptureEvent(
+                "PIPELINE",
+                "pipeline:%s:stage:%s:%s".formatted(pipelineId, stageRunId, stage),
+                "WORKING",
+                MemoryScopeType.USER.name(),
+                effectiveUserKey,
+                null,
+                null,
+                userId,
+                username,
+                null,
+                inputSummary,
+                outputSummary,
+                totalTokens,
+                null,
+                "INTERNAL"
+        ));
+        // Compatibility boundary: new events are written only to the unified working
+        // memory key. Existing legacy Redis lists remain readable until migration ends.
+    }
+
+    @Deprecated(forRemoval = false)
+    public void appendLegacyPipelineMemory(String userKey, Long userId, String username,
+                                           Long pipelineId, Long stageRunId, String stage,
+                                           String inputSummary, String outputSummary,
+                                           Integer inputTokens, Integer outputTokens, Integer totalTokens) {
         String effectiveUserKey = normalizeUserKey(userKey, userId, username);
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("memoryId", UUID.randomUUID().toString());
@@ -83,12 +116,18 @@ public class UserMemoryService {
         if (userKey == null || userKey.isBlank()) {
             return List.of();
         }
+        List<Object> working = memoryCaptureService.listWorkingMemories(MemoryScopeType.USER.name(), userKey);
         try {
             List<Object> values = redisTemplate.opsForList().range(shortMemoryKey(userKey), 0, -1);
-            return values == null ? List.of() : values;
+            if (values == null || values.isEmpty()) {
+                return working;
+            }
+            List<Object> merged = new ArrayList<>(working);
+            merged.addAll(values);
+            return merged;
         } catch (RuntimeException e) {
             log.warn("Failed to list short-term user memory for {}: {}", userKey, e.getMessage());
-            return List.of();
+            return working;
         }
     }
 
@@ -115,6 +154,7 @@ public class UserMemoryService {
 
     public void clearShortMemories(String userKey) {
         if (userKey == null || userKey.isBlank()) return;
+        memoryCaptureService.clearWorkingMemories(MemoryScopeType.USER.name(), userKey);
         try {
             redisTemplate.delete(shortMemoryKey(userKey));
         } catch (RuntimeException e) {

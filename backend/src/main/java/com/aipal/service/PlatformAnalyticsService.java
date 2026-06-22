@@ -483,7 +483,7 @@ public class PlatformAnalyticsService {
                             .map(call -> estimateCallCost(call, models))
                             .reduce(BigDecimal.ZERO, BigDecimal::add)
                             .setScale(4, RoundingMode.HALF_UP);
-                    return Map.of(
+                    return Map.<String, Object>of(
                             "modelCode", modelCode,
                             "calls", items.size(),
                             "tokens", items.stream().mapToLong(this::totalTokens).sum(),

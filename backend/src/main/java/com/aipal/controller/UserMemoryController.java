@@ -1,9 +1,11 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.common.BizException;
 import com.aipal.config.JwtConfig;
 import com.aipal.entity.AiUserMemory;
 import com.aipal.security.RequirePermission;
+import com.aipal.security.TenantContext;
 import com.aipal.service.UserMemoryService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +28,7 @@ public class UserMemoryController {
     private final JwtConfig jwtConfig;
 
     @GetMapping
-    @RequirePermission("agent:list")
+    @RequirePermission("memory:list")
     public Result<Page<AiUserMemory>> listCompressed(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -34,39 +36,31 @@ public class UserMemoryController {
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) String username,
             HttpServletRequest request) {
-        UserIdentity identity = currentIdentity(request);
-        String effectiveUserKey = userKey != null && !userKey.isBlank()
-                ? userKey : userMemoryService.normalizeUserKey(null, userId != null ? userId : identity.userId(), username != null ? username : identity.username());
+        String effectiveUserKey = resolveAccessibleUserKey(request, userKey, userId, username);
         return Result.success(userMemoryService.listCompressedMemories(pageNum, pageSize, effectiveUserKey, null, null));
     }
 
     @GetMapping("/short-term")
-    @RequirePermission("agent:list")
+    @RequirePermission("memory:list")
     public Result<List<Object>> listShortTerm(@RequestParam(required = false) String userKey,
                                               HttpServletRequest request) {
-        UserIdentity identity = currentIdentity(request);
-        String effectiveUserKey = userKey != null && !userKey.isBlank()
-                ? userKey : userMemoryService.normalizeUserKey(null, identity.userId(), identity.username());
+        String effectiveUserKey = resolveAccessibleUserKey(request, userKey, null, null);
         return Result.success(userMemoryService.listShortMemories(effectiveUserKey));
     }
 
     @PostMapping("/compress")
-    @RequirePermission("agent:update")
+    @RequirePermission("memory:write")
     public Result<AiUserMemory> compress(@RequestParam(required = false) String userKey,
                                          HttpServletRequest request) {
-        UserIdentity identity = currentIdentity(request);
-        String effectiveUserKey = userKey != null && !userKey.isBlank()
-                ? userKey : userMemoryService.normalizeUserKey(null, identity.userId(), identity.username());
+        String effectiveUserKey = resolveAccessibleUserKey(request, userKey, null, null);
         return Result.success(userMemoryService.compressUserMemories(effectiveUserKey));
     }
 
     @DeleteMapping("/short-term")
-    @RequirePermission("agent:update")
+    @RequirePermission("memory:write")
     public Result<Boolean> clearShortTerm(@RequestParam(required = false) String userKey,
                                           HttpServletRequest request) {
-        UserIdentity identity = currentIdentity(request);
-        String effectiveUserKey = userKey != null && !userKey.isBlank()
-                ? userKey : userMemoryService.normalizeUserKey(null, identity.userId(), identity.username());
+        String effectiveUserKey = resolveAccessibleUserKey(request, userKey, null, null);
         userMemoryService.clearShortMemories(effectiveUserKey);
         return Result.success(true);
     }
@@ -85,6 +79,21 @@ public class UserMemoryController {
         } catch (Exception ignored) {
             return new UserIdentity(null, null);
         }
+    }
+
+    private String resolveAccessibleUserKey(HttpServletRequest request, String requestedUserKey,
+                                            Long requestedUserId, String requestedUsername) {
+        UserIdentity identity = currentIdentity(request);
+        String currentUserKey = userMemoryService.normalizeUserKey(null, identity.userId(), identity.username());
+        String requested = requestedUserKey != null && !requestedUserKey.isBlank()
+                ? requestedUserKey.trim()
+                : userMemoryService.normalizeUserKey(null,
+                requestedUserId == null ? identity.userId() : requestedUserId,
+                requestedUsername == null || requestedUsername.isBlank() ? identity.username() : requestedUsername);
+        if (!TenantContext.hasPermission("memory:policy") && !currentUserKey.equals(requested)) {
+            throw new BizException(403, "只能访问当前用户的记忆");
+        }
+        return requested;
     }
 
     private record UserIdentity(Long userId, String username) {

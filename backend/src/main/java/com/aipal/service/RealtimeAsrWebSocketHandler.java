@@ -73,7 +73,7 @@ public class RealtimeAsrWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
+    protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) {
         DashScopeRealtimeAsrClient.StreamSession stream = stream(session);
         ByteBuffer payload = message.getPayload();
         byte[] frame = new byte[payload.remaining()];
@@ -83,7 +83,11 @@ public class RealtimeAsrWebSocketHandler extends TextWebSocketHandler {
         } catch (RuntimeException e) {
             sendJson(session, Map.of("type", "error", "message", limitError(e.getMessage())));
             stream.close();
-            session.close(CloseStatus.POLICY_VIOLATION.withReason("audio limit"));
+            try {
+                session.close(CloseStatus.POLICY_VIOLATION.withReason("audio limit"));
+            } catch (Exception closeError) {
+                log.warn("Failed to close realtime ASR WebSocket after audio limit", closeError);
+            }
         }
     }
 

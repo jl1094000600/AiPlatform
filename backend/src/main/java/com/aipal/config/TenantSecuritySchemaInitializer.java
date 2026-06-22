@@ -245,6 +245,8 @@ public class TenantSecuritySchemaInitializer {
                 {"dashboard:view", "首页概况"}, {"agent:list", "Agent 查看"}, {"agent:create", "Agent 新建"},
                 {"agent:update", "Agent 编辑"}, {"agent:delete", "Agent 删除"}, {"agent:invoke", "Agent 调用"},
                 {"skill:list", "Skill 查看"}, {"skill:create", "Skill 新建"}, {"skill:update", "Skill 编辑"}, {"skill:delete", "Skill 删除"},
+                {"memory:list", "记忆列表"}, {"memory:read", "记忆详情"}, {"memory:write", "记忆编辑"},
+                {"memory:forget", "记忆遗忘"}, {"memory:policy", "记忆策略"}, {"memory:trace", "记忆调用追踪"},
                 {"rag:list", "RAG 查看"}, {"rag:create", "RAG 新建"}, {"rag:update", "RAG 编辑"}, {"rag:delete", "RAG 删除"},
                 {"model:list", "模型查看"}, {"model:create", "模型新建"}, {"model:update", "模型编辑"}, {"model:delete", "模型删除"},
                 {"automation:list", "流水线查看"}, {"automation:create", "流水线新建"}, {"automation:run", "流水线运行"}, {"automation:approve", "流水线审批"}, {"automation:delete", "流水线删除"},
@@ -283,7 +285,7 @@ public class TenantSecuritySchemaInitializer {
                 {"prompt-engineering", "提示词工程", "/prompt-engineering", "MagicStick", "prompt:list", 40, "group-automation"},
                 {"deploy-profiles", "部署配置", "/deploy-profiles", "SetUp", "automation:list", 50, "group-automation"},
                 {"skills", "Skill 管理", "/skills", "MagicStick", "skill:list", 10, "group-agent"},
-                {"memories", "记忆管理", "/memories", "Tickets", "agent:list", 20, "group-agent"},
+                {"memories", "记忆管理", "/memories", "Tickets", "memory:list", 20, "group-agent"},
                 {"agents", "Agent 管理", "/agents", "Cpu", "agent:list", 30, "group-agent"},
                 {"agent-quality", "质量监控", "/agent-quality", "Finished", "agent:list", 40, "group-agent"},
                 {"rag", "RAG 知识库", "/rag", "FolderOpened", "rag:list", 50, "group-agent"},
@@ -332,19 +334,19 @@ public class TenantSecuritySchemaInitializer {
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'developer'
-                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
+                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','memory:list','memory:read','memory:write','memory:forget','memory:trace','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'reviewer'
-                  AND p.permission_code IN ('dashboard:view','automation:list','automation:approve','code-quality:list','governance:list','prompt:list','prompt:evaluate','audit:view','benchmark:view')
+                  AND p.permission_code IN ('dashboard:view','automation:list','automation:approve','memory:list','memory:read','memory:trace','code-quality:list','governance:list','prompt:list','prompt:evaluate','audit:view','benchmark:view')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'readonly'
-                  AND p.permission_code IN ('dashboard:view','agent:list','skill:list','rag:list','model:list','automation:list','code-quality:list','governance:list','prompt:list','billing:view','audit:view','benchmark:view')
+                  AND p.permission_code IN ('dashboard:view','agent:list','skill:list','memory:list','memory:read','rag:list','model:list','automation:list','code-quality:list','governance:list','prompt:list','billing:view','audit:view','benchmark:view')
                 """);
     }
 

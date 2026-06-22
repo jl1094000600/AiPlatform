@@ -61,7 +61,7 @@ class AutomationPipelineServiceTest {
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
                 mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, mock(SkillService.class), mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class), mock(BadCaseService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -111,7 +111,7 @@ class AutomationPipelineServiceTest {
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
                 mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, skillService, mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), mock(CodeQualityService.class), mock(AiOutputGovernanceService.class), mock(UserMemoryService.class), mock(BadCaseService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -153,7 +153,7 @@ class AutomationPipelineServiceTest {
         AutomationPipelineService service = new AutomationPipelineService(pipelineMapper, stageRunMapper, approvalMapper,
                 generationJobMapper, mock(AutomationGeneratedCodeBatchMapper.class), mock(AutomationGeneratedCodeFileMapper.class),
                 mock(AutomationCodeRequirementFeedbackMapper.class), modelMapper, mock(SkillService.class), mock(AutomationBuildTestExecutionService.class), mock(AutomationDeployProfileService.class),
-                mock(AutomationDeploymentExecutionService.class), codeQualityService, mock(AiOutputGovernanceService.class), mock(UserMemoryService.class));
+                mock(AutomationDeploymentExecutionService.class), codeQualityService, mock(AiOutputGovernanceService.class), mock(UserMemoryService.class), mock(BadCaseService.class));
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
         request.setProjectName("AI Platform");
@@ -196,7 +196,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -227,7 +227,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -255,7 +255,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine("Core");
@@ -285,7 +285,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "RUNNING");
         AutomationStageRun requirement = stage(10L, 1L, "requirement_analysis", 1, "WAITING_APPROVAL");
@@ -317,7 +317,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationPipeline pipeline = pipeline(1L, "build_compile", "BLOCKED");
         AutomationStageRun rejectedBuild = stage(12L, 1L, "build_compile", 3, "REJECTED");
@@ -348,7 +348,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationApproval approval = new AutomationApproval();
         approval.setId(7L);
@@ -404,7 +404,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationApprovalRequest request = new AutomationApprovalRequest();
         request.setStatus("SUCCESS");
@@ -436,7 +436,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationCodeFeedbackRequest request = new AutomationCodeFeedbackRequest();
         request.setBatchId(30L);
@@ -481,7 +481,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationCodeFeedbackRequest request = new AutomationCodeFeedbackRequest();
         request.setBatchId(30L);
@@ -515,7 +515,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
 
         Map<String, Object> tree = service.getProjectDirectoryTree();
@@ -548,7 +548,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AutomationGenerationJob stale = generationJob(1L);
         AutomationGenerationJob latest = generationJob(2L);
@@ -579,7 +579,7 @@ class AutomationPipelineServiceTest {
                 mock(AutomationDeploymentExecutionService.class),
                 mock(CodeQualityService.class),
                 mock(AiOutputGovernanceService.class),
-                mock(UserMemoryService.class)
+                mock(UserMemoryService.class), mock(BadCaseService.class)
         );
         AiModel model = new AiModel();
         model.setProvider("MiniMax");
