@@ -40,7 +40,13 @@ public class MemoryExtractionService {
         for (MemoryCaptureService.WorkingScope scope : captureService.listWorkingScopes()) {
             List<Map<String, Object>> events = captureService.claimUnextracted(scope);
             for (Map<String, Object> event : events) {
-                if (persistIfNew(event)) extracted++;
+                try {
+                    if (persistIfNew(event)) extracted++;
+                } catch (RuntimeException ex) {
+                    captureService.releaseClaim(value(event, "eventId"));
+                    log.warn("Memory extraction failed and will be retried, sourceRef={}, reason={}",
+                            value(event, "sourceRef"), ex.getMessage());
+                }
             }
         }
         return extracted;

@@ -134,6 +134,16 @@ public class MemoryCaptureService {
         return claimed;
     }
 
+    public void releaseClaim(String eventId) {
+        if (isBlank(eventId)) return;
+        try {
+            Long tenantId = accessScopeResolver.resolve(null).tenantId();
+            redisTemplate.delete(EXTRACTED_EVENT_PREFIX + tenantId + ":" + eventId);
+        } catch (RuntimeException ex) {
+            log.warn("Failed to release memory extraction claim, eventId={}, reason={}", eventId, ex.getMessage());
+        }
+    }
+
     private String resolveScopeType(MemoryCaptureEvent event, MemoryAccessScope accessScope) {
         if (accessScope.userId() != null) return MemoryScopeType.USER.name();
         return MemoryScopeType.TENANT.name();

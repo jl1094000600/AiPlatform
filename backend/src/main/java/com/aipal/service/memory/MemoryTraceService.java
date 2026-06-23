@@ -40,7 +40,7 @@ public class MemoryTraceService {
     }
 
     private String toJson(List<MemoryRecallCandidate> candidates) {
-        List<Map<String, Object>> view = candidates.stream().map(candidate -> Map.of(
+        List<Map<String, Object>> view = candidates.stream().map(candidate -> Map.<String, Object>of(
                 "memoryId", candidate.memory().getId(),
                 "memoryCode", candidate.memory().getMemoryCode(),
                 "score", candidate.score(),

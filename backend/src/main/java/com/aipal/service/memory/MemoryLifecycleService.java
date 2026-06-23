@@ -6,8 +6,11 @@ import com.aipal.mapper.AiMemoryItemMapper;
 import com.aipal.mapper.AiMemoryVersionMapper;
 import com.aipal.memory.MemoryStatus;
 import com.aipal.security.TenantContext;
+import com.aipal.security.TenantTaskRunner;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -18,6 +21,21 @@ public class MemoryLifecycleService {
 
     private final AiMemoryItemMapper memoryItemMapper;
     private final AiMemoryVersionMapper memoryVersionMapper;
+    private final TenantTaskRunner tenantTaskRunner;
+
+    @Scheduled(fixedDelayString = "${aipal.memory.expiry-delay-ms:3600000}", initialDelayString = "${aipal.memory.expiry-initial-delay-ms:300000}")
+    public void expireDueMemories() {
+        tenantTaskRunner.forEachActiveTenant("memory-expiry", tenant -> expireCurrentTenant());
+    }
+
+    public int expireCurrentTenant() {
+        return memoryItemMapper.update(null, new LambdaUpdateWrapper<AiMemoryItem>()
+                .eq(AiMemoryItem::getTenantId, TenantContext.tenantId())
+                .eq(AiMemoryItem::getStatus, MemoryStatus.ACTIVE.name())
+                .isNotNull(AiMemoryItem::getExpiresAt)
+                .le(AiMemoryItem::getExpiresAt, LocalDateTime.now())
+                .set(AiMemoryItem::getStatus, MemoryStatus.EXPIRED.name()));
+    }
 
     @Transactional
     public AiMemoryItem forget(Long memoryId, String reason) {
@@ -48,6 +66,20 @@ public class MemoryLifecycleService {
         memory.setVersion(memory.getVersion() + 1);
         memoryItemMapper.updateById(memory);
         writeVersion(memory, "EDIT", reason);
+        return memory;
+    }
+
+    @Transactional
+    public AiMemoryItem confirm(Long memoryId) {
+        AiMemoryItem memory = requireCurrentTenantMemory(memoryId);
+        if (MemoryStatus.ACTIVE.name().equals(memory.getStatus())) return memory;
+        if (!MemoryStatus.PENDING_REVIEW.name().equals(memory.getStatus())) {
+            throw new IllegalStateException("Only pending memories can be confirmed");
+        }
+        memory.setStatus(MemoryStatus.ACTIVE.name());
+        memory.setVersion((memory.getVersion() == null ? 0 : memory.getVersion()) + 1);
+        memoryItemMapper.updateById(memory);
+        writeVersion(memory, "CONFIRM", "Confirmed for recall");
         return memory;
     }
 

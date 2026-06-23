@@ -243,7 +243,7 @@ function navItem(path, label, icon) {
     '/prompt-engineering': 'prompt:list',
     '/deploy-profiles': 'automation:list',
     '/skills': 'skill:list',
-    '/memories': 'agent:list',
+    '/memories': 'memory:list',
     '/agents': 'agent:list',
     '/agent-quality': 'agent:list',
     '/rag': 'rag:list',

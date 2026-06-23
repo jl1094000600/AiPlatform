@@ -160,6 +160,35 @@ export default {
     return api.delete('/user-memories/short-term', { params })
   },
 
+  // Enterprise memory center APIs
+  getMemories(params) {
+    return api.get('/memories', { params })
+  },
+  getMemory(id) {
+    return api.get('/memories/' + id)
+  },
+  getMemoryVersions(id) {
+    return api.get('/memories/' + id + '/versions')
+  },
+  updateMemory(id, data) {
+    return api.put('/memories/' + id, data)
+  },
+  forgetMemory(id, data = {}) {
+    return api.post('/memories/' + id + '/forget', data)
+  },
+  confirmMemory(id) {
+    return api.post('/memories/' + id + '/confirm')
+  },
+  getMemoryTrace(traceId) {
+    return api.get('/memories/traces/' + traceId)
+  },
+  getEffectiveMemoryPolicy(params) {
+    return api.get('/memory-policies/effective', { params })
+  },
+  saveMemoryPolicy(data) {
+    return api.put('/memory-policies', data)
+  },
+
   // Dataset APIs
   getDatasets(params) {
     return api.get('/datasets', { params })
