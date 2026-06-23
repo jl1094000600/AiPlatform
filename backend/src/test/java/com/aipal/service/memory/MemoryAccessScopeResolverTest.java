@@ -13,7 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MemoryAccessScopeResolverTest {
 
-    private final MemoryAccessScopeResolver resolver = new MemoryAccessScopeResolver();
+    private final MemoryTrustedProjectContext trustedProjectContext = new MemoryTrustedProjectContext();
+    private final MemoryAccessScopeResolver resolver = new MemoryAccessScopeResolver(trustedProjectContext);
 
     @AfterEach
     void clearContext() {
@@ -32,7 +33,7 @@ class MemoryAccessScopeResolverTest {
         assertEquals("alice", scope.username());
         assertNull(scope.projectKey());
         assertFalse(scope.canManageTenantMemory());
-        assertTrue(scope.canManageProjectMemory());
+        assertFalse(scope.canManageProjectMemory());
         assertTrue(scope.readableScopeTypes().contains("USER"));
     }
 
@@ -46,5 +47,21 @@ class MemoryAccessScopeResolverTest {
         assertEquals(3L, scope.tenantId());
         assertNull(scope.projectKey());
         assertFalse(scope.canManageProjectMemory());
+    }
+
+    @Test
+    void resolvesOnlyPipelineDerivedProjectScope() {
+        TenantContext.set(new TenantContext.Context(10L, "bob", 3L, "tenant-b", false,
+                Set.of(), Set.of("memory:read")));
+        com.aipal.entity.AutomationPipeline pipeline = new com.aipal.entity.AutomationPipeline();
+        pipeline.setId(99L);
+        pipeline.setInitiatorUserId(10L);
+
+        try (MemoryTrustedProjectContext.ProjectScope ignored = trustedProjectContext.openPipeline(pipeline)) {
+            MemoryAccessScope scope = resolver.resolve("forged-project");
+            assertEquals("pipeline:99", scope.projectKey());
+            assertTrue(scope.readableScopeTypes().contains("PROJECT"));
+            assertTrue(scope.canManageProjectMemory());
+        }
     }
 }

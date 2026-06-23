@@ -15,9 +15,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class MemoryPolicyService {
 
     private final AiMemoryPolicyMapper policyMapper;
+    private final MemoryAccessScopeResolver accessScopeResolver;
 
-    public AiMemoryPolicy resolveEffectivePolicy(String projectKey) {
+    public AiMemoryPolicy resolveEffectivePolicy(String ignoredRequestedProjectKey) {
         Long tenantId = TenantContext.tenantId();
+        String projectKey = accessScopeResolver.resolve(null).projectKey();
         if (projectKey != null && !projectKey.isBlank()) {
             AiMemoryPolicy projectPolicy = policyMapper.selectOne(new LambdaQueryWrapper<AiMemoryPolicy>()
                     .eq(AiMemoryPolicy::getTenantId, tenantId)

@@ -9,6 +9,9 @@ import com.aipal.entity.WorkflowExecution;
 import com.aipal.mapper.WorkflowExecutionMapper;
 import com.aipal.mapper.WorkflowMapper;
 import com.aipal.security.TenantContext;
+import com.aipal.service.memory.MemoryContext;
+import com.aipal.service.memory.MemoryOrchestrator;
+import com.aipal.service.memory.MemoryRecallRequest;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -53,6 +56,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final A2AMessageService a2aMessageService;
     private final AgentRegistry agentRegistry;
     private final WorkflowDefinitionService definitionService;
+    private final MemoryOrchestrator memoryOrchestrator;
 
     private final ExecutorService workflowExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -285,6 +289,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         Map<String, Object> payload = new HashMap<>();
         if (node.getParams() != null) payload.putAll(node.getParams());
         payload.put("workflowContext", new HashMap<>(context));
+        prepareMemoryContext(execution, node, agent, payload);
         A2AMessage message = A2AMessage.builder()
                 .sourceAgent("workflow-engine")
                 .targetAgent(agent.getAgent().getAgentCode())
@@ -315,6 +320,25 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             }
         }
         throw new IllegalStateException(lastFailure == null ? "Agent invocation failed" : lastFailure.getMessage(), lastFailure);
+    }
+
+    private void prepareMemoryContext(WorkflowExecution execution, WorkflowDefinition.Node node,
+                                      AgentRegistry.AgentContext agent, Map<String, Object> payload) {
+        try {
+            String summary = "workflow=" + execution.getWorkflowName() + "; node=" + node.getId()
+                    + "; agent=" + agent.getAgent().getAgentCode();
+            MemoryContext context = memoryOrchestrator.prepareContext(
+                    new MemoryRecallRequest(agent.getAgent().getId(), null, summary));
+            payload.put("memoryTraceId", context.traceId());
+            if (context.shouldInject()) {
+                payload.put("memoryContext", context.promptSection());
+            }
+        } catch (RuntimeException exception) {
+            // Memory remains auxiliary during AUDIT/CANARY rollout; a recall failure
+            // must never cancel a workflow or an A2A agent invocation.
+            log.warn("Memory context preparation failed for workflow {} node {}: {}",
+                    execution.getExecutionId(), node.getId(), exception.getMessage());
+        }
     }
 
     private AgentRegistry.AgentContext resolveAgent(WorkflowDefinition.Node node) {

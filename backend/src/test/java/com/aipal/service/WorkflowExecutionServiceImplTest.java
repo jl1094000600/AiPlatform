@@ -7,6 +7,7 @@ import com.aipal.entity.WorkflowExecution;
 import com.aipal.mapper.WorkflowExecutionMapper;
 import com.aipal.mapper.WorkflowMapper;
 import com.aipal.security.TenantContext;
+import com.aipal.service.memory.MemoryOrchestrator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -116,7 +117,8 @@ class WorkflowExecutionServiceImplTest {
                 objectMapper,
                 mock(A2AMessageService.class),
                 registry,
-                new WorkflowDefinitionService(objectMapper)
+                new WorkflowDefinitionService(objectMapper),
+                mock(MemoryOrchestrator.class)
         );
     }
 

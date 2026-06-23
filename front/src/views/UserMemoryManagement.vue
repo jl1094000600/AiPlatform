@@ -106,7 +106,7 @@
               <el-radio-group v-model="policy.recallMode">
                 <el-radio label="OFF">关闭</el-radio>
                 <el-radio label="AUDIT">仅审计</el-radio>
-                <el-radio label="CANARY">灰度验证</el-radio>
+                <el-radio label="CANARY">灰度验证（10%）</el-radio>
                 <el-radio label="ENFORCED">正式启用</el-radio>
               </el-radio-group>
             </el-form-item>

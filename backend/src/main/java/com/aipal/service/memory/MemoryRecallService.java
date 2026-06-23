@@ -27,9 +27,15 @@ public class MemoryRecallService {
                 .eq(AiMemoryItem::getStatus, MemoryStatus.ACTIVE.name())
                 .and(wrapper -> wrapper.isNull(AiMemoryItem::getExpiresAt)
                         .or().gt(AiMemoryItem::getExpiresAt, LocalDateTime.now()))
-                .and(wrapper -> wrapper.eq(AiMemoryItem::getScopeType, MemoryScopeType.TENANT.name())
-                        .or(user -> user.eq(AiMemoryItem::getScopeType, MemoryScopeType.USER.name())
-                                .eq(AiMemoryItem::getOwnerUserId, scope.userId())));
+                .and(wrapper -> {
+                    wrapper.eq(AiMemoryItem::getScopeType, MemoryScopeType.TENANT.name())
+                            .or(user -> user.eq(AiMemoryItem::getScopeType, MemoryScopeType.USER.name())
+                                    .eq(AiMemoryItem::getOwnerUserId, scope.userId()));
+                    if (scope.projectKey() != null) {
+                        wrapper.or(project -> project.eq(AiMemoryItem::getScopeType, MemoryScopeType.PROJECT.name())
+                                .eq(AiMemoryItem::getProjectKey, scope.projectKey()));
+                    }
+                });
         return memoryItemMapper.selectList(query).stream()
                 .map(item -> new MemoryRecallCandidate(item, score(item, request.requestSummary()),
                         budgetAllocator.estimateTokens(item.getContent()), "CANDIDATE"))

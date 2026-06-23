@@ -46,8 +46,8 @@ public class MemoryCaptureService {
         item.put("tenantId", accessScope.tenantId());
         item.put("scopeType", scopeType);
         item.put("scopeKey", scopeKey);
-        item.put("projectType", trimToNull(event.projectType()));
-        item.put("projectKey", trimToNull(event.projectKey()));
+        item.put("projectType", accessScope.projectKey() == null ? null : "TRUSTED_CONTEXT");
+        item.put("projectKey", accessScope.projectKey());
         // Identity is always derived from the authenticated tenant context. Legacy
         // callers may still populate these event fields, but they cannot impersonate
         // another owner through the capture contract.
@@ -145,6 +145,7 @@ public class MemoryCaptureService {
     }
 
     private String resolveScopeType(MemoryCaptureEvent event, MemoryAccessScope accessScope) {
+        if (accessScope.projectKey() != null) return MemoryScopeType.PROJECT.name();
         if (accessScope.userId() != null) return MemoryScopeType.USER.name();
         return MemoryScopeType.TENANT.name();
     }

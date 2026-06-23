@@ -10,13 +10,24 @@ import java.util.Set;
 @Component
 public class MemoryAccessScopeResolver {
 
+    private final MemoryTrustedProjectContext trustedProjectContext;
+
+    public MemoryAccessScopeResolver(MemoryTrustedProjectContext trustedProjectContext) {
+        this.trustedProjectContext = trustedProjectContext;
+    }
+
     public MemoryAccessScope resolve(String ignoredRequestedProjectKey) {
         Long tenantId = TenantContext.tenantId();
         Long userId = TenantContext.userId();
         boolean manageTenant = TenantContext.hasPermission("memory:policy");
-        boolean manageProject = manageTenant || TenantContext.hasPermission("memory:write");
+        MemoryTrustedProjectContext.TrustedProject trustedProject = trustedProjectContext.current()
+                .filter(project -> tenantId != null && tenantId.equals(project.tenantId()))
+                .orElse(null);
+        boolean manageProject = manageTenant || (trustedProject != null && userId != null
+                && userId.equals(trustedProject.ownerUserId()));
 
-        Set<MemoryScopeType> allowed = EnumSet.of(MemoryScopeType.TENANT, MemoryScopeType.PROJECT, MemoryScopeType.USER);
+        Set<MemoryScopeType> allowed = EnumSet.of(MemoryScopeType.TENANT, MemoryScopeType.USER);
+        if (trustedProject != null) allowed.add(MemoryScopeType.PROJECT);
         if (userId != null) {
             allowed.add(MemoryScopeType.SESSION);
         }
@@ -24,9 +35,7 @@ public class MemoryAccessScopeResolver {
                 tenantId,
                 userId,
                 TenantContext.username(),
-                // A caller-supplied project key is not an authorization boundary. Project
-                // scope will be added only by trusted pipeline/agent context in M-401/M-403.
-                null,
+                trustedProject == null ? null : trustedProject.projectKey(),
                 allowed.stream().map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet()),
                 manageTenant,
                 manageProject

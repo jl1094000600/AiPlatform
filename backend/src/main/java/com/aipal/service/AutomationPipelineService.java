@@ -24,6 +24,7 @@ import com.aipal.security.TenantTaskRunner;
 import com.aipal.service.memory.MemoryContext;
 import com.aipal.service.memory.MemoryOrchestrator;
 import com.aipal.service.memory.MemoryRecallRequest;
+import com.aipal.service.memory.MemoryTrustedProjectContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -125,6 +126,9 @@ public class AutomationPipelineService {
 
     @Autowired
     private MemoryOrchestrator memoryOrchestrator;
+
+    @Autowired
+    private MemoryTrustedProjectContext trustedMemoryProjectContext;
 
     @Autowired
     @Qualifier("tenantAwareExecutor")
@@ -820,19 +824,21 @@ public class AutomationPipelineService {
 
     private void appendPipelineMemory(AutomationPipeline pipeline, AutomationStageRun stage, AutomationGenerationJob job,
                                       String memoryStage, String inputSummary, String outputSummary) {
-        userMemoryService.appendPipelineMemory(
-                resolvePipelineUserKey(pipeline),
-                pipeline.getInitiatorUserId(),
-                pipeline.getInitiatorUsername() == null ? pipeline.getInitiator() : pipeline.getInitiatorUsername(),
-                pipeline.getId(),
-                stage.getId(),
-                memoryStage,
-                inputSummary,
-                outputSummary,
-                job == null ? null : job.getInputTokens(),
-                job == null ? null : job.getOutputTokens(),
-                job == null ? null : job.getTotalTokens()
-        );
+        try (MemoryTrustedProjectContext.ProjectScope ignored = trustedMemoryProjectContext.openPipeline(pipeline)) {
+            userMemoryService.appendPipelineMemory(
+                    resolvePipelineUserKey(pipeline),
+                    pipeline.getInitiatorUserId(),
+                    pipeline.getInitiatorUsername() == null ? pipeline.getInitiator() : pipeline.getInitiatorUsername(),
+                    pipeline.getId(),
+                    stage.getId(),
+                    memoryStage,
+                    inputSummary,
+                    outputSummary,
+                    job == null ? null : job.getInputTokens(),
+                    job == null ? null : job.getOutputTokens(),
+                    job == null ? null : job.getTotalTokens()
+            );
+        }
     }
 
     private void supersedeQueuedGenerationJobs(Long pipelineId, Long stageRunId, String jobType) {
@@ -1162,10 +1168,9 @@ public class AutomationPipelineService {
     }
 
     private String memoryPromptSection(AutomationPipeline pipeline, String requestSummary) {
-        try {
-            String projectKey = (safe(pipeline.getProductLine()) + ":" + safe(pipeline.getProjectName())).replaceAll("^:+|:+$", "");
+        try (MemoryTrustedProjectContext.ProjectScope ignored = trustedMemoryProjectContext.openPipeline(pipeline)) {
             MemoryContext context = memoryOrchestrator.prepareContext(
-                    new MemoryRecallRequest(null, projectKey, requestSummary));
+                    new MemoryRecallRequest(null, null, requestSummary));
             return context.shouldInject() ? "\n\n" + context.promptSection() : "";
         } catch (RuntimeException exception) {
             // Memory is auxiliary during the AUDIT rollout and must not block delivery.
