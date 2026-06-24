@@ -182,6 +182,9 @@ export default {
   getMemoryTrace(traceId) {
     return api.get('/memories/traces/' + traceId)
   },
+  getMemoryTraces(params) {
+    return api.get('/memories/traces', { params })
+  },
   getEffectiveMemoryPolicy(params) {
     return api.get('/memory-policies/effective', { params })
   },
@@ -200,6 +203,17 @@ export default {
   },
   updateAgentRuntimeConfig(agentId, data) {
     return api.put('/agents/' + agentId + '/runtime-config', data)
+  },
+
+  // On-demand Agent Runtime APIs (safe business projections only)
+  getAgentRuns(params) {
+    return api.get('/agent-runs', { params })
+  },
+  getAgentRunDetail(id) {
+    return api.get('/agent-runs/' + id + '/detail')
+  },
+  cancelAgentRun(id, reason) {
+    return api.post('/agent-runs/' + id + '/cancel', { reason })
   },
   getAgentQualitySummary() {
     return api.get('/agent-quality/summary')

@@ -156,6 +156,7 @@ const fallbackNavGroups = computed(() => [
       navItem('/memories', t('nav.memories'), Tickets),
       navItem('/agents', t('nav.agents'), Cpu),
       navItem('/agent-quality', t('nav.quality'), Finished),
+      navItem('/agent-runs', '运行控制台', Monitor),
       navItem('/rag', t('nav.rag'), FolderOpened),
       navItem('/models', t('nav.models'), Box),
       navItem('/model-training', t('nav.modelTraining'), DataLine)
@@ -246,6 +247,7 @@ function navItem(path, label, icon) {
     '/memories': 'memory:list',
     '/agents': 'agent:list',
     '/agent-quality': 'agent:list',
+    '/agent-runs': 'agent:invoke',
     '/rag': 'rag:list',
     '/models': 'model:list',
     '/model-training': 'model:update',

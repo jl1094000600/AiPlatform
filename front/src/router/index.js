@@ -18,6 +18,7 @@ const routes = [
       { path: 'monitor', name: 'Monitor', component: () => import('../views/Monitor.vue'), meta: { permission: 'monitor:view' } },
       { path: 'graph', name: 'AgentGraph', component: () => import('../views/AgentGraph.vue'), meta: { permission: 'graph:manage' } },
       { path: 'agent-quality', name: 'AgentQuality', component: () => import('../views/AgentQualityMonitor.vue'), meta: { permission: 'agent:list' } },
+      { path: 'agent-runs', name: 'AgentRuns', component: () => import('../views/AgentRunConsole.vue'), meta: { permission: 'agent:invoke' } },
       { path: 'rag', name: 'RagKnowledge', component: () => import('../views/RagKnowledge.vue'), meta: { permission: 'rag:list' } },
       { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue'), meta: { permission: 'automation:list' } },
       { path: 'badcases', name: 'BadCaseAnalysis', component: () => import('../views/BadCaseAnalysis.vue'), meta: { permission: 'automation:list' } },

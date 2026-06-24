@@ -120,6 +120,25 @@
           </el-form>
         </section>
       </el-tab-pane>
+
+      <el-tab-pane label="调用编排" name="traces">
+        <section class="trace-panel" v-loading="traceLoading">
+          <div class="policy-intro">
+            <h3>助手为何参考这些信息</h3>
+            <p>每次调用会记录授权范围、候选记忆、最终注入内容和 Token 占用。仅展示你有权查看的调用轨迹。</p>
+          </div>
+          <el-empty v-if="traces.length === 0" description="暂无调用轨迹。完成一次助手、工作流或交付流水线调用后会显示在这里。" />
+          <el-table v-else :data="traces" size="small">
+            <el-table-column prop="traceId" label="调用 ID" min-width="170" show-overflow-tooltip />
+            <el-table-column prop="recallMode" label="模式" width="105" />
+            <el-table-column prop="projectKey" label="项目" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="tokenCount" label="Token" width="85" />
+            <el-table-column prop="durationMs" label="耗时" width="85"><template #default="{ row }">{{ row.durationMs }}ms</template></el-table-column>
+            <el-table-column prop="createTime" label="调用时间" width="165"><template #default="{ row }">{{ formatTime(row.createTime) }}</template></el-table-column>
+            <el-table-column label="解释" width="90"><template #default="{ row }"><el-button link type="primary" @click="openTrace(row.traceId)">查看</el-button></template></el-table-column>
+          </el-table>
+        </section>
+      </el-tab-pane>
     </el-tabs>
 
     <el-drawer v-model="drawerVisible" title="记忆详情" size="min(560px, 92vw)">
@@ -147,6 +166,17 @@
         <el-button type="primary" :loading="savingMemory" :disabled="selectedMemory?.status === 'FORGOTTEN'" @click="saveMemory">保存修改</el-button>
       </template>
     </el-drawer>
+
+    <el-drawer v-model="traceDrawerVisible" title="调用编排说明" size="min(680px, 94vw)">
+      <template v-if="selectedTrace">
+        <div class="drawer-meta"><el-tag>{{ selectedTrace.recallMode }}</el-tag><span>策略版本 {{ selectedTrace.policyVersion ?? '-' }}</span><span>{{ selectedTrace.tokenCount }} Token · {{ selectedTrace.durationMs }}ms</span></div>
+        <el-alert title="候选代表本次授权范围内可参考的记忆；只有“实际注入”中的项目会随调用进入模型上下文。" type="info" :closable="false" show-icon />
+        <h4>候选与淘汰原因</h4>
+        <el-table :data="traceCandidates" size="small"><el-table-column prop="memoryCode" label="来源" min-width="180" /><el-table-column prop="memoryType" label="层" width="95" /><el-table-column prop="score" label="分数" width="85" /><el-table-column prop="tokens" label="Token" width="80" /><el-table-column prop="reason" label="结果" min-width="145" /></el-table>
+        <h4>实际注入</h4>
+        <el-table :data="traceInjected" size="small"><el-table-column prop="memoryCode" label="来源" min-width="180" /><el-table-column prop="sourceType" label="来源类型" width="120" /><el-table-column prop="tokens" label="Token" width="80" /></el-table>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -165,6 +195,10 @@ const memories = ref([])
 const selectedMemory = ref(null)
 const versions = ref([])
 const drawerVisible = ref(false)
+const traceDrawerVisible = ref(false)
+const traceLoading = ref(false)
+const traces = ref([])
+const selectedTrace = ref(null)
 const filters = reactive({ status: '', memoryType: '' })
 const page = reactive({ pageNum: 1, pageSize: 20, total: 0 })
 const policy = reactive({ enabled: 0, recallMode: 'AUDIT', retentionDays: 365, sessionTokenBudget: 800, workingTokenBudget: 800, longTermTokenBudget: 1200 })
@@ -206,6 +240,34 @@ const loadPolicy = async () => {
 }
 
 const loadAll = () => Promise.all([loadMemories(), loadPolicy()])
+
+const loadTraces = async () => {
+  traceLoading.value = true
+  try {
+    const res = await api.getMemoryTraces({ pageNum: 1, pageSize: 50 })
+    traces.value = res.data.data?.records || []
+  } catch {
+    ElMessage.error('调用轨迹加载失败')
+  } finally {
+    traceLoading.value = false
+  }
+}
+
+const openTrace = async traceId => {
+  try {
+    const res = await api.getMemoryTrace(traceId)
+    selectedTrace.value = res.data.data
+    traceDrawerVisible.value = true
+  } catch {
+    ElMessage.error('调用轨迹详情加载失败')
+  }
+}
+
+const parseTraceItems = value => {
+  try { return JSON.parse(value || '[]') } catch { return [] }
+}
+const traceCandidates = computed(() => parseTraceItems(selectedTrace.value?.candidatesJson))
+const traceInjected = computed(() => parseTraceItems(selectedTrace.value?.injectedJson))
 
 const openDetail = async memory => {
   try {
@@ -276,7 +338,7 @@ const sensitivityLabel = value => ({ INTERNAL: '内部', CONFIDENTIAL: '保密',
 const sourceLabel = value => ({ PIPELINE: '项目交付', MANUAL: '人工维护', MIGRATION: '历史迁移', AGENT: '智能助手', WORKFLOW: '工作流' }[value] || value || '系统')
 const formatTime = value => value ? String(value).replace('T', ' ').slice(0, 16) : '-'
 
-onMounted(loadAll)
+onMounted(() => { loadAll(); loadTraces() })
 </script>
 
 <style scoped>
@@ -299,7 +361,7 @@ onMounted(loadAll)
 .memory-card { display: flex; justify-content: space-between; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--border-color); }
 .memory-card:first-child { border-top: 1px solid var(--border-color); }
 .memory-card-main { min-width: 0; }.memory-tags { display: flex; gap: 7px; margin-bottom: 8px; }.memory-card h3 { margin: 0; font-size: 16px; }.memory-card p { margin: 8px 0; color: var(--text-secondary); line-height: 1.65; white-space: pre-wrap; }.memory-foot { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-muted); font-size: 12px; }.memory-actions { display: flex; align-self: center; flex-shrink: 0; gap: 6px; }.pager { margin-top: 18px; justify-content: flex-end; }
-.policy-panel { display: grid; grid-template-columns: minmax(240px, .7fr) minmax(420px, 1.3fr); gap: 32px; padding: 24px; border: 1px solid var(--glass-border); border-radius: 10px; background: var(--glass-bg); }.policy-intro h3 { margin: 0 0 8px; }.policy-intro p { color: var(--text-muted); line-height: 1.7; }.budget-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }.drawer-meta { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; color: var(--text-muted); font-size: 13px; }.edit-form { margin-top: 18px; }.version-title { margin-top: 22px; font-weight: 700; }.version-list { margin-top: 14px; }
+.policy-panel, .trace-panel { display: grid; grid-template-columns: minmax(240px, .7fr) minmax(420px, 1.3fr); gap: 32px; padding: 24px; border: 1px solid var(--glass-border); border-radius: 10px; background: var(--glass-bg); }.trace-panel { display: block; }.trace-panel .policy-intro { margin-bottom: 18px; }.policy-intro h3 { margin: 0 0 8px; }.policy-intro p { color: var(--text-muted); line-height: 1.7; }.budget-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }.drawer-meta { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; color: var(--text-muted); font-size: 13px; flex-wrap: wrap; }.edit-form { margin-top: 18px; }.version-title { margin-top: 22px; font-weight: 700; }.version-list { margin-top: 14px; }.trace-panel h4 { margin: 22px 0 10px; }
 @media (max-width: 1000px) { .metric-grid { grid-template-columns: 1fr 1fr; }.policy-panel { grid-template-columns: 1fr; gap: 12px; } }
 @media (max-width: 720px) { .memory-page { padding: 18px; }.page-header, .toolbar, .memory-card { flex-direction: column; }.header-actions, .memory-actions { align-self: stretch; }.metric-grid, .budget-grid { grid-template-columns: 1fr; }.toolbar .el-select { width: 100%; }.memory-actions { align-self: flex-start; } }
 </style>
