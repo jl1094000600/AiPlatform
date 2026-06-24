@@ -89,6 +89,25 @@ public class MemoryCaptureService {
         }
     }
 
+    public List<Object> listAuthorizedWorkingMemories(MemoryAccessScope accessScope) {
+        if (accessScope == null || accessScope.tenantId() == null) return List.of();
+        java.util.LinkedHashSet<String> scopeKeys = new java.util.LinkedHashSet<>();
+        if (accessScope.userId() != null) scopeKeys.add(MemoryScopeType.USER.name() + "|user:" + accessScope.userId());
+        if (accessScope.projectKey() != null) scopeKeys.add(MemoryScopeType.PROJECT.name() + "|" + accessScope.projectKey());
+        List<Object> events = new java.util.ArrayList<>();
+        for (String value : scopeKeys) {
+            String[] parts = value.split("\\|", 2);
+            if (parts.length != 2) continue;
+            try {
+                List<Object> values = redisTemplate.opsForList().range(workingKey(accessScope.tenantId(), parts[0], parts[1]), 0, -1);
+                if (values != null) events.addAll(values);
+            } catch (RuntimeException ex) {
+                log.warn("Failed to read authorized working memory, scopeType={}, reason={}", parts[0], ex.getMessage());
+            }
+        }
+        return events;
+    }
+
     public void clearWorkingMemories(String scopeType, String scopeKey) {
         if (isBlank(scopeType) || isBlank(scopeKey)) return;
         try {

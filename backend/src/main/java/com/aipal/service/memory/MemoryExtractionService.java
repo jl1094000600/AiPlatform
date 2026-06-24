@@ -28,6 +28,8 @@ public class MemoryExtractionService {
     private final MemoryPiiSanitizer piiSanitizer;
     private final AiMemoryItemMapper memoryItemMapper;
     private final TenantTaskRunner tenantTaskRunner;
+    private final MemoryPolicyService policyService;
+    private final MemoryVectorProjectionService vectorProjectionService;
 
     @Scheduled(fixedDelayString = "${aipal.memory.extraction-delay-ms:60000}", initialDelayString = "${aipal.memory.extraction-initial-delay-ms:120000}")
     public void extractWorkingMemories() {
@@ -86,6 +88,7 @@ public class MemoryExtractionService {
         item.setCreatedBy(TenantContext.username());
         item.setIsDeleted(0);
         memoryItemMapper.insert(item);
+        vectorProjectionService.projectIfAllowed(item, policyService.resolveEffectivePolicy(null));
         return true;
     }
 

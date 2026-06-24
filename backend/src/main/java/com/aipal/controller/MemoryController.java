@@ -74,6 +74,14 @@ public class MemoryController {
         return Result.success(memoryManagementService.trace(traceId));
     }
 
+    @GetMapping("/traces")
+    @RequirePermission("memory:trace")
+    public Result<Page<AiMemoryRecallTrace>> traces(@RequestParam(defaultValue = "1") int pageNum,
+                                                     @RequestParam(defaultValue = "20") int pageSize,
+                                                     @RequestParam(required = false) String recallMode) {
+        return Result.success(memoryManagementService.traces(pageNum, pageSize, recallMode));
+    }
+
     public record MemoryUpdateRequest(@NotNull Integer version, @NotBlank String title,
                                       @NotBlank String content, String reason) {
     }

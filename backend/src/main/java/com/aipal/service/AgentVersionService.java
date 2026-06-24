@@ -4,6 +4,7 @@ import com.aipal.entity.AiAgentVersion;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AiAgentVersionMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,10 +39,23 @@ public class AgentVersionService {
     }
 
     public boolean publishVersion(Long versionId) {
+        AiAgentVersion version = versionMapper.selectById(versionId);
+        if (version == null) return false;
+        publishExclusive(version.getAgentId(), versionId);
+        return true;
+    }
+
+    @Transactional
+    public void publishExclusive(Long agentId, Long versionId) {
+        versionMapper.update(null, new LambdaUpdateWrapper<AiAgentVersion>()
+                .eq(AiAgentVersion::getAgentId, agentId)
+                .ne(AiAgentVersion::getId, versionId)
+                .set(AiAgentVersion::getStatus, 0));
         AiAgentVersion version = new AiAgentVersion();
         version.setId(versionId);
         version.setStatus(1);
-        return versionMapper.updateById(version) > 0;
+        version.setPublishTime(java.time.LocalDateTime.now());
+        versionMapper.updateById(version);
     }
 
     @Transactional

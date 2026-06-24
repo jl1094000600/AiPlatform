@@ -100,6 +100,9 @@ public class AgentService {
             version.setVersion("1.0.0");
             version.setStatus(1);
             agentVersionService.saveVersion(version);
+            agentVersionService.publishExclusive(id, version.getId());
+        } else {
+            agentVersionService.publishExclusive(id, latestVersion.getId());
         }
 
         agent.setStatus(1);

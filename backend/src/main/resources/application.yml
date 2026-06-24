@@ -75,6 +75,11 @@ aipal:
     max-attachments: ${REQUIREMENT_MAX_ATTACHMENTS:20}
     retention-days: ${REQUIREMENT_RETENTION_DAYS:30}
     cleanup-delay-ms: ${REQUIREMENT_CLEANUP_DELAY_MS:3600000}
+  memory:
+    vector:
+      enabled: ${MEMORY_VECTOR_ENABLED:false}
+      chroma-url: ${MEMORY_VECTOR_CHROMA_URL:http://localhost:9000}
+      embedding-model-id: ${MEMORY_VECTOR_EMBEDDING_MODEL_ID:2}
   asr:
     dashscope:
       endpoint: ${DASHSCOPE_ASR_ENDPOINT:wss://dashscope.aliyuncs.com/api-ws/v1/inference}

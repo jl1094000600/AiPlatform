@@ -76,6 +76,17 @@ public class MemoryManagementService {
         return trace;
     }
 
+    public Page<AiMemoryRecallTrace> traces(int pageNum, int pageSize, String recallMode) {
+        LambdaQueryWrapper<AiMemoryRecallTrace> query = new LambdaQueryWrapper<AiMemoryRecallTrace>()
+                .eq(AiMemoryRecallTrace::getTenantId, TenantContext.tenantId())
+                .eq(recallMode != null && !recallMode.isBlank(), AiMemoryRecallTrace::getRecallMode, recallMode)
+                .orderByDesc(AiMemoryRecallTrace::getCreateTime);
+        if (!TenantContext.hasPermission("memory:policy") && TenantContext.userId() != null) {
+            query.eq(AiMemoryRecallTrace::getUserId, TenantContext.userId());
+        }
+        return traceMapper.selectPage(new Page<>(pageNum, pageSize), query);
+    }
+
     private LambdaQueryWrapper<AiMemoryItem> accessibleQuery(MemoryAccessScope scope) {
         LambdaQueryWrapper<AiMemoryItem> query = new LambdaQueryWrapper<AiMemoryItem>()
                 .eq(AiMemoryItem::getTenantId, scope.tenantId());

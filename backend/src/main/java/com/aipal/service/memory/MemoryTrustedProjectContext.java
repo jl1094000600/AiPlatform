@@ -1,6 +1,7 @@
 package com.aipal.service.memory;
 
 import com.aipal.entity.AutomationPipeline;
+import com.aipal.entity.AiMemoryProject;
 import com.aipal.security.TenantContext;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,18 @@ public class MemoryTrustedProjectContext {
         TrustedProject trusted = new TrustedProject(TenantContext.tenantId(), "pipeline:" + pipeline.getId(),
                 "AUTOMATION_PIPELINE", pipeline.getInitiatorUserId());
         current.set(trusted);
+        return () -> {
+            if (previous == null) current.remove();
+            else current.set(previous);
+        };
+    }
+
+    ProjectScope openProject(AiMemoryProject project) {
+        if (project == null || project.getId() == null || project.getProjectKey() == null || project.getProjectKey().isBlank()) {
+            throw new IllegalArgumentException("An active persisted project is required for memory context");
+        }
+        TrustedProject previous = current.get();
+        current.set(new TrustedProject(project.getTenantId(), project.getProjectKey(), project.getProjectType(), project.getOwnerUserId()));
         return () -> {
             if (previous == null) current.remove();
             else current.set(previous);

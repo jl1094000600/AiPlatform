@@ -7,7 +7,7 @@ import com.aipal.mapper.AiMemoryVersionMapper;
 import com.aipal.memory.MemoryStatus;
 import com.aipal.security.TenantContext;
 import com.aipal.security.TenantTaskRunner;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,6 +22,8 @@ public class MemoryLifecycleService {
     private final AiMemoryItemMapper memoryItemMapper;
     private final AiMemoryVersionMapper memoryVersionMapper;
     private final TenantTaskRunner tenantTaskRunner;
+    private final MemoryPolicyService policyService;
+    private final MemoryVectorProjectionService vectorProjectionService;
 
     @Scheduled(fixedDelayString = "${aipal.memory.expiry-delay-ms:3600000}", initialDelayString = "${aipal.memory.expiry-initial-delay-ms:300000}")
     public void expireDueMemories() {
@@ -29,12 +31,17 @@ public class MemoryLifecycleService {
     }
 
     public int expireCurrentTenant() {
-        return memoryItemMapper.update(null, new LambdaUpdateWrapper<AiMemoryItem>()
+        java.util.List<AiMemoryItem> expired = memoryItemMapper.selectList(new LambdaQueryWrapper<AiMemoryItem>()
                 .eq(AiMemoryItem::getTenantId, TenantContext.tenantId())
                 .eq(AiMemoryItem::getStatus, MemoryStatus.ACTIVE.name())
                 .isNotNull(AiMemoryItem::getExpiresAt)
-                .le(AiMemoryItem::getExpiresAt, LocalDateTime.now())
-                .set(AiMemoryItem::getStatus, MemoryStatus.EXPIRED.name()));
+                .le(AiMemoryItem::getExpiresAt, LocalDateTime.now()));
+        for (AiMemoryItem memory : expired) {
+            memory.setStatus(MemoryStatus.EXPIRED.name());
+            memoryItemMapper.updateById(memory);
+            vectorProjectionService.delete(memory);
+        }
+        return expired.size();
     }
 
     @Transactional
@@ -49,6 +56,7 @@ public class MemoryLifecycleService {
         memory.setExpiresAt(LocalDateTime.now());
         memoryItemMapper.updateById(memory);
         writeVersion(memory, "FORGET", reason);
+        vectorProjectionService.delete(memory);
         return memory;
     }
 
@@ -66,6 +74,7 @@ public class MemoryLifecycleService {
         memory.setVersion(memory.getVersion() + 1);
         memoryItemMapper.updateById(memory);
         writeVersion(memory, "EDIT", reason);
+        vectorProjectionService.projectIfAllowed(memory, policyService.resolveEffectivePolicy(null));
         return memory;
     }
 
@@ -80,6 +89,7 @@ public class MemoryLifecycleService {
         memory.setVersion((memory.getVersion() == null ? 0 : memory.getVersion()) + 1);
         memoryItemMapper.updateById(memory);
         writeVersion(memory, "CONFIRM", "Confirmed for recall");
+        vectorProjectionService.projectIfAllowed(memory, policyService.resolveEffectivePolicy(null));
         return memory;
     }
 

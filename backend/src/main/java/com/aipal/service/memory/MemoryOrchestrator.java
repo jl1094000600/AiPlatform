@@ -32,19 +32,26 @@ public class MemoryOrchestrator {
             return MemoryContext.empty(traceId, mode.name(), policy.getPolicyVersion());
         }
 
-        List<MemoryRecallCandidate> candidates = recallService.recall(trustedRequest);
-        int budget = Math.max(0, policy.getLongTermTokenBudget() == null ? 0 : policy.getLongTermTokenBudget())
+        List<MemoryRecallCandidate> workingCandidates = recallService.recallWorking(trustedRequest);
+        List<MemoryRecallCandidate> structuredCandidates = mergeByMemoryId(
+                recallService.recall(trustedRequest), recallService.recallVector(trustedRequest, policy));
+        int structuredBudget = Math.max(0, policy.getLongTermTokenBudget() == null ? 0 : policy.getLongTermTokenBudget())
                 + Math.max(0, policy.getProjectTokenBudget() == null ? 0 : policy.getProjectTokenBudget());
-        MemoryBudgetAllocator.Allocation allocation = budgetAllocator.allocate(candidates, budget);
-        List<MemoryRecallCandidate> all = new ArrayList<>(allocation.accepted());
-        all.addAll(allocation.rejected());
+        MemoryBudgetAllocator.Allocation working = budgetAllocator.allocate(workingCandidates,
+                Math.max(0, policy.getWorkingTokenBudget() == null ? 0 : policy.getWorkingTokenBudget()));
+        MemoryBudgetAllocator.Allocation structured = budgetAllocator.allocate(structuredCandidates, structuredBudget);
+        List<MemoryRecallCandidate> accepted = new ArrayList<>(working.accepted());
+        accepted.addAll(structured.accepted());
+        List<MemoryRecallCandidate> all = new ArrayList<>(accepted);
+        all.addAll(working.rejected());
+        all.addAll(structured.rejected());
         boolean inject = mode == RecallMode.ENFORCED || (mode == RecallMode.CANARY && inCanary(accessScope, trustedRequest));
-        String promptSection = inject ? toPromptSection(policy, allocation.accepted()) : "";
+        String promptSection = inject ? toPromptSection(policy, accepted) : "";
         traceService.record(traceId, trustedRequest, mode.name(), policy.getPolicyVersion(), all,
-                inject ? allocation.accepted() : List.of(),
-                allocation.tokenCount(), elapsedMs(start));
+                inject ? accepted : List.of(),
+                working.tokenCount() + structured.tokenCount(), elapsedMs(start));
         return new MemoryContext(traceId, mode.name(), policy.getPolicyVersion(), inject, promptSection,
-                allocation.tokenCount(), allocation.accepted());
+                working.tokenCount() + structured.tokenCount(), accepted);
     }
 
     private String toPromptSection(AiMemoryPolicy policy, List<MemoryRecallCandidate> selected) {
@@ -67,5 +74,18 @@ public class MemoryOrchestrator {
     private boolean inCanary(MemoryAccessScope scope, MemoryRecallRequest request) {
         int bucket = Math.floorMod(Objects.hash(scope.tenantId(), scope.userId(), request.agentId(), request.projectKey()), 10);
         return bucket == 0;
+    }
+
+    private List<MemoryRecallCandidate> mergeByMemoryId(List<MemoryRecallCandidate> first,
+                                                         List<MemoryRecallCandidate> second) {
+        java.util.Map<Long, MemoryRecallCandidate> candidates = new java.util.LinkedHashMap<>();
+        java.util.stream.Stream.concat(first.stream(), second.stream()).forEach(candidate -> {
+            Long id = candidate.memory().getId();
+            MemoryRecallCandidate existing = candidates.get(id);
+            if (existing == null || candidate.score() > existing.score()) candidates.put(id, candidate);
+        });
+        return candidates.values().stream()
+                .sorted(java.util.Comparator.comparingDouble(MemoryRecallCandidate::score).reversed())
+                .toList();
     }
 }

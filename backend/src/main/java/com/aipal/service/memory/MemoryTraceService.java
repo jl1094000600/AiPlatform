@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,13 +41,17 @@ public class MemoryTraceService {
     }
 
     private String toJson(List<MemoryRecallCandidate> candidates) {
-        List<Map<String, Object>> view = candidates.stream().map(candidate -> Map.<String, Object>of(
-                "memoryId", candidate.memory().getId(),
-                "memoryCode", candidate.memory().getMemoryCode(),
-                "score", candidate.score(),
-                "tokens", candidate.estimatedTokens(),
-                "reason", candidate.reason()
-        )).toList();
+        List<Map<String, Object>> view = candidates.stream().map(candidate -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("memoryId", candidate.memory().getId());
+            item.put("memoryCode", candidate.memory().getMemoryCode());
+            item.put("memoryType", candidate.memory().getMemoryType());
+            item.put("sourceType", candidate.memory().getSourceType());
+            item.put("score", candidate.score());
+            item.put("tokens", candidate.estimatedTokens());
+            item.put("reason", candidate.reason());
+            return item;
+        }).toList();
         try {
             return objectMapper.writeValueAsString(view);
         } catch (JsonProcessingException e) {

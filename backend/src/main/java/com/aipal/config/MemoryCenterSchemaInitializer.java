@@ -25,6 +25,8 @@ public class MemoryCenterSchemaInitializer {
             createVersion(statement);
             createRecallTrace(statement);
             createFeedback(statement);
+            createProject(statement);
+            createProjectMember(statement);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize memory center schema: " + e.getMessage(), e);
         }
@@ -115,6 +117,36 @@ public class MemoryCenterSchemaInitializer {
                     created_by VARCHAR(64) DEFAULT NULL, create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (id), KEY idx_memory_feedback_memory (tenant_id, memory_id, create_time),
                     KEY idx_memory_feedback_trace (trace_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+    }
+
+    private void createProject(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS ai_memory_project (
+                    id BIGINT NOT NULL AUTO_INCREMENT, tenant_id BIGINT NOT NULL DEFAULT 1,
+                    project_key VARCHAR(128) NOT NULL, project_name VARCHAR(256) NOT NULL,
+                    project_type VARCHAR(64) NOT NULL DEFAULT 'CUSTOMER_PROJECT', owner_user_id BIGINT NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    is_deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+                    UNIQUE KEY uk_memory_project_key (tenant_id, project_key),
+                    KEY idx_memory_project_owner (tenant_id, owner_user_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+    }
+
+    private void createProjectMember(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS ai_memory_project_member (
+                    id BIGINT NOT NULL AUTO_INCREMENT, tenant_id BIGINT NOT NULL DEFAULT 1,
+                    project_id BIGINT NOT NULL, user_id BIGINT NOT NULL,
+                    member_role VARCHAR(32) NOT NULL DEFAULT 'MEMBER', status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+                    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    is_deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+                    UNIQUE KEY uk_memory_project_member (project_id, user_id),
+                    KEY idx_memory_project_member_user (tenant_id, user_id, status)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
     }

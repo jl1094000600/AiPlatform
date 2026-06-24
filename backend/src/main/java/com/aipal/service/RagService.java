@@ -312,6 +312,82 @@ public class RagService {
         }
     }
 
+    /** Reusable, tenant-filtered callers supply their own collection and metadata. */
+    public void upsertVectorProjection(AiModel model, String chromaUrl, String collectionName,
+                                       String vectorId, String content, Map<String, Object> metadata) {
+        try {
+            List<List<Double>> embeddings = createEmbeddings(model, List.of(content));
+            RestClient client = createChromaV2Client(chromaUrl);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("ids", List.of(vectorId));
+            payload.put("embeddings", embeddings);
+            payload.put("documents", List.of(content));
+            payload.put("metadatas", List.of(metadata));
+            deleteVectorProjection(chromaUrl, collectionName, vectorId);
+            writeToChromaV2(client, collectionName, payload);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Memory vector projection failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    public void deleteVectorProjection(String chromaUrl, String collectionName, String vectorId) {
+        try {
+            RestClient client = createChromaV2Client(chromaUrl);
+            String collectionId = ensureCollectionV2(client, collectionName);
+            String path = chromaCollectionsPath() + "/" + collectionId + "/delete";
+            client.post().uri(path).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .body(Map.of("ids", List.of(vectorId))).retrieve().toBodilessEntity();
+        } catch (Exception ex) {
+            throw new IllegalStateException("Memory vector deletion failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * Queries one already-authorized collection. Callers must still validate returned
+     * memory ids against their transactional authorization store before using content.
+     */
+    public List<VectorQueryHit> queryVectorProjection(AiModel model, String chromaUrl, String collectionName,
+                                                       String queryText, Map<String, Object> where, int limit) {
+        try {
+            List<List<Double>> embeddings = createEmbeddings(model, List.of(queryText));
+            RestClient client = createChromaV2Client(chromaUrl);
+            String collectionId = ensureCollectionV2(client, collectionName);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("query_embeddings", embeddings);
+            payload.put("n_results", Math.max(1, Math.min(limit, 50)));
+            payload.put("where", where);
+            payload.put("include", List.of("documents", "metadatas", "distances"));
+            String body = client.post().uri(chromaCollectionsPath() + "/" + collectionId + "/query")
+                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON).body(payload)
+                    .retrieve().body(String.class);
+            return parseVectorQuery(body);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Memory vector query failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private List<VectorQueryHit> parseVectorQuery(String body) throws Exception {
+        JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
+        JsonNode ids = firstQueryRow(root.path("ids"));
+        JsonNode metadatas = firstQueryRow(root.path("metadatas"));
+        JsonNode distances = firstQueryRow(root.path("distances"));
+        if (!ids.isArray()) return List.of();
+        List<VectorQueryHit> hits = new ArrayList<>();
+        for (int index = 0; index < ids.size(); index++) {
+            JsonNode metadata = metadatas.isArray() && index < metadatas.size() ? metadatas.get(index) : objectMapper.nullNode();
+            JsonNode distance = distances.isArray() && index < distances.size() ? distances.get(index) : objectMapper.nullNode();
+            hits.add(new VectorQueryHit(ids.get(index).asText(""), readObject(metadata), distance.asDouble(Double.MAX_VALUE)));
+        }
+        return hits;
+    }
+
+    private JsonNode firstQueryRow(JsonNode node) {
+        return node != null && node.isArray() && !node.isEmpty() && node.get(0).isArray() ? node.get(0) : node;
+    }
+
+    public record VectorQueryHit(String vectorId, Map<String, Object> metadata, double distance) {
+    }
+
     private void writeToChromaV2(RestClient client, String collectionName, Map<String, Object> payload) throws Exception {
         String collectionId = ensureCollectionV2(client, collectionName);
         String path = "/api/v2/tenants/default_tenant/databases/default_database/collections/" + collectionId + "/add";
