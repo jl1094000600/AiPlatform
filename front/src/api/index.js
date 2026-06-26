@@ -215,6 +215,12 @@ export default {
   cancelAgentRun(id, reason) {
     return api.post('/agent-runs/' + id + '/cancel', { reason })
   },
+  approveAgentRun(id, reason) {
+    return api.post('/agent-runs/' + id + '/approve', { reason })
+  },
+  rejectAgentRun(id, reason) {
+    return api.post('/agent-runs/' + id + '/reject', { reason })
+  },
   getAgentQualitySummary() {
     return api.get('/agent-quality/summary')
   },

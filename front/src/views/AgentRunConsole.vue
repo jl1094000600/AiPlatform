@@ -46,7 +46,9 @@
             </div>
             <div class="actions">
               <el-tag :type="statusType(selected.run.status)" size="large">{{ statusLabel(selected.run.status) }}</el-tag>
-              <el-button v-if="canCancel(selected.run.status)" type="danger" plain @click="confirmCancel">取消运行</el-button>
+              <el-button v-if="selected.run.canApprove" type="success" plain @click="confirmApprove">确认交付</el-button>
+              <el-button v-if="selected.run.canApprove" type="warning" plain @click="confirmReject">驳回</el-button>
+              <el-button v-if="selected.run.canCancel" type="danger" plain @click="confirmCancel">取消运行</el-button>
             </div>
           </div>
 
@@ -76,6 +78,18 @@
                 <el-table-column label="尝试" width="80"><template #default="{ row }">{{ row.attemptCount }} / {{ row.maxAttempts }}</template></el-table-column>
                 <el-table-column prop="errorMessage" label="说明" min-width="160" show-overflow-tooltip />
               </el-table>
+            </el-collapse-item>
+
+            <el-collapse-item name="events" title="运行时间线">
+              <el-table :data="selected.events || []" size="small">
+                <el-table-column prop="toStatus" label="状态" width="120">
+                  <template #default="{ row }"><el-tag :type="statusType(row.toStatus)" size="small">{{ statusLabel(row.toStatus) }}</el-tag></template>
+                </el-table-column>
+                <el-table-column prop="actorName" label="执行人" min-width="140" show-overflow-tooltip />
+                <el-table-column prop="reason" label="说明" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="createTime" label="时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createTime) }}</template></el-table-column>
+              </el-table>
+              <el-empty v-if="(selected.events || []).length === 0" description="暂无状态事件" :image-size="70" />
             </el-collapse-item>
 
             <el-collapse-item name="memory" title="本次参考的项目约定">
@@ -119,7 +133,7 @@ const selected = ref(null)
 const total = ref(0)
 const pageSize = 20
 const filters = ref({ pageNum: 1, status: '' })
-const openPanels = ref(['steps', 'memory', 'artifacts'])
+const openPanels = ref(['steps', 'events', 'memory', 'artifacts'])
 const statuses = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMEOUT']
 
 const loadRuns = async () => {
@@ -164,7 +178,32 @@ const confirmCancel = async () => {
   }
 }
 
-const canCancel = (status) => ['QUEUED', 'RUNNING', 'WAITING_APPROVAL'].includes(status)
+const confirmApprove = async () => {
+  try {
+    await ElMessageBox.confirm('确认后，该 Run 将标记为已完成，交付物进入正式状态。', '确认交付', { type: 'success', confirmButtonText: '确认交付', cancelButtonText: '返回' })
+    const id = selected.value.run.id
+    await api.approveAgentRun(id, 'Approved by an authorized user')
+    ElMessage.success('交付已确认')
+    await loadRuns()
+    await loadDetail(id)
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('确认失败，请稍后重试')
+  }
+}
+
+const confirmReject = async () => {
+  try {
+    await ElMessageBox.confirm('驳回后，该 Run 将标记为失败，待确认交付物会被标记为已驳回。', '驳回交付', { type: 'warning', confirmButtonText: '确认驳回', cancelButtonText: '返回' })
+    const id = selected.value.run.id
+    await api.rejectAgentRun(id, 'Rejected by an authorized user')
+    ElMessage.success('交付已驳回')
+    await loadRuns()
+    await loadDetail(id)
+  } catch (error) {
+    if (error !== 'cancel') ElMessage.error('驳回失败，请稍后重试')
+  }
+}
+
 const statusLabel = (status) => ({ QUEUED: '排队中', RUNNING: '运行中', WAITING_APPROVAL: '等待确认', SUCCEEDED: '已完成', FAILED: '失败', CANCELLED: '已取消', TIMEOUT: '已超时' })[status] || status
 const statusType = (status) => ({ QUEUED: 'info', RUNNING: 'primary', WAITING_APPROVAL: 'warning', SUCCEEDED: 'success', FAILED: 'danger', CANCELLED: 'info', TIMEOUT: 'danger' })[status] || 'info'
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'

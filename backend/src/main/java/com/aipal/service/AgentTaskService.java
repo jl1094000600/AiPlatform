@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +30,9 @@ public class AgentTaskService {
     private final AgentTaskMapper taskMapper;
     private final AgentRunMapper runMapper;
     private final TenantTaskRunner tenantTaskRunner;
+    private final AgentRunEventService eventService;
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AgentTask claimNext(String workerId, int leaseSeconds) {
         if (workerId == null || workerId.isBlank()) throw new IllegalArgumentException("workerId is required");
         if (leaseSeconds < 5 || leaseSeconds > 600) throw new IllegalArgumentException("leaseSeconds must be between 5 and 600");
@@ -64,10 +66,11 @@ public class AgentTaskService {
             start.setStatus(AgentRunStatus.RUNNING.name());
             start.setStartTime(now);
             start.setUpdateTime(now);
-            runMapper.update(start, new LambdaUpdateWrapper<AgentRun>()
+            int changed = runMapper.update(start, new LambdaUpdateWrapper<AgentRun>()
                     .eq(AgentRun::getId, run.getId())
                     .eq(AgentRun::getTenantId, tenantId)
                     .eq(AgentRun::getStatus, AgentRunStatus.QUEUED.name()));
+            if (changed == 1) eventService.record(run, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(), "Worker claimed root task");
         }
         task.setStatus(update.getStatus());
         task.setLeaseOwner(update.getLeaseOwner());
@@ -90,6 +93,27 @@ public class AgentTaskService {
                 .eq(AgentTask::getStatus, AgentTaskStatus.RUNNING.name())
                 .eq(AgentTask::getLeaseOwner, workerId.trim())
                 .gt(AgentTask::getLeaseUntil, now)) == 1;
+    }
+
+    public boolean releaseClaim(Long taskId, String workerId, String reason) {
+        if (taskId == null || workerId == null || workerId.isBlank()) return false;
+        LocalDateTime now = LocalDateTime.now();
+        AgentTask update = new AgentTask();
+        update.setStatus(AgentTaskStatus.QUEUED.name());
+        update.setLeaseOwner(null);
+        update.setLeaseUntil(null);
+        update.setAvailableAt(now);
+        update.setErrorMessage(normalizeReason(reason));
+        update.setUpdateTime(now);
+        return taskMapper.update(update, ownedRunningTask(taskId, workerId, now)) == 1;
+    }
+
+    public long runningRootTaskCount() {
+        return taskMapper.selectCount(new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, TenantContext.tenantId())
+                .eq(AgentTask::getStatus, AgentTaskStatus.RUNNING.name())
+                .eq(AgentTask::getTaskType, "RUN")
+                .isNull(AgentTask::getParentTaskId));
     }
 
     public boolean complete(Long taskId, String workerId) {

@@ -80,6 +80,10 @@ aipal:
       enabled: ${MEMORY_VECTOR_ENABLED:false}
       chroma-url: ${MEMORY_VECTOR_CHROMA_URL:http://localhost:9000}
       embedding-model-id: ${MEMORY_VECTOR_EMBEDDING_MODEL_ID:2}
+  agent-runtime:
+    snapshot-encryption:
+      key-id: ${AGENT_RUNTIME_SNAPSHOT_KEY_ID}
+      key-b64: ${AGENT_RUNTIME_SNAPSHOT_KEY_B64}
   asr:
     dashscope:
       endpoint: ${DASHSCOPE_ASR_ENDPOINT:wss://dashscope.aliyuncs.com/api-ws/v1/inference}

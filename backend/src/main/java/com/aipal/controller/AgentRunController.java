@@ -59,18 +59,31 @@ public class AgentRunController {
         return Result.success(toView(agentRunService.cancel(id, request == null ? null : request.reason())));
     }
 
+    @PostMapping("/{id}/approve")
+    @RequirePermission("agent:invoke")
+    public Result<AgentRunView> approve(@PathVariable Long id, @RequestBody(required = false) ApprovalRequest request) {
+        return Result.success(toView(agentRunService.approve(id, request == null ? null : request.reason())));
+    }
+
+    @PostMapping("/{id}/reject")
+    @RequirePermission("agent:invoke")
+    public Result<AgentRunView> reject(@PathVariable Long id, @RequestBody(required = false) ApprovalRequest request) {
+        return Result.success(toView(agentRunService.reject(id, request == null ? null : request.reason())));
+    }
+
     public record CreateAgentRunRequest(@NotNull Long agentId, @NotBlank String projectKey,
                                         @NotBlank String businessType, @NotBlank String businessId, Object input) {}
     public record CancelRequest(String reason) {}
+    public record ApprovalRequest(String reason) {}
     public record AgentRunView(Long id, String projectKey, String businessType, String businessId,
                                Long agentId, Long agentVersionId, String status, String traceId, String memoryTraceId,
-                               Integer totalTokens, String errorMessage, LocalDateTime createTime,
+                               Integer totalTokens, String errorMessage, boolean canCancel, boolean canApprove, LocalDateTime createTime,
                                LocalDateTime startTime, LocalDateTime endTime) {}
 
     private AgentRunView toView(AgentRun run) {
         AgentRunService.RunView view = agentRunService.businessView(run);
         return new AgentRunView(view.id(), view.projectKey(), view.businessType(), view.businessId(),
                 view.agentId(), view.agentVersionId(), view.status(), view.traceId(), view.memoryTraceId(),
-                view.totalTokens(), view.errorMessage(), view.createTime(), view.startTime(), view.endTime());
+                view.totalTokens(), view.errorMessage(), view.canCancel(), view.canApprove(), view.createTime(), view.startTime(), view.endTime());
     }
 }

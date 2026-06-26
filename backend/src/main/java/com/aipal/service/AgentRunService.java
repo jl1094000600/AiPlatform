@@ -7,6 +7,7 @@ import com.aipal.common.BizException;
 import com.aipal.common.TraceContext;
 import com.aipal.entity.AgentMemorySnapshot;
 import com.aipal.entity.AgentRun;
+import com.aipal.entity.AgentRunEvent;
 import com.aipal.entity.AgentStep;
 import com.aipal.entity.AgentTask;
 import com.aipal.entity.AgentArtifact;
@@ -17,6 +18,7 @@ import com.aipal.entity.AiMemoryProject;
 import com.aipal.mapper.AgentMemorySnapshotMapper;
 import com.aipal.mapper.AgentArtifactMapper;
 import com.aipal.mapper.AgentRunMapper;
+import com.aipal.mapper.AgentRunEventMapper;
 import com.aipal.mapper.AgentStepMapper;
 import com.aipal.mapper.AgentTaskMapper;
 import com.aipal.mapper.AiAgentMapper;
@@ -26,6 +28,7 @@ import com.aipal.service.memory.MemoryOrchestrator;
 import com.aipal.service.memory.MemoryProjectService;
 import com.aipal.service.memory.MemoryRecallRequest;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -53,9 +56,12 @@ public class AgentRunService {
     private final AgentTaskService agentTaskService;
     private final AgentMemorySnapshotMapper snapshotMapper;
     private final AgentArtifactMapper artifactMapper;
+    private final AgentRunEventMapper eventMapper;
+    private final AgentRunEventService eventService;
     private final AiAgentMapper agentMapper;
     private final AgentVersionService agentVersionService;
     private final AgentRuntimeConfigService runtimeConfigService;
+    private final AgentRunExecutionSnapshotService executionSnapshotService;
     private final MemoryProjectService memoryProjectService;
     private final MemoryOrchestrator memoryOrchestrator;
     private final ObjectMapper objectMapper;
@@ -111,9 +117,11 @@ public class AgentRunService {
                 return requireByIdempotency(idempotencyKey);
             }
 
+            executionSnapshotService.create(run, agent, version, runtime);
             createMemorySnapshot(run, command);
             createRootStep(run);
             createRootTask(run);
+            eventService.record(run, null, AgentRunStatus.QUEUED.name(), "Run created");
             return run;
         }
     }
@@ -185,7 +193,13 @@ public class AgentRunService {
                             safeArtifactTitle(artifact.getArtifactType(), index + 1), artifact.getStatus(),
                             artifact.getCreateTime(), artifact.getUpdateTime());
                 }).toList();
-        return new RunDetail(toRunView(run), steps, tasks, memories, artifacts,
+        List<EventView> events = eventMapper.selectList(new LambdaQueryWrapper<AgentRunEvent>()
+                        .eq(AgentRunEvent::getTenantId, tenantId).eq(AgentRunEvent::getRunId, runId)
+                        .orderByAsc(AgentRunEvent::getCreateTime).orderByAsc(AgentRunEvent::getId))
+                .stream().map(event -> new EventView(event.getId(), event.getFromStatus(), event.getToStatus(),
+                        event.getActorName(), safeEventReason(event.getReason()), event.getTraceId(), event.getCreateTime()))
+                .toList();
+        return new RunDetail(toRunView(run), steps, tasks, memories, artifacts, events,
                 memories.isEmpty() ? "No eligible project memory was referenced for this run" : null);
     }
 
@@ -194,13 +208,78 @@ public class AgentRunService {
         AgentRun run = get(runId);
         assertCancellable(run);
         if (AgentRunStatus.valueOf(run.getStatus()).terminal()) return run;
+        String fromStatus = run.getStatus();
         run.setStatus(AgentRunStatus.CANCELLED.name());
         run.setErrorMessage(reason == null || reason.isBlank() ? "Cancelled by user" : reason.trim());
         run.setEndTime(LocalDateTime.now());
         run.setVersion(run.getVersion() + 1);
-        runMapper.updateById(run);
+        int changed = runMapper.update(run, new LambdaUpdateWrapper<AgentRun>()
+                .eq(AgentRun::getId, runId).eq(AgentRun::getTenantId, TenantContext.tenantId())
+                .in(AgentRun::getStatus, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(), AgentRunStatus.WAITING_APPROVAL.name()));
+        if (changed != 1) return get(runId);
         agentTaskService.cancelTasksForRun(runId, run.getErrorMessage());
+        eventService.record(run, fromStatus, AgentRunStatus.CANCELLED.name(), run.getErrorMessage());
         return run;
+    }
+
+    @Transactional
+    public AgentRun approve(Long runId, String reason) {
+        AgentRun run = get(runId);
+        assertApprover(run);
+        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw new BizException(409, "Run is not waiting for approval");
+        LocalDateTime now = LocalDateTime.now();
+        AgentRun update = new AgentRun();
+        update.setStatus(AgentRunStatus.SUCCEEDED.name());
+        update.setEndTime(now);
+        update.setVersion(run.getVersion() + 1);
+        update.setUpdateTime(now);
+        int changed = runMapper.update(update, new LambdaUpdateWrapper<AgentRun>()
+                .eq(AgentRun::getId, runId).eq(AgentRun::getTenantId, TenantContext.tenantId())
+                .eq(AgentRun::getStatus, AgentRunStatus.WAITING_APPROVAL.name()));
+        if (changed != 1) return get(runId);
+        AgentArtifact artifactUpdate = new AgentArtifact();
+        artifactUpdate.setStatus("FINAL");
+        artifactUpdate.setUpdateTime(now);
+        artifactMapper.update(artifactUpdate, new LambdaUpdateWrapper<AgentArtifact>()
+                .eq(AgentArtifact::getTenantId, TenantContext.tenantId())
+                .eq(AgentArtifact::getRunId, runId)
+                .eq(AgentArtifact::getStatus, "PENDING_APPROVAL"));
+        run.setStatus(AgentRunStatus.SUCCEEDED.name());
+        run.setEndTime(now);
+        eventService.record(run, AgentRunStatus.WAITING_APPROVAL.name(), AgentRunStatus.SUCCEEDED.name(),
+                reason == null || reason.isBlank() ? "Approved by authorized user" : reason);
+        return get(runId);
+    }
+
+    @Transactional
+    public AgentRun reject(Long runId, String reason) {
+        AgentRun run = get(runId);
+        assertApprover(run);
+        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw new BizException(409, "Run is not waiting for approval");
+        LocalDateTime now = LocalDateTime.now();
+        String rejectReason = reason == null || reason.isBlank() ? "Rejected by authorized user" : reason.trim();
+        AgentRun update = new AgentRun();
+        update.setStatus(AgentRunStatus.FAILED.name());
+        update.setErrorMessage(rejectReason);
+        update.setEndTime(now);
+        update.setVersion(run.getVersion() + 1);
+        update.setUpdateTime(now);
+        int changed = runMapper.update(update, new LambdaUpdateWrapper<AgentRun>()
+                .eq(AgentRun::getId, runId).eq(AgentRun::getTenantId, TenantContext.tenantId())
+                .eq(AgentRun::getStatus, AgentRunStatus.WAITING_APPROVAL.name()));
+        if (changed != 1) return get(runId);
+        AgentArtifact artifactUpdate = new AgentArtifact();
+        artifactUpdate.setStatus("REJECTED");
+        artifactUpdate.setUpdateTime(now);
+        artifactMapper.update(artifactUpdate, new LambdaUpdateWrapper<AgentArtifact>()
+                .eq(AgentArtifact::getTenantId, TenantContext.tenantId())
+                .eq(AgentArtifact::getRunId, runId)
+                .eq(AgentArtifact::getStatus, "PENDING_APPROVAL"));
+        run.setStatus(AgentRunStatus.FAILED.name());
+        run.setErrorMessage(rejectReason);
+        run.setEndTime(now);
+        eventService.record(run, AgentRunStatus.WAITING_APPROVAL.name(), AgentRunStatus.FAILED.name(), rejectReason);
+        return get(runId);
     }
 
     private void createMemorySnapshot(AgentRun run, CreateRunCommand command) {
@@ -326,6 +405,13 @@ public class AgentRunService {
         throw new BizException(403, "Only the run owner or project manager can cancel this run");
     }
 
+    private void assertApprover(AgentRun run) {
+        if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return;
+        if (TenantContext.userId() == null) throw new BizException(403, "User context is required");
+        if (TenantContext.userId().equals(run.getOwnerUserId()) || memoryProjectService.canManageProject(run.getProjectKey())) return;
+        throw new BizException(403, "Only the run owner or project manager can approve this run");
+    }
+
     private String json(Object value) {
         try { return objectMapper.writeValueAsString(value); }
         catch (JsonProcessingException e) { throw new BizException(500, "无法冻结Agent定义快照"); }
@@ -356,7 +442,22 @@ public class AgentRunService {
     private RunView toRunView(AgentRun run) {
         return new RunView(run.getId(), run.getProjectKey(), run.getBusinessType(), run.getBusinessId(), run.getAgentId(),
                 run.getAgentVersionId(), run.getStatus(), run.getTraceId(), run.getMemoryTraceId(), run.getTotalTokens(),
-                safeStatusMessage(run.getStatus(), run.getErrorMessage()), run.getCreateTime(), run.getStartTime(), run.getEndTime());
+                safeStatusMessage(run.getStatus(), run.getErrorMessage()), canCurrentUserCancel(run), canCurrentUserApprove(run),
+                run.getCreateTime(), run.getStartTime(), run.getEndTime());
+    }
+
+    private boolean canCurrentUserCancel(AgentRun run) {
+        if (AgentRunStatus.valueOf(run.getStatus()).terminal()) return false;
+        if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return true;
+        if (TenantContext.userId() == null) return false;
+        return TenantContext.userId().equals(run.getOwnerUserId()) || memoryProjectService.canManageProject(run.getProjectKey());
+    }
+
+    private boolean canCurrentUserApprove(AgentRun run) {
+        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) return false;
+        if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return true;
+        if (TenantContext.userId() == null) return false;
+        return TenantContext.userId().equals(run.getOwnerUserId()) || memoryProjectService.canManageProject(run.getProjectKey());
     }
 
     private String safeStatusMessage(String status, String rawMessage) {
@@ -376,14 +477,21 @@ public class AgentRunService {
         return normalizedType + " #" + sequence;
     }
 
+    private String safeEventReason(String reason) {
+        if (reason == null || reason.isBlank()) return null;
+        if (reason.length() <= 256) return reason;
+        return reason.substring(0, 256);
+    }
+
     public record CreateRunCommand(Long agentId, String projectKey, String businessType, String businessId, Object input) {
     }
     public record RunDetail(RunView run, List<StepView> steps, List<TaskView> tasks,
-                            List<MemorySnapshotView> memorySnapshots, List<ArtifactView> artifacts,
+                            List<MemorySnapshotView> memorySnapshots, List<ArtifactView> artifacts, List<EventView> events,
                             String memoryReferenceNotice) {}
     public record RunView(Long id, String projectKey, String businessType, String businessId, Long agentId,
                           Long agentVersionId, String status, String traceId, String memoryTraceId, Integer totalTokens,
-                          String errorMessage, LocalDateTime createTime, LocalDateTime startTime, LocalDateTime endTime) {}
+                          String errorMessage, boolean canCancel, boolean canApprove, LocalDateTime createTime, LocalDateTime startTime,
+                          LocalDateTime endTime) {}
     public record StepView(Long id, Integer stepNo, String stepType, String status, String toolName, Integer inputTokens,
                            Integer outputTokens, String errorMessage, LocalDateTime startTime, LocalDateTime endTime) {}
     public record TaskView(Long id, Long parentTaskId, String taskType, String status, Integer attemptCount,
@@ -393,4 +501,6 @@ public class AgentRunService {
                                      Integer tokenCount, Integer policyVersion, String traceId) {}
     public record ArtifactView(Long id, Long stepId, String artifactType, String title, String status,
                                LocalDateTime createTime, LocalDateTime updateTime) {}
+    public record EventView(Long id, String fromStatus, String toStatus, String actorName, String reason,
+                            String traceId, LocalDateTime createTime) {}
 }

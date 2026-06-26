@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS agent_task (
     is_deleted TINYINT NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     KEY idx_agent_task_claim (status, available_at, lease_until),
+    KEY idx_agent_task_claim_tenant (tenant_id, status, task_type, parent_task_id, available_at, id),
     KEY idx_agent_task_run (tenant_id, run_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -118,4 +119,36 @@ CREATE TABLE IF NOT EXISTS agent_artifact (
     is_deleted TINYINT NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     KEY idx_agent_artifact_run (tenant_id, run_id, artifact_type, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_run_execution_snapshot (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    snapshot_format VARCHAR(32) NOT NULL,
+    key_id VARCHAR(64) NOT NULL,
+    iv_b64 VARCHAR(64) NOT NULL,
+    ciphertext_b64 LONGTEXT NOT NULL,
+    plaintext_hash VARCHAR(64) NOT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_run_execution_snapshot (run_id),
+    KEY idx_agent_execution_snapshot_tenant (tenant_id, run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_run_event (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    from_status VARCHAR(32) DEFAULT NULL,
+    to_status VARCHAR(32) NOT NULL,
+    actor_user_id BIGINT DEFAULT NULL,
+    actor_name VARCHAR(128) DEFAULT NULL,
+    reason VARCHAR(512) DEFAULT NULL,
+    trace_id VARCHAR(96) DEFAULT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    KEY idx_agent_run_event_run (tenant_id, run_id, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

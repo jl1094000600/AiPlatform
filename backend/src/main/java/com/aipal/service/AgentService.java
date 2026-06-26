@@ -211,6 +211,53 @@ public class AgentService {
         }
     }
 
+    /**
+     * Runtime path for a durable Agent Run. The caller supplies identifiers frozen at Run creation;
+     * this method must never resolve the latest runtime configuration.
+     */
+    public Map<String, Object> callAgentFrozen(Long agentId, Object params, Long userId, String username,
+                                                Long modelId, Long promptId, Long promptVersionId) {
+        AiAgent agent = agentMapper.selectById(agentId);
+        if (agent == null || agent.getStatus() != 1) throw new RuntimeException("Agent is unavailable");
+        String traceId = TraceContext.generateTraceId();
+        LocalDateTime requestTime = LocalDateTime.now();
+        MonCallRecord record = new MonCallRecord();
+        record.setTraceId(traceId);
+        record.setAgentId(agentId);
+        record.setBizModuleId(1L);
+        record.setUserId(userId);
+        record.setUsername(username);
+        record.setRequestTime(requestTime);
+        record.setSuccess(1);
+        try {
+            Map<String, Object> result = new HashMap<>();
+            result.put("traceId", traceId);
+            result.put("status", "success");
+            result.put("message", "Agent invocation completed");
+            result.put("agentName", agent.getAgentName());
+            result.put("modelCode", agent.getModelCode());
+            result.put("promptId", promptId);
+            result.put("promptVersionId", promptVersionId);
+            record.setResponseTime(LocalDateTime.now());
+            record.setDurationMs(100);
+            record.setInputTokens(100);
+            record.setOutputTokens(200);
+            record.setTotalTokens(300);
+            record.setStatusCode(200);
+            record.setModelId(modelId);
+            record.setRequestParams(String.valueOf(params));
+            record.setResponseResult(String.valueOf(result));
+            return result;
+        } catch (Exception e) {
+            record.setSuccess(0);
+            record.setErrorMessage(e.getMessage());
+            record.setStatusCode(500);
+            throw e;
+        } finally {
+            callRecordMapper.insert(record);
+        }
+    }
+
     private void fillModelCode(AiAgent agent) {
         if (agent.getModelId() == null) {
             return;

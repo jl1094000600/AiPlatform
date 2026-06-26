@@ -13,7 +13,7 @@ public interface AgentTaskMapper extends BaseMapper<AgentTask> {
      * the same queue head. This method must always be called inside a transaction.
      */
     @Select("""
-            SELECT * FROM agent_task
+            SELECT * FROM agent_task FORCE INDEX (idx_agent_task_claim_tenant)
             WHERE tenant_id = #{tenantId}
               AND is_deleted = 0
               AND status = 'QUEUED'

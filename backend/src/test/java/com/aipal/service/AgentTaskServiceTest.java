@@ -42,7 +42,8 @@ class AgentTaskServiceTest {
         when(taskMapper.update(any(), any())).thenReturn(1);
         when(runMapper.update(any(), any())).thenReturn(1);
 
-        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class));
+        AgentRunEventService eventService = mock(AgentRunEventService.class);
+        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class), eventService);
         AgentTask claimed = service.claimNext("worker-a", 30);
 
         assertNotNull(claimed);
@@ -51,6 +52,7 @@ class AgentTaskServiceTest {
         assertEquals(1, claimed.getAttemptCount());
         verify(taskMapper).selectNextClaimableForUpdate(1L);
         verify(runMapper).update(any(), any());
+        verify(eventService).record(run, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(), "Worker claimed root task");
     }
 
     @Test
@@ -65,7 +67,7 @@ class AgentTaskServiceTest {
         when(runMapper.selectById(9L)).thenReturn(run);
         when(taskMapper.update(any(), any())).thenReturn(1);
 
-        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class));
+        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class), mock(AgentRunEventService.class));
 
         assertNull(service.claimNext("worker-a", 30));
         verify(taskMapper).update(any(), any());
