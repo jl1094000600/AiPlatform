@@ -189,6 +189,7 @@ public class AutomationBuildTestExecutionService {
 
     private CommandResult runCommand(String command, Path workDir, Integer timeoutSeconds) {
         try {
+            AutomationCommandGuard.requireSafeCommand(command, "automation command");
             ProcessBuilder builder = new ProcessBuilder(shellCommand(command));
             builder.directory(workDir.toFile());
             builder.redirectErrorStream(true);

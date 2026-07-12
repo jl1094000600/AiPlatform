@@ -6,6 +6,7 @@ import com.aipal.entity.AiModel;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AiAgentRuntimeConfigMapper;
 import com.aipal.mapper.AiModelMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ public class AgentRuntimeConfigService {
         }
 
         config = new AiAgentRuntimeConfig();
+        config.setTenantId(agent.getTenantId());
         config.setAgentId(agent.getId());
         config.setAgentCode(agent.getAgentCode());
         config.setTopK(DEFAULT_TOP_K);
@@ -60,6 +62,7 @@ public class AgentRuntimeConfigService {
         );
         LocalDateTime now = LocalDateTime.now();
         AiAgentRuntimeConfig config = existing != null ? existing : new AiAgentRuntimeConfig();
+        config.setTenantId(agent.getTenantId());
         config.setAgentId(agent.getId());
         config.setAgentCode(agent.getAgentCode());
         config.setModelId(request.getModelId());

@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class AutomationPipelineRequest {
     private String productLine;
+    private String projectKey;
     private String projectName;
     private String requirementTitle;
     private String requirementSummary;

@@ -25,6 +25,12 @@
         <el-table-column prop="requirementTitle" :label="t('automation.requirement')" min-width="220" />
         <el-table-column prop="productLine" :label="t('automation.product')" width="140" />
         <el-table-column prop="projectName" :label="t('automation.project')" width="150" />
+        <el-table-column label="War Room" width="120">
+          <template #default="{ row }">
+            <el-button v-if="row.projectKey" link type="primary" @click.stop="openWarRoom(row.projectKey)">Open</el-button>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('automation.currentStage')" width="180">
           <template #default="{ row }">{{ stageDisplayName(row.currentStage) }}</template>
         </el-table-column>
@@ -550,6 +556,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import api from '../api'
@@ -557,6 +564,7 @@ import { useI18n } from '../i18n'
 import { downsampleFloat32, float32ToPcm16Buffer } from '../utils/pcm'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const loading = ref(false)
 const createVisible = ref(false)
@@ -689,6 +697,8 @@ const summaryCards = computed(() => [
   { label: t('automation.waitingReview'), value: summary.value.waitingApprovals || 0 },
   { label: t('automation.stagePassRate'), value: (summary.value.stagePassRate || 0) + '%' }
 ])
+
+const openWarRoom = (projectKey) => router.push(`/project-workspaces/${encodeURIComponent(projectKey)}`)
 
 const stageNameMap = {
   requirement_analysis: '需求分析',
@@ -1620,7 +1630,7 @@ const stopDetailPolling = () => {
 }
 
 const approve = async (row, status) => {
-  await api.approveAutomation(row.id, { status, reviewedBy: 'admin', comment: status })
+  await api.approveAutomation(row.id, { status, comment: status })
   ElMessage.success(status === 'SUCCESS' ? t('automation.approved') : t('automation.rejected'))
   await loadAll()
   if (detail.pipeline) {
@@ -1667,7 +1677,6 @@ const submitPrdReview = async (status) => {
   }
   await api.approveAutomation(currentApproval.value.id, {
     status,
-    reviewedBy: 'admin',
     comment,
     artifactContent: prdContent.value
   })
@@ -1736,7 +1745,6 @@ const submitCodeReview = async (status) => {
   }
   await api.approveAutomation(currentCodeApproval.value.id, {
     status,
-    reviewedBy: 'admin',
     comment
   })
   ElMessage.success(status === 'SUCCESS' ? t('automation.codeApproved') : t('automation.codeRejected'))
@@ -1762,8 +1770,7 @@ const submitCodeFeedback = async () => {
       alignmentStatus: codeFeedbackForm.alignmentStatus,
       alignmentScore: codeFeedbackForm.alignmentScore,
       summary: codeFeedbackForm.summary,
-      failureReason: codeFeedbackForm.failureReason,
-      reviewedBy: currentUsername()
+      failureReason: codeFeedbackForm.failureReason
     })
     ElMessage.success('反馈已提交')
     codeFeedbackForm.summary = ''

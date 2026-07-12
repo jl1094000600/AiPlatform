@@ -12,8 +12,10 @@ import java.time.LocalDateTime;
 public class AutomationPipeline {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private String pipelineCode;
     private String productLine;
+    private String projectKey;
     private String projectName;
     private String requirementTitle;
     private String requirementSummary;

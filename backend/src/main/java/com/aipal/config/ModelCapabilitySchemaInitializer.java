@@ -76,15 +76,22 @@ public class ModelCapabilitySchemaInitializer {
     }
 
     private void addIndexIfMissing(Connection connection, Statement statement) throws SQLException {
-        try (ResultSet indexes = connection.getMetaData().getIndexInfo(
-                connection.getCatalog(), null, TABLE_NAME, false, false)) {
-            while (indexes.next()) {
-                if (INDEX_NAME.equalsIgnoreCase(indexes.getString("INDEX_NAME"))) {
-                    return;
-                }
-            }
+        if (indexExists(connection, TABLE_NAME) || indexExists(connection, TABLE_NAME.toUpperCase())) {
+            return;
         }
         statement.executeUpdate("CREATE INDEX " + INDEX_NAME
                 + " ON ai_model (tenant_id, capability_type, default_for_capability, status)");
+    }
+
+    private boolean indexExists(Connection connection, String tableName) throws SQLException {
+        try (ResultSet indexes = connection.getMetaData().getIndexInfo(
+                connection.getCatalog(), null, tableName, false, false)) {
+            while (indexes.next()) {
+                if (INDEX_NAME.equalsIgnoreCase(indexes.getString("INDEX_NAME"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

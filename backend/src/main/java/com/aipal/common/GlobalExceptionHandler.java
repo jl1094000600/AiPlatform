@@ -38,13 +38,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<Result<?>> handleSecurityException(SecurityException e) {
         log.warn("Unauthorized request: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Result.unauthorized(e.getMessage()));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Result.unauthorized("Unauthorized"));
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Result<?>> handleIllegalStateException(IllegalStateException e) {
         log.error("Illegal state: {}", e.getMessage(), e);
-        return ResponseEntity.internalServerError().body(Result.serverError(e.getMessage()));
+        return ResponseEntity.internalServerError().body(Result.serverError("Operation failed. Please retry or contact an administrator."));
     }
 
     @ExceptionHandler(Exception.class)

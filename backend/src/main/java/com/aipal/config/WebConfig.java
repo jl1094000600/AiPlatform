@@ -25,7 +25,8 @@ public class WebConfig implements MetaObjectHandler {
         interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHandler() {
             private final Set<String> ignoredTables = Set.of(
                     "sys_tenant", "sys_user", "sys_user_tenant", "sys_role", "sys_permission",
-                    "sys_user_role", "sys_role_permission", "sys_menu", "ai_output_governance_policy_template"
+                    "sys_user_role", "sys_role_permission", "sys_menu", "ai_output_governance_policy_template",
+                    "agent_tool_definition"
             );
 
             @Override
@@ -44,15 +45,21 @@ public class WebConfig implements MetaObjectHandler {
 
     @Override
     public void insertFill(MetaObject metaObject) {
-        this.strictInsertFill(metaObject, "createTime", LocalDateTime.class, LocalDateTime.now());
-        this.strictInsertFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+        fillIfNull(metaObject, "createTime", LocalDateTime.now());
+        fillIfNull(metaObject, "updateTime", LocalDateTime.now());
         if (metaObject.hasSetter("tenantId")) {
-            this.strictInsertFill(metaObject, "tenantId", Long.class, TenantContext.tenantId());
+            fillIfNull(metaObject, "tenantId", TenantContext.tenantId());
         }
     }
 
     @Override
     public void updateFill(MetaObject metaObject) {
-        this.strictUpdateFill(metaObject, "updateTime", LocalDateTime.class, LocalDateTime.now());
+        fillIfNull(metaObject, "updateTime", LocalDateTime.now());
+    }
+
+    private void fillIfNull(MetaObject metaObject, String fieldName, Object value) {
+        if (metaObject.hasSetter(fieldName) && metaObject.getValue(fieldName) == null) {
+            metaObject.setValue(fieldName, value);
+        }
     }
 }

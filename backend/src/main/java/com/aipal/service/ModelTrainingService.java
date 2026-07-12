@@ -305,7 +305,7 @@ public class ModelTrainingService {
     private ModelTrainingRequest normalizeRequest(ModelTrainingRequest request) {
         ModelTrainingRequest source = request == null ? new ModelTrainingRequest() : request;
         ModelTrainingRequest normalized = new ModelTrainingRequest();
-        normalized.setModelPath(blankToDefault(source.getModelPath(), DEFAULT_MODEL_PATH));
+        normalized.setModelPath(validateModelPath(blankToDefault(source.getModelPath(), DEFAULT_MODEL_PATH)));
         normalized.setTrainData(validateTrainingDataPath(blankToDefault(source.getTrainData(), DEFAULT_TRAIN_DATA)));
         normalized.setOutputDir(validateProjectPath(blankToDefault(source.getOutputDir(), DEFAULT_OUTPUT_DIR), "outputDir", true));
         normalized.setEpochs(source.getEpochs() == null ? 1 : positive(source.getEpochs(), "epochs"));
@@ -317,6 +317,22 @@ public class ModelTrainingService {
         normalized.setDryRun(Boolean.TRUE.equals(source.getDryRun()));
         normalized.setDevice(source.getDevice());
         return normalized;
+    }
+
+    private String validateModelPath(String value) {
+        String modelPath = value == null ? "" : value.trim();
+        if (modelPath.isBlank()) {
+            throw new IllegalArgumentException("modelPath is required");
+        }
+        if (modelPath.length() > 160 || modelPath.contains("..") || modelPath.contains("\\")
+                || modelPath.contains("//") || Paths.get(modelPath).isAbsolute()
+                || !modelPath.matches("[A-Za-z0-9][A-Za-z0-9._/-]*")) {
+            throw new IllegalArgumentException("modelPath must be a safe model id or project-relative model path");
+        }
+        if (modelPath.endsWith("/") || modelPath.startsWith("/") || modelPath.split("/", -1).length > 3) {
+            throw new IllegalArgumentException("modelPath must be a safe model id or project-relative model path");
+        }
+        return modelPath;
     }
 
     private String validateProjectPath(String value, String fieldName, boolean allowMissing) {

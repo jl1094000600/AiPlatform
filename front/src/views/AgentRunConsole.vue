@@ -21,7 +21,12 @@
         <el-table v-loading="loading" :data="runs" highlight-current-row @current-change="selectRun">
           <el-table-column prop="id" label="Run" width="90" />
           <el-table-column prop="businessType" label="业务" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="projectKey" label="项目" min-width="130" show-overflow-tooltip />
+          <el-table-column prop="projectKey" label="项目" min-width="130" show-overflow-tooltip>
+            <template #default="{ row }">
+              <el-button v-if="row.projectKey" link type="primary" @click.stop="openWarRoom(row.projectKey)">{{ row.projectKey }}</el-button>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="status" label="状态" width="112">
             <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template>
           </el-table-column>
@@ -123,9 +128,11 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
+const router = useRouter()
 const loading = ref(false)
 const detailLoading = ref(false)
 const runs = ref([])
@@ -153,6 +160,7 @@ const loadRuns = async () => {
 }
 
 const selectRun = (row) => { if (row) loadDetail(row.id) }
+const openWarRoom = (projectKey) => router.push(`/project-workspaces/${encodeURIComponent(projectKey)}`)
 
 const loadDetail = async (id) => {
   detailLoading.value = true

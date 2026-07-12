@@ -2,8 +2,10 @@
 
 CREATE TABLE IF NOT EXISTS automation_pipeline (
     id                 BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id          BIGINT       NOT NULL DEFAULT 1,
     pipeline_code      VARCHAR(64)  NOT NULL,
     product_line       VARCHAR(128) NOT NULL,
+    project_key        VARCHAR(128) DEFAULT NULL,
     project_name       VARCHAR(128) NOT NULL,
     requirement_title  VARCHAR(256) NOT NULL,
     requirement_summary TEXT        DEFAULT NULL,
@@ -39,11 +41,13 @@ CREATE TABLE IF NOT EXISTS automation_pipeline (
     is_deleted         TINYINT      NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uk_pipeline_code (pipeline_code),
+    KEY idx_automation_pipeline_project_key (tenant_id, project_key, create_time),
     KEY idx_status_time (status, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS automation_stage_run (
     id                BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id         BIGINT       NOT NULL DEFAULT 1,
     pipeline_id       BIGINT       NOT NULL,
     stage_key         VARCHAR(64)  NOT NULL,
     stage_name        VARCHAR(128) NOT NULL,
@@ -61,12 +65,13 @@ CREATE TABLE IF NOT EXISTS automation_stage_run (
     create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP,
     update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_pipeline_stage (pipeline_id, stage_key),
-    KEY idx_stage_status (status, stage_order)
+    UNIQUE KEY uk_pipeline_stage (tenant_id, pipeline_id, stage_key),
+    KEY idx_stage_status (tenant_id, status, stage_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS automation_approval (
     id             BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id      BIGINT       NOT NULL DEFAULT 1,
     pipeline_id    BIGINT       NOT NULL,
     stage_run_id   BIGINT       NOT NULL,
     approval_type  VARCHAR(64)  NOT NULL,
@@ -78,8 +83,8 @@ CREATE TABLE IF NOT EXISTS automation_approval (
     create_time    DATETIME     DEFAULT CURRENT_TIMESTAMP,
     update_time    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_status_role (status, reviewer_role),
-    KEY idx_pipeline_id (pipeline_id)
+    KEY idx_status_role (tenant_id, status, reviewer_role),
+    KEY idx_pipeline_id (tenant_id, pipeline_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS automation_report_snapshot (

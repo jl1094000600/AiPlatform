@@ -1,5 +1,6 @@
 import axios from 'axios'
 import router from '../router'
+import { clearAuth, getAuthToken } from '../utils/authStorage'
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -7,7 +8,7 @@ const api = axios.create({
 })
 
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   if (token) {
     config.headers.Authorization = 'Bearer ' + token
   }
@@ -19,8 +20,7 @@ api.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      clearAuth()
       router.push('/login')
     }
     return Promise.reject(error)
@@ -220,6 +220,18 @@ export default {
   },
   rejectAgentRun(id, reason) {
     return api.post('/agent-runs/' + id + '/reject', { reason })
+  },
+  getProjectWorkspaces() {
+    return api.get('/project-workspaces')
+  },
+  getProjectWarRoom(projectKey) {
+    return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/war-room')
+  },
+  createProjectTeamAgentRun(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/team-agent-runs', data)
+  },
+  getProjectMentionableUsers(projectKey) {
+    return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/mentionable-users')
   },
   getAgentQualitySummary() {
     return api.get('/agent-quality/summary')

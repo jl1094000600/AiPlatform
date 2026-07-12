@@ -128,6 +128,7 @@ public class AutomationDeploymentExecutionService {
         if (isBlank(command)) {
             return StageResult.success(emptyMessage);
         }
+        AutomationCommandGuard.requireSafeCommand(command, "automation command");
         return runCommand(shellCommand(command), workDir, timeoutSeconds);
     }
 

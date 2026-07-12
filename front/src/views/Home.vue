@@ -117,6 +117,7 @@ import {
 import { useI18n } from '../i18n'
 import api from '../api'
 import { filterNavByPermissions, readStoredUser } from '../utils/permissions'
+import { clearAuth, setAuthToken, setStoredUser } from '../utils/authStorage'
 
 const router = useRouter()
 const route = useRoute()
@@ -138,6 +139,7 @@ const fallbackNavGroups = computed(() => [
     label: '自动化交付',
     icon: Promotion,
     children: [
+      navItem('/project-workspaces', 'Project War Room', Tickets),
       navItem('/automation', t('nav.automation'), Promotion),
       navItem('/badcases', 'Badcase Analysis', DataAnalysis),
       navItem('/workflows', '工作流编排', Connection),
@@ -236,6 +238,7 @@ function navItem(path, label, icon) {
   const routePermissions = {
     '/dashboard': 'dashboard:view',
     '/platform-analytics': 'dashboard:view',
+    '/project-workspaces': 'automation:list',
     '/automation': 'automation:list',
     '/badcases': 'automation:list',
     '/workflows': 'workflow:manage',
@@ -324,8 +327,7 @@ const updateTime = () => {
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  clearAuth()
   router.push('/login')
 }
 
@@ -333,8 +335,8 @@ const handleTenantChange = async (tenantId) => {
   if (!tenantId || tenantId === currentTenantId.value) return
   const res = await api.switchTenant({ tenantId })
   const payload = res.data.data
-  localStorage.setItem('token', payload.token)
-  localStorage.setItem('user', JSON.stringify(payload))
+  setAuthToken(payload.token)
+  setStoredUser(payload)
   currentUser.value = payload
   router.push('/dashboard')
 }

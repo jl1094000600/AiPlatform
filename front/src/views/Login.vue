@@ -76,6 +76,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Box, Lock, User } from '@element-plus/icons-vue'
 import api from '../api'
+import { setAuthToken, setStoredUser } from '../utils/authStorage'
 
 const router = useRouter()
 const form = reactive({ username: '', password: '' })
@@ -165,8 +166,8 @@ const handleLogin = async () => {
   try {
     const res = await api.login(form)
     if (res.data.code === 200) {
-      localStorage.setItem('token', res.data.data.token)
-      localStorage.setItem('user', JSON.stringify(res.data.data))
+      setAuthToken(res.data.data.token)
+      setStoredUser(res.data.data)
       ElMessage.success({ message: '登录成功，欢迎回来！', duration: 1500 })
       router.push('/dashboard')
     } else {

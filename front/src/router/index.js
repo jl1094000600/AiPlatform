@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import axios from 'axios'
 import { hasCompleteAuthState, hasPermission, isPlatformAdmin, readStoredUser } from '../utils/permissions'
+import { clearAuth, getAuthToken, setAuthToken, setStoredUser } from '../utils/authStorage'
 
 const routes = [
   {
@@ -20,6 +21,8 @@ const routes = [
       { path: 'agent-quality', name: 'AgentQuality', component: () => import('../views/AgentQualityMonitor.vue'), meta: { permission: 'agent:list' } },
       { path: 'agent-runs', name: 'AgentRuns', component: () => import('../views/AgentRunConsole.vue'), meta: { permission: 'agent:invoke' } },
       { path: 'rag', name: 'RagKnowledge', component: () => import('../views/RagKnowledge.vue'), meta: { permission: 'rag:list' } },
+      { path: 'project-workspaces', name: 'ProjectWorkspaces', component: () => import('../views/ProjectWarRoom.vue'), meta: { permission: 'automation:list' } },
+      { path: 'project-workspaces/:projectKey', name: 'ProjectWarRoom', component: () => import('../views/ProjectWarRoom.vue'), meta: { permission: 'automation:list' } },
       { path: 'automation', name: 'AutomationPipeline', component: () => import('../views/AutomationPipeline.vue'), meta: { permission: 'automation:list' } },
       { path: 'badcases', name: 'BadCaseAnalysis', component: () => import('../views/BadCaseAnalysis.vue'), meta: { permission: 'automation:list' } },
       { path: 'platform-analytics', name: 'PlatformAnalytics', component: () => import('../views/PlatformAnalytics.vue'), meta: { permission: 'dashboard:view' } },
@@ -62,8 +65,8 @@ async function refreshAuthState(token) {
     }).then(res => {
       const payload = res.data?.data
       if (payload) {
-        localStorage.setItem('token', payload.token || token)
-        localStorage.setItem('user', JSON.stringify(payload))
+        setAuthToken(payload.token || token)
+        setStoredUser(payload)
       }
       return payload
     }).finally(() => {
@@ -81,7 +84,7 @@ function hasLegacyThinkLandTenant(user) {
 }
 
 router.beforeEach(async (to, from, next) => {
-  const token = localStorage.getItem('token')
+  const token = getAuthToken()
   if (to.path !== '/login' && !token) {
     next('/login')
     return
@@ -91,8 +94,7 @@ router.beforeEach(async (to, from, next) => {
     try {
       await refreshAuthState(token)
     } catch {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      clearAuth()
       next('/login')
       return
     }

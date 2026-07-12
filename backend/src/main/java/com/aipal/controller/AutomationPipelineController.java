@@ -206,7 +206,7 @@ public class AutomationPipelineController {
     @RequirePermission("automation:approve")
     public Result<?> submitCodeFeedback(@PathVariable Long id, @RequestBody AutomationCodeFeedbackRequest request,
                                         HttpServletRequest httpRequest) {
-        if (request != null && (request.getReviewedBy() == null || request.getReviewedBy().isBlank())) {
+        if (request != null) {
             request.setReviewedBy(currentUsername(httpRequest));
         }
         return Result.success(automationService.submitCodeFeedback(id, request));
@@ -270,7 +270,12 @@ public class AutomationPipelineController {
 
     @PostMapping("/approvals/{approvalId}/approve")
     @RequirePermission("automation:approve")
-    public Result<?> approve(@PathVariable Long approvalId, @RequestBody AutomationApprovalRequest request) {
+    public Result<?> approve(@PathVariable Long approvalId, @RequestBody AutomationApprovalRequest request,
+                             HttpServletRequest httpRequest) {
+        if (request == null) {
+            request = new AutomationApprovalRequest();
+        }
+        request.setReviewedBy(currentUsername(httpRequest));
         return Result.success(automationService.approve(approvalId, request));
     }
 

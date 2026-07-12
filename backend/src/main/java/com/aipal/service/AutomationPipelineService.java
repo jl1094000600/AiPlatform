@@ -21,8 +21,10 @@ import com.aipal.mapper.AutomationGeneratedCodeFileMapper;
 import com.aipal.mapper.AutomationPipelineMapper;
 import com.aipal.mapper.AutomationStageRunMapper;
 import com.aipal.security.TenantTaskRunner;
+import com.aipal.security.TenantContext;
 import com.aipal.service.memory.MemoryContext;
 import com.aipal.service.memory.MemoryOrchestrator;
+import com.aipal.service.memory.MemoryProjectService;
 import com.aipal.service.memory.MemoryRecallRequest;
 import com.aipal.service.memory.MemoryTrustedProjectContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -119,6 +121,7 @@ public class AutomationPipelineService {
     private final AiOutputGovernanceService outputGovernanceService;
     private final UserMemoryService userMemoryService;
     private final BadCaseService badCaseService;
+    private final MemoryProjectService memoryProjectService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
@@ -146,9 +149,14 @@ public class AutomationPipelineService {
         validateCreateRequest(request);
         LocalDateTime now = LocalDateTime.now();
         AutomationPipeline pipeline = new AutomationPipeline();
+        pipeline.setTenantId(currentTenantIdOrDefault());
         pipeline.setPipelineCode("AUTO_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase());
         pipeline.setProductLine(request.getProductLine().trim());
+        pipeline.setProjectKey(resolveProjectKey(request));
         pipeline.setProjectName(request.getProjectName().trim());
+        if (TenantContext.get() != null) {
+            memoryProjectService.ensureWorkspaceForPipeline(pipeline.getProjectKey(), pipeline.getProjectName());
+        }
         pipeline.setRequirementTitle(request.getRequirementTitle().trim());
         pipeline.setRequirementSummary(request.getRequirementSummary());
         pipeline.setOwnerRole("project_manager");
@@ -191,6 +199,7 @@ public class AutomationPipelineService {
         pipeline.setIsDeleted(0);
         pipelineMapper.insert(pipeline);
         request.setSkillSnapshot(skillSnapshot);
+        request.setProjectKey(pipeline.getProjectKey());
         request.setAutoDeployEnabled(autoDeployEnabled);
         request.setDeployProfileSnapshot(deployProfileSnapshot);
         request.setCodeQualityEnabled(codeQualityEnabled);
@@ -202,6 +211,7 @@ public class AutomationPipelineService {
         AutomationStageRun firstStage = null;
         for (StageDefinition definition : definitions) {
             AutomationStageRun stage = new AutomationStageRun();
+            stage.setTenantId(pipeline.getTenantId());
             stage.setPipelineId(pipeline.getId());
             stage.setStageKey(definition.key());
             stage.setStageName(definition.name());
@@ -236,7 +246,10 @@ public class AutomationPipelineService {
         AutomationPipelineDetail detail = new AutomationPipelineDetail();
         detail.setPipeline(requirePipeline(pipelineId));
         List<AutomationStageRun> stages = listStages(pipelineId);
-        stages.forEach(stage -> stage.setArtifactContent(null));
+        stages.forEach(stage -> {
+            stage.setArtifactContent(null);
+            stage.setArtifactPath(safeArtifactPath(stage.getArtifactPath()));
+        });
         detail.setStages(stages);
         detail.setApprovals(approvalMapper.selectList(
                 new LambdaQueryWrapper<AutomationApproval>()
@@ -255,7 +268,7 @@ public class AutomationPipelineService {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("approval", approval);
         document.put("stage", stage);
-        document.put("artifactPath", stage.getArtifactPath() == null ? "" : stage.getArtifactPath());
+        document.put("artifactPath", safeArtifactPath(stage.getArtifactPath()));
         document.put("content", stage.getArtifactContent() == null ? "" : stage.getArtifactContent());
         document.put("governanceRecords", outputGovernanceService.listStageRecords(stage.getPipelineId(), stage.getId()));
         document.put("governanceBlocked", outputGovernanceService.hasBlockingRecords(stage.getPipelineId(), stage.getId()));
@@ -277,6 +290,7 @@ public class AutomationPipelineService {
 
         AutomationPipelineRequest request = new AutomationPipelineRequest();
         request.setProductLine(pipeline.getProductLine());
+        request.setProjectKey(pipeline.getProjectKey());
         request.setProjectName(pipeline.getProjectName());
         request.setRequirementTitle(pipeline.getRequirementTitle());
         request.setRequirementSummary(pipeline.getRequirementSummary());
@@ -482,7 +496,7 @@ public class AutomationPipelineService {
         result.put("pipelineId", pipelineId);
         result.put("stageId", stage.getId());
         result.put("status", stage.getStatus());
-        result.put("artifactPath", stage.getArtifactPath());
+        result.put("artifactPath", safeArtifactPath(stage.getArtifactPath()));
         result.put("files", readCodeManifest(stage));
         result.put("errorMessage", stage.getErrorMessage());
         AutomationGeneratedCodeBatch batch = latestCodeBatch(pipelineId);
@@ -658,8 +672,15 @@ public class AutomationPipelineService {
     }
 
     public Map<String, Object> getProjectDirectoryTree() {
-        Path root = Paths.get("").toAbsolutePath().normalize();
-        Map<String, Object> node = directoryNode(root, root.getFileName() == null ? root.toString() : root.getFileName().toString(), "", 0);
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("label", "Generated output roots");
+        node.put("value", "");
+        node.put("path", "");
+        node.put("disabled", true);
+        node.put("children", List.of(
+                directoryOption("Frontend generated", DEFAULT_FRONTEND_OUTPUT_PATH),
+                directoryOption("Backend generated", DEFAULT_BACKEND_OUTPUT_PATH)
+        ));
         node.put("root", true);
         return node;
     }
@@ -701,6 +722,7 @@ public class AutomationPipelineService {
             return;
         }
         AutomationApproval approval = new AutomationApproval();
+        approval.setTenantId(pipeline.getTenantId());
         approval.setPipelineId(pipeline.getId());
         approval.setStageRunId(stage.getId());
         approval.setApprovalType(stage.getStageKey());
@@ -752,6 +774,7 @@ public class AutomationPipelineService {
             snapshot.put("pipelineId", pipeline.getId());
             snapshot.put("stageRunId", stage.getId());
             snapshot.put("requirementTitle", pipeline.getRequirementTitle());
+            snapshot.put("projectKey", pipeline.getProjectKey());
             snapshot.put("projectName", pipeline.getProjectName());
             snapshot.put("templateFile", DEFAULT_TEMPLATE_FILE);
             snapshot.put("templateContent", readTemplateContent(DEFAULT_TEMPLATE_FILE));
@@ -2082,6 +2105,23 @@ public class AutomationPipelineService {
         return stage.getArtifactContent() == null ? "" : stage.getArtifactContent();
     }
 
+    private String safeArtifactPath(String artifactPath) {
+        if (artifactPath == null || artifactPath.isBlank()) {
+            return "";
+        }
+        try {
+            Path path = Paths.get(artifactPath).toAbsolutePath().normalize();
+            Path projectRoot = Paths.get("").toAbsolutePath().normalize();
+            if (path.startsWith(projectRoot)) {
+                return normalizeRelativePath(projectRoot.relativize(path).toString());
+            }
+            Path fileName = path.getFileName();
+            return fileName == null ? "" : fileName.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     private Path codeArtifactRoot(Long pipelineId) {
         return Paths.get("marketDoc", "generated-code", "pipeline-" + pipelineId).toAbsolutePath().normalize();
     }
@@ -2242,33 +2282,51 @@ public class AutomationPipelineService {
         JsonNode snapshot = objectMapper.readTree(job.getContextSnapshot());
         AutomationPipeline pipeline = new AutomationPipeline();
         pipeline.setId(base.getId());
+        pipeline.setProjectKey(snapshot.path("projectKey").asText(base.getProjectKey()));
         pipeline.setProjectName(snapshot.path("projectName").asText(base.getProjectName()));
         pipeline.setRequirementTitle(snapshot.path("requirementTitle").asText(base.getRequirementTitle()));
         pipeline.setTemplateFile(snapshot.path("templateFile").asText(base.getTemplateFile()));
         pipeline.setProjectMode(snapshot.path("projectMode").asText(base.getProjectMode()));
         pipeline.setCodeLevel(snapshot.path("codeLevel").asText(base.getCodeLevel()));
-        pipeline.setGenerateFrontend(snapshot.path("generateFrontend").isMissingNode()
-                ? base.getGenerateFrontend() : snapshot.path("generateFrontend").asInt());
-        pipeline.setGenerateBackend(snapshot.path("generateBackend").isMissingNode()
-                ? base.getGenerateBackend() : snapshot.path("generateBackend").asInt());
+        pipeline.setGenerateFrontend(nullableInteger(snapshot, "generateFrontend", base.getGenerateFrontend()));
+        pipeline.setGenerateBackend(nullableInteger(snapshot, "generateBackend", base.getGenerateBackend()));
         pipeline.setFrontendOutputPath(snapshot.path("frontendOutputPath").asText(base.getFrontendOutputPath()));
         pipeline.setBackendOutputPath(snapshot.path("backendOutputPath").asText(base.getBackendOutputPath()));
-        pipeline.setSkillId(snapshot.path("skillId").isMissingNode() || snapshot.path("skillId").isNull()
-                ? base.getSkillId() : snapshot.path("skillId").asLong());
+        pipeline.setSkillId(nullableLong(snapshot, "skillId", base.getSkillId()));
         pipeline.setSkillSnapshot(snapshot.path("skillSnapshot").asText(base.getSkillSnapshot()));
-        pipeline.setAutoDeployEnabled(snapshot.path("autoDeployEnabled").isMissingNode()
-                ? base.getAutoDeployEnabled() : snapshot.path("autoDeployEnabled").asInt());
-        pipeline.setDeployProfileId(snapshot.path("deployProfileId").isMissingNode() || snapshot.path("deployProfileId").isNull()
-                ? base.getDeployProfileId() : snapshot.path("deployProfileId").asLong());
+        pipeline.setAutoDeployEnabled(nullableInteger(snapshot, "autoDeployEnabled", base.getAutoDeployEnabled()));
+        pipeline.setDeployProfileId(nullableLong(snapshot, "deployProfileId", base.getDeployProfileId()));
         pipeline.setDeployProfileSnapshot(snapshot.path("deployProfileSnapshot").asText(base.getDeployProfileSnapshot()));
-        pipeline.setCodeQualityEnabled(snapshot.path("codeQualityEnabled").isMissingNode()
-                ? base.getCodeQualityEnabled() : snapshot.path("codeQualityEnabled").asInt());
-        pipeline.setCodeQualityStandardId(snapshot.path("codeQualityStandardId").isMissingNode() || snapshot.path("codeQualityStandardId").isNull()
-                ? base.getCodeQualityStandardId() : snapshot.path("codeQualityStandardId").asLong());
+        pipeline.setCodeQualityEnabled(nullableInteger(snapshot, "codeQualityEnabled", base.getCodeQualityEnabled()));
+        pipeline.setCodeQualityStandardId(nullableLong(snapshot, "codeQualityStandardId", base.getCodeQualityStandardId()));
         pipeline.setCodeQualityStandardSnapshot(snapshot.path("codeQualityStandardSnapshot").asText(base.getCodeQualityStandardSnapshot()));
         pipeline.setCodeQualityGateSnapshot(snapshot.path("codeQualityGateSnapshot").asText(base.getCodeQualityGateSnapshot()));
         pipeline.setQualityModelCode(snapshot.path("qualityModelCode").asText(base.getQualityModelCode()));
         return pipeline;
+    }
+
+    private Long nullableLong(JsonNode object, String fieldName, Long fallback) {
+        JsonNode value = object.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return fallback;
+        }
+        if (value.isNumber()) {
+            return value.asLong();
+        }
+        String text = value.asText();
+        return text == null || text.isBlank() ? fallback : Long.parseLong(text);
+    }
+
+    private Integer nullableInteger(JsonNode object, String fieldName, Integer fallback) {
+        JsonNode value = object.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return fallback;
+        }
+        if (value.isNumber()) {
+            return value.asInt();
+        }
+        String text = value.asText();
+        return text == null || text.isBlank() ? fallback : Integer.parseInt(text);
     }
 
     private Map<String, Object> directoryNode(Path absolutePath, String label, String relativePath, int depth) {
@@ -2278,6 +2336,16 @@ public class AutomationPipelineService {
         node.put("path", relativePath);
         node.put("disabled", relativePath.isBlank());
         node.put("children", depth >= MAX_DIRECTORY_TREE_DEPTH ? List.of() : listChildDirectories(absolutePath, depth + 1));
+        return node;
+    }
+
+    private Map<String, Object> directoryOption(String label, String relativePath) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("label", label);
+        node.put("value", relativePath);
+        node.put("path", relativePath);
+        node.put("disabled", false);
+        node.put("children", List.of());
         return node;
     }
 
@@ -2440,6 +2508,56 @@ public class AutomationPipelineService {
         }
         if (Boolean.TRUE.equals(request.getCodeQualityEnabled()) && isBlank(request.getQualityModelCode())) {
             throw new IllegalArgumentException("qualityModelCode is required when code quality is enabled");
+        }
+    }
+
+    private Long currentTenantIdOrDefault() {
+        try {
+            return TenantContext.tenantId();
+        } catch (IllegalStateException ignored) {
+            return 1L;
+        }
+    }
+
+    private String resolveProjectKey(AutomationPipelineRequest request) {
+        if (!isBlank(request.getProjectKey())) {
+            return normalizeProjectKey(request.getProjectKey());
+        }
+        return normalizeProjectKey(request.getProjectName());
+    }
+
+    private String normalizeProjectKey(String value) {
+        String source = value == null ? "" : value.trim();
+        String normalized = source.toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("^-+", "")
+                .replaceAll("-+$", "");
+        if (normalized.isBlank() || isMostlyNonAsciiProjectName(source, normalized)) {
+            return "project-" + shortHash(source);
+        }
+        return normalized;
+    }
+
+    private boolean isMostlyNonAsciiProjectName(String source, String normalized) {
+        if (source == null || source.isBlank()) {
+            return false;
+        }
+        long nonAsciiCount = source.codePoints().filter(codePoint -> codePoint > 127).count();
+        if (nonAsciiCount == 0) {
+            return false;
+        }
+        int asciiTokenLength = normalized.replace("-", "").length();
+        int sourceLength = source.codePointCount(0, source.length());
+        return asciiTokenLength < 6 || asciiTokenLength * 2 < sourceLength;
+    }
+
+    private String shortHash(String value) {
+        String source = isBlank(value) ? UUID.randomUUID().toString() : value.trim();
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, 10);
+        } catch (NoSuchAlgorithmException e) {
+            return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8)).toString().replace("-", "").substring(0, 10);
         }
     }
 

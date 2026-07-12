@@ -28,6 +28,7 @@ node_modules/
 # Build
 dist/
 build/
+.codex-build-check/
 .tmp-build*/
 *.class
 marketDoc/generated-code/

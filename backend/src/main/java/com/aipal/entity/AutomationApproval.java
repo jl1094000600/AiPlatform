@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 public class AutomationApproval {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private Long pipelineId;
     private Long stageRunId;
     private String approvalType;

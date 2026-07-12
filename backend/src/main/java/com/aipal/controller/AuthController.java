@@ -39,6 +39,9 @@ public class AuthController {
         if (user.getStatus() != 1) {
             return Result.forbidden("用户已禁用");
         }
+        if (PasswordEncoder.needsRehash(user.getPassword())) {
+            userService.updatePasswordHash(user.getId(), PasswordEncoder.encode(request.getPassword()));
+        }
         Long tenantId = tenantAuthService.resolveTenantId(user, null);
         List<String> roles = tenantAuthService.listRoleCodes(user, tenantId);
         List<String> permissions = tenantAuthService.listPermissionCodes(user, tenantId);

@@ -3,8 +3,10 @@ package com.aipal.service.memory;
 import com.aipal.common.BizException;
 import com.aipal.entity.AiMemoryProject;
 import com.aipal.entity.AiMemoryProjectMember;
+import com.aipal.entity.SysUser;
 import com.aipal.mapper.AiMemoryProjectMapper;
 import com.aipal.mapper.AiMemoryProjectMemberMapper;
+import com.aipal.mapper.SysUserMapper;
 import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ public class MemoryProjectService {
 
     private final AiMemoryProjectMapper projectMapper;
     private final AiMemoryProjectMemberMapper memberMapper;
+    private final SysUserMapper userMapper;
     private final MemoryTrustedProjectContext trustedProjectContext;
 
     @Transactional
@@ -64,6 +67,20 @@ public class MemoryProjectService {
     }
 
     @Transactional
+    public AiMemoryProject ensureWorkspaceForPipeline(String projectKey, String projectName) {
+        if (projectKey == null || projectKey.isBlank() || projectName == null || projectName.isBlank()) {
+            throw new BizException(400, "项目键和项目名称不能为空");
+        }
+        AiMemoryProject existing = projectMapper.selectOne(activeProjectQuery()
+                .eq(AiMemoryProject::getProjectKey, projectKey.trim())
+                .last("LIMIT 1"));
+        if (existing != null) {
+            return requireAccessibleProject(projectKey);
+        }
+        return create(projectKey, projectName, "DELIVERY_PROJECT");
+    }
+
+    @Transactional
     public AiMemoryProjectMember addMember(String projectKey, Long userId, String role) {
         AiMemoryProject project = requireManageableProject(projectKey);
         if (userId == null) throw new BizException(400, "成员用户不能为空");
@@ -86,6 +103,24 @@ public class MemoryProjectService {
                 .eq(AiMemoryProjectMember::getStatus, "ACTIVE"));
         if (memberCount == null || memberCount == 0) throw new BizException(403, "不是该项目成员");
         return project;
+    }
+
+    public List<ProjectMemberView> listMentionableUsers(String projectKey) {
+        AiMemoryProject project = requireAccessibleProject(projectKey);
+        return memberMapper.selectList(new LambdaQueryWrapper<AiMemoryProjectMember>()
+                        .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
+                        .eq(AiMemoryProjectMember::getProjectId, project.getId())
+                        .eq(AiMemoryProjectMember::getStatus, "ACTIVE")
+                        .orderByAsc(AiMemoryProjectMember::getId))
+                .stream()
+                .map(member -> {
+                    SysUser user = userMapper.selectById(member.getUserId());
+                    return new ProjectMemberView(member.getUserId(),
+                            user == null ? null : user.getUsername(),
+                            user == null ? null : user.getRealName(),
+                            member.getMemberRole());
+                })
+                .toList();
     }
 
     /** Project owner/manager check for operations that change shared project execution state. */
@@ -140,5 +175,8 @@ public class MemoryProjectService {
         member.setUpdateTime(LocalDateTime.now());
         memberMapper.updateById(member);
         return member;
+    }
+
+    public record ProjectMemberView(Long userId, String username, String realName, String memberRole) {
     }
 }

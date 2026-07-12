@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 public class AutomationStageRun {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private Long pipelineId;
     private String stageKey;
     private String stageName;

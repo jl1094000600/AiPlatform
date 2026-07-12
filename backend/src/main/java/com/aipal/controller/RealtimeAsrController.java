@@ -1,6 +1,7 @@
 package com.aipal.controller;
 
 import com.aipal.common.Result;
+import com.aipal.security.RequirePermission;
 import com.aipal.service.RealtimeAsrSessionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,6 +15,7 @@ public class RealtimeAsrController {
     private final RealtimeAsrSessionService sessionService;
 
     @PostMapping("/sessions")
+    @RequirePermission("automation:create")
     public Result<?> createSession() {
         return Result.success(sessionService.createSession());
     }
