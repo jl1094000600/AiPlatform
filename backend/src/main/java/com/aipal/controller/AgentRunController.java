@@ -3,6 +3,8 @@ package com.aipal.controller;
 import com.aipal.common.Result;
 import com.aipal.entity.AgentRun;
 import com.aipal.security.RequirePermission;
+import com.aipal.security.TenantContext;
+import com.aipal.service.AgentRunStreamEventService;
 import com.aipal.service.AgentRunService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
@@ -18,12 +20,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/agent-runs")
 @RequiredArgsConstructor
 public class AgentRunController {
     private final AgentRunService agentRunService;
+    private final AgentRunStreamEventService streamEventService;
 
     @PostMapping
     @RequirePermission("agent:invoke")
@@ -51,6 +55,25 @@ public class AgentRunController {
     @RequirePermission("agent:invoke")
     public Result<AgentRunService.RunDetail> detail(@PathVariable Long id) {
         return Result.success(agentRunService.getDetail(id));
+    }
+
+    @GetMapping("/{id}/tool-calls")
+    @RequirePermission("agent:invoke")
+    public Result<List<AgentRunService.ToolCallView>> toolCalls(@PathVariable Long id) {
+        return Result.success(agentRunService.listToolCalls(id));
+    }
+
+    @GetMapping("/{id}/stream")
+    @RequirePermission("agent:invoke")
+    public Result<java.util.List<AgentRunStreamEventService.RunStreamEventView>> stream(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long afterSequenceNo,
+            @RequestParam(defaultValue = "200") int limit) {
+        AgentRun run = agentRunService.get(id);
+        boolean includeRestricted = TenantContext.hasPermission("agent:manage")
+                || TenantContext.hasPermission("memory:policy");
+        return Result.success(streamEventService.listForRun(run.getTenantId(), run.getId(), afterSequenceNo, limit,
+                includeRestricted));
     }
 
     @PostMapping("/{id}/cancel")

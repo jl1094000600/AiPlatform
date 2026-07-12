@@ -1,6 +1,7 @@
 package com.aipal.service;
 
 import com.aipal.agent.runtime.AgentRunStatus;
+import com.aipal.agent.runtime.AgentRunStreamEventType;
 import com.aipal.agent.runtime.AgentStepType;
 import com.aipal.agent.runtime.AgentTaskStatus;
 import com.aipal.entity.AgentArtifact;
@@ -28,7 +29,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-/** Executes the P0 root RUN task only. Tool loops and child delegation remain P1 work. */
+/** Executes the root RUN task. v1 remains a single model call; v2 is delegated to AgentLoopExecutor. */
 @Service
 @RequiredArgsConstructor
 public class AgentRunExecutionService {
@@ -38,7 +39,8 @@ public class AgentRunExecutionService {
     private final AgentArtifactMapper artifactMapper;
     private final AgentTaskService taskService;
     private final AgentRunEventService eventService;
-    private final AgentService agentService;
+    private final AgentRunStreamEventService streamEventService;
+    private final AgentLoopExecutor loopExecutor;
     private final AgentRunExecutionSnapshotService executionSnapshotService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -56,16 +58,15 @@ public class AgentRunExecutionService {
         AgentRun run = runMapper.selectById(task.getRunId());
         if (run == null || !TenantContext.tenantId().equals(run.getTenantId()) || !AgentRunStatus.RUNNING.name().equals(run.getStatus())) return;
         AgentStep step = startStep(run, task);
+        recordRunStarted(run, step);
         ScheduledFuture<?> heartbeat = startHeartbeat(task, workerId);
         try {
             Object input = objectMapper.readValue(run.getInputJson(), Object.class);
             Map<String, Object> definition = executionSnapshotService.decrypt(run);
-            Map<String, Object> runtime = mapValue(definition.get("runtimeConfig"));
-            Long modelId = requiredLong(runtime, "modelId");
-            Map<String, Object> result = agentService.callAgentFrozen(run.getAgentId(), input, run.getOwnerUserId(), null,
-                    modelId, nullableLong(runtime.get("promptId")), nullableLong(runtime.get("promptVersionId")));
+            AgentLoopExecutor.LoopResult loopResult = loopExecutor.execute(run, input, definition);
+            Map<String, Object> result = loopResult.output();
             String resultJson = objectMapper.writeValueAsString(result);
-            int totalTokens = number(result.get("totalTokens"));
+            int totalTokens = loopResult.totalTokens();
             if (run.getMaxTotalTokens() != null && totalTokens > run.getMaxTotalTokens()) {
                 transactionTemplate.executeWithoutResult(ignored -> finalizeBudgetExceeded(run, task, step, workerId, totalTokens));
                 return;
@@ -125,6 +126,11 @@ public class AgentRunExecutionService {
         if (changed == 1) {
             createFinalArtifact(run, step, resultJson);
             eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.WAITING_APPROVAL.name(), "Awaiting artifact approval");
+            streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.ARTIFACT_CREATED,
+                    Map.of("status", "PENDING_APPROVAL", "stepId", step.getId(), "artifactType", "AGENT_RESULT"), true);
+            streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.APPROVAL_REQUIRED,
+                    Map.of("status", AgentRunStatus.WAITING_APPROVAL.name(), "stepId", step.getId(),
+                            "totalTokens", totalTokens, "artifactStatus", "PENDING_APPROVAL"), true);
         }
     }
 
@@ -150,7 +156,12 @@ public class AgentRunExecutionService {
             update.setUpdateTime(now);
             int changed = runMapper.update(update, new LambdaUpdateWrapper<AgentRun>().eq(AgentRun::getId, run.getId())
                     .eq(AgentRun::getTenantId, run.getTenantId()).eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
-            if (changed == 1) eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), reason);
+            if (changed == 1) {
+                eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), reason);
+                streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_FAILED,
+                        Map.of("status", AgentRunStatus.FAILED.name(), "stepId", step.getId(),
+                                "reason", safeFailureReason(reason)), true);
+            }
         }
     }
 
@@ -176,7 +187,18 @@ public class AgentRunExecutionService {
         update.setUpdateTime(now);
         int changed = runMapper.update(update, new LambdaUpdateWrapper<AgentRun>().eq(AgentRun::getId, run.getId())
                 .eq(AgentRun::getTenantId, run.getTenantId()).eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
-        if (changed == 1) eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), "Token budget exceeded");
+        if (changed == 1) {
+            eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), "Token budget exceeded");
+            streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_FAILED,
+                    Map.of("status", AgentRunStatus.FAILED.name(), "stepId", step.getId(),
+                            "reason", "Token budget exceeded", "totalTokens", totalTokens), true);
+        }
+    }
+
+    private void recordRunStarted(AgentRun run, AgentStep step) {
+        streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_STARTED,
+                Map.of("status", AgentRunStatus.RUNNING.name(), "stepId", step.getId(),
+                        "loopVersion", run.getLoopVersion() == null ? "v1" : run.getLoopVersion()), true);
     }
 
     private boolean completeOwnedTask(AgentTask task, String workerId, AgentTaskStatus status, String reason) {
@@ -223,19 +245,9 @@ public class AgentRunExecutionService {
         artifactMapper.insert(artifact);
     }
 
-    private int number(Object value) { return value instanceof Number number ? number.intValue() : 0; }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> mapValue(Object value) {
-        if (value instanceof Map<?, ?> map) return (Map<String, Object>) map;
-        throw new IllegalStateException("Frozen runtime configuration is missing");
+    private String safeFailureReason(String reason) {
+        if (reason == null || reason.isBlank()) return "Execution failed";
+        return reason.length() <= 128 ? reason : reason.substring(0, 128);
     }
 
-    private Long requiredLong(Map<String, Object> value, String key) {
-        Long result = nullableLong(value.get(key));
-        if (result == null) throw new IllegalStateException("Frozen " + key + " is missing");
-        return result;
-    }
-
-    private Long nullableLong(Object value) { return value instanceof Number number ? number.longValue() : null; }
 }

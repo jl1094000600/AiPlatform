@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class AiAgent {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private String agentCode;
     private String agentName;
     private String description;

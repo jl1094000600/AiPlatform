@@ -3,6 +3,7 @@ package com.aipal.service;
 import com.aipal.entity.AiAgentVersion;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AiAgentVersionMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,9 @@ public class AgentVersionService {
     }
 
     public boolean saveVersion(AiAgentVersion version) {
+        if (version.getTenantId() == null && TenantContext.get() != null) {
+            version.setTenantId(TenantContext.tenantId());
+        }
         return versionMapper.insert(version) > 0;
     }
 

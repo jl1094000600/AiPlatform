@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 public class AiAgentRuntimeConfig {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private Long agentId;
     private String agentCode;
     private Long modelId;

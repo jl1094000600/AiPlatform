@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS agent_run (
     result_json LONGTEXT DEFAULT NULL,
     trace_id VARCHAR(96) DEFAULT NULL,
     memory_trace_id VARCHAR(96) DEFAULT NULL,
+    loop_version VARCHAR(16) NOT NULL DEFAULT 'v1',
+    context_window_tokens INT NOT NULL DEFAULT 0,
+    context_used_tokens INT NOT NULL DEFAULT 0,
+    compact_count INT NOT NULL DEFAULT 0,
+    current_turn INT NOT NULL DEFAULT 0,
+    stop_reason VARCHAR(64) DEFAULT NULL,
     max_steps INT NOT NULL DEFAULT 8,
     max_child_tasks INT NOT NULL DEFAULT 5,
     max_total_tokens INT NOT NULL DEFAULT 8000,
@@ -41,11 +47,16 @@ CREATE TABLE IF NOT EXISTS agent_step (
     step_no INT NOT NULL,
     step_type VARCHAR(32) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    tool_call_id BIGINT DEFAULT NULL,
     tool_name VARCHAR(128) DEFAULT NULL,
     tool_idempotency_key VARCHAR(128) DEFAULT NULL,
     input_json LONGTEXT DEFAULT NULL,
     output_json LONGTEXT DEFAULT NULL,
     trace_id VARCHAR(96) DEFAULT NULL,
+    permission_decision VARCHAR(32) DEFAULT NULL,
+    risk_level VARCHAR(32) DEFAULT NULL,
+    compact_status VARCHAR(32) DEFAULT NULL,
+    stream_event_count INT NOT NULL DEFAULT 0,
     input_tokens INT NOT NULL DEFAULT 0,
     output_tokens INT NOT NULL DEFAULT 0,
     error_message VARCHAR(2048) DEFAULT NULL,
@@ -152,3 +163,128 @@ CREATE TABLE IF NOT EXISTS agent_run_event (
     PRIMARY KEY (id),
     KEY idx_agent_run_event_run (tenant_id, run_id, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_tool_definition (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tool_name VARCHAR(128) NOT NULL,
+    description VARCHAR(512) DEFAULT NULL,
+    input_schema LONGTEXT DEFAULT NULL,
+    output_schema LONGTEXT DEFAULT NULL,
+    risk_level VARCHAR(32) NOT NULL,
+    concurrency_safe TINYINT NOT NULL DEFAULT 0,
+    idempotent TINYINT NOT NULL DEFAULT 0,
+    timeout_seconds INT NOT NULL DEFAULT 30,
+    requires_approval TINYINT NOT NULL DEFAULT 0,
+    tenant_scopes LONGTEXT DEFAULT NULL,
+    status TINYINT NOT NULL DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_tool_name (tool_name),
+    KEY idx_agent_tool_status_risk (status, risk_level, tool_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_tool_policy (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    agent_id BIGINT NOT NULL DEFAULT 0,
+    agent_version_id BIGINT NOT NULL DEFAULT 0,
+    tool_name VARCHAR(128) NOT NULL,
+    decision VARCHAR(32) NOT NULL DEFAULT 'DENY',
+    risk_level VARCHAR(32) DEFAULT NULL,
+    requires_approval TINYINT NOT NULL DEFAULT 0,
+    policy_config LONGTEXT DEFAULT NULL,
+    status TINYINT NOT NULL DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_tool_policy_scope (tenant_id, agent_id, agent_version_id, tool_name, status),
+    KEY idx_agent_tool_policy_lookup (tenant_id, agent_id, agent_version_id, tool_name, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_tool_call (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    step_id BIGINT DEFAULT NULL,
+    call_id VARCHAR(96) NOT NULL,
+    tool_name VARCHAR(128) NOT NULL,
+    risk_level VARCHAR(32) NOT NULL,
+    permission_decision VARCHAR(32) DEFAULT NULL,
+    status VARCHAR(32) NOT NULL,
+    idempotency_key VARCHAR(128) DEFAULT NULL,
+    input_json LONGTEXT DEFAULT NULL,
+    output_json LONGTEXT DEFAULT NULL,
+    output_summary TEXT DEFAULT NULL,
+    error_message VARCHAR(2048) DEFAULT NULL,
+    input_tokens INT NOT NULL DEFAULT 0,
+    output_tokens INT NOT NULL DEFAULT 0,
+    start_time DATETIME DEFAULT NULL,
+    end_time DATETIME DEFAULT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_tool_call_id (tenant_id, call_id),
+    UNIQUE KEY uk_agent_tool_call_idempotency (tenant_id, idempotency_key),
+    KEY idx_agent_tool_call_run (tenant_id, run_id, create_time),
+    KEY idx_agent_tool_call_tool (tenant_id, tool_name, status, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_context_snapshot (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    snapshot_version INT NOT NULL,
+    snapshot_type VARCHAR(32) NOT NULL,
+    context_summary LONGTEXT DEFAULT NULL,
+    raw_context_hash VARCHAR(64) DEFAULT NULL,
+    input_tokens INT NOT NULL DEFAULT 0,
+    output_tokens INT NOT NULL DEFAULT 0,
+    compact_reason VARCHAR(256) DEFAULT NULL,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_context_snapshot_version (run_id, snapshot_version),
+    KEY idx_agent_context_snapshot_run (tenant_id, run_id, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS agent_run_stream_event (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    tenant_id BIGINT NOT NULL,
+    run_id BIGINT NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    sequence_no BIGINT NOT NULL,
+    payload_json LONGTEXT DEFAULT NULL,
+    visible_to_business TINYINT NOT NULL DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_deleted TINYINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_run_stream_sequence (run_id, sequence_no),
+    KEY idx_agent_run_stream_run (tenant_id, run_id, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO agent_tool_definition
+(tool_name, description, input_schema, output_schema, risk_level, concurrency_safe, idempotent, timeout_seconds, requires_approval, tenant_scopes, status)
+VALUES
+('memory.search', 'Search authorized project memory and knowledge context.',
+ '{"type":"object","properties":{"query":{"type":"string"},"topK":{"type":"integer","minimum":1,"maximum":20}},"required":["query"]}',
+ '{"type":"object","properties":{"items":{"type":"array"}}}', 'READ_ONLY', 1, 1, 10, 0, '{"scope":"project"}', 1),
+('model.ask', 'Ask a configured model for bounded sub-reasoning without external side effects.',
+ '{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}',
+ '{"type":"object","properties":{"answer":{"type":"string"}}}', 'READ_ONLY', 1, 1, 30, 0, '{"scope":"tenant"}', 1),
+('agent.invoke', 'Invoke an already registered platform agent.',
+ '{"type":"object","properties":{"agentCode":{"type":"string"},"payload":{"type":"object"}},"required":["agentCode"]}',
+ '{"type":"object","properties":{"result":{"type":"object"}}}', 'MUTATING', 0, 0, 60, 1, '{"scope":"project"}', 1),
+('workflow.trigger', 'Trigger a deployed workflow from an Agent Run.',
+ '{"type":"object","properties":{"workflowId":{"type":"integer"},"params":{"type":"object"}},"required":["workflowId"]}',
+ '{"type":"object","properties":{"executionId":{"type":"string"}}}', 'MUTATING', 0, 0, 60, 1, '{"scope":"project"}', 1),
+('artifact.create', 'Create a structured artifact that must enter approval before final delivery.',
+ '{"type":"object","properties":{"title":{"type":"string"},"artifactType":{"type":"string"},"content":{"type":"object"}},"required":["title","artifactType"]}',
+ '{"type":"object","properties":{"artifactId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 1, 20, 1, '{"scope":"project"}', 1);
+
+UPDATE agent_tool_definition
+SET input_schema = '{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}'
+WHERE tool_name = 'model.ask' AND input_schema LIKE '%modelCode%';

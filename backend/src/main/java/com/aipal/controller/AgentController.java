@@ -2,6 +2,7 @@ package com.aipal.controller;
 
 import com.aipal.common.Result;
 import com.aipal.config.JwtConfig;
+import com.aipal.dto.AgentRuntimeConfigView;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
@@ -123,8 +124,8 @@ public class AgentController {
 
     @GetMapping("/{id}/runtime-config")
     @RequirePermission("agent:list")
-    public Result<AiAgentRuntimeConfig> getRuntimeConfig(@PathVariable Long id) {
-        return Result.success(runtimeConfigService.getOrDefaultByAgentId(id));
+    public Result<AgentRuntimeConfigView> getRuntimeConfig(@PathVariable Long id) {
+        return Result.success(AgentRuntimeConfigView.from(runtimeConfigService.getOrDefaultByAgentId(id)));
     }
 
     @PutMapping("/{id}/runtime-config")

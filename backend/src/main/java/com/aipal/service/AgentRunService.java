@@ -8,9 +8,11 @@ import com.aipal.common.TraceContext;
 import com.aipal.entity.AgentMemorySnapshot;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentRunEvent;
+import com.aipal.entity.AgentRunStreamEvent;
 import com.aipal.entity.AgentStep;
 import com.aipal.entity.AgentTask;
 import com.aipal.entity.AgentArtifact;
+import com.aipal.entity.AgentToolCall;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.AiAgentRuntimeConfig;
 import com.aipal.entity.AiAgentVersion;
@@ -19,8 +21,10 @@ import com.aipal.mapper.AgentMemorySnapshotMapper;
 import com.aipal.mapper.AgentArtifactMapper;
 import com.aipal.mapper.AgentRunMapper;
 import com.aipal.mapper.AgentRunEventMapper;
+import com.aipal.mapper.AgentRunStreamEventMapper;
 import com.aipal.mapper.AgentStepMapper;
 import com.aipal.mapper.AgentTaskMapper;
+import com.aipal.mapper.AgentToolCallMapper;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.security.TenantContext;
 import com.aipal.service.memory.MemoryContext;
@@ -53,15 +57,18 @@ public class AgentRunService {
     private final AgentRunMapper runMapper;
     private final AgentStepMapper stepMapper;
     private final AgentTaskMapper taskMapper;
+    private final AgentToolCallMapper toolCallMapper;
     private final AgentTaskService agentTaskService;
     private final AgentMemorySnapshotMapper snapshotMapper;
     private final AgentArtifactMapper artifactMapper;
     private final AgentRunEventMapper eventMapper;
+    private final AgentRunStreamEventMapper streamEventMapper;
     private final AgentRunEventService eventService;
     private final AiAgentMapper agentMapper;
     private final AgentVersionService agentVersionService;
     private final AgentRuntimeConfigService runtimeConfigService;
     private final AgentRunExecutionSnapshotService executionSnapshotService;
+    private final AgentToolSnapshotService toolSnapshotService;
     private final MemoryProjectService memoryProjectService;
     private final MemoryOrchestrator memoryOrchestrator;
     private final ObjectMapper objectMapper;
@@ -158,6 +165,17 @@ public class AgentRunService {
         return runMapper.selectPage(new Page<>(pageNum, pageSize), query);
     }
 
+    public List<AgentRun> listByProjectKey(String projectKey, int limit) {
+        try (var ignored = memoryProjectService.openAccessibleProject(projectKey)) {
+            int cappedLimit = Math.max(1, Math.min(limit, 50));
+            return runMapper.selectList(new LambdaQueryWrapper<AgentRun>()
+                    .eq(AgentRun::getTenantId, TenantContext.tenantId())
+                    .eq(AgentRun::getProjectKey, projectKey.trim())
+                    .orderByDesc(AgentRun::getCreateTime)
+                    .last("LIMIT " + cappedLimit));
+        }
+    }
+
     /**
      * Business-facing runtime detail. Raw input/output, prompts, memory body and artifact body
      * intentionally stay out of this projection; those need a separate audited operator flow.
@@ -199,8 +217,30 @@ public class AgentRunService {
                 .stream().map(event -> new EventView(event.getId(), event.getFromStatus(), event.getToStatus(),
                         event.getActorName(), safeEventReason(event.getReason()), event.getTraceId(), event.getCreateTime()))
                 .toList();
-        return new RunDetail(toRunView(run), steps, tasks, memories, artifacts, events,
+        List<StreamEventView> streamEvents = streamEventMapper.selectList(new LambdaQueryWrapper<AgentRunStreamEvent>()
+                        .eq(AgentRunStreamEvent::getTenantId, tenantId).eq(AgentRunStreamEvent::getRunId, runId)
+                        .eq(AgentRunStreamEvent::getVisibleToBusiness, 1)
+                        .orderByAsc(AgentRunStreamEvent::getSequenceNo).orderByAsc(AgentRunStreamEvent::getId))
+                .stream().map(event -> new StreamEventView(event.getId(), event.getEventType(), event.getSequenceNo(),
+                        event.getPayloadJson(), event.getCreateTime()))
+                .toList();
+        return new RunDetail(toRunView(run), steps, tasks, memories, artifacts, events, streamEvents,
                 memories.isEmpty() ? "No eligible project memory was referenced for this run" : null);
+    }
+
+    public List<ToolCallView> listToolCalls(Long runId) {
+        AgentRun run = get(runId);
+        return toolCallMapper.selectList(new LambdaQueryWrapper<AgentToolCall>()
+                        .eq(AgentToolCall::getTenantId, run.getTenantId())
+                        .eq(AgentToolCall::getRunId, run.getId())
+                        .orderByAsc(AgentToolCall::getStartTime)
+                        .orderByAsc(AgentToolCall::getId))
+                .stream()
+                .map(call -> new ToolCallView(call.getId(), call.getStepId(), call.getCallId(), call.getToolName(),
+                        call.getRiskLevel(), call.getPermissionDecision(), call.getStatus(),
+                        call.getOutputSummary(), safeStatusMessage(call.getStatus(), call.getErrorMessage()),
+                        call.getInputTokens(), call.getOutputTokens(), call.getStartTime(), call.getEndTime()))
+                .toList();
     }
 
     @Transactional
@@ -336,6 +376,7 @@ public class AgentRunService {
         runtimeSnapshot.put("systemPromptHash", sha256(defaultString(runtime.getSystemPrompt())));
         runtimeSnapshot.put("userPromptTemplateHash", sha256(defaultString(runtime.getUserPromptTemplate())));
         definition.put("runtimeConfig", runtimeSnapshot);
+        definition.put(AgentToolSnapshotService.SNAPSHOT_KEY, toolSnapshotService.snapshotFor(version));
         definition.put("snapshotFormat", "agent-runtime-v1");
         return definition;
     }
@@ -487,7 +528,7 @@ public class AgentRunService {
     }
     public record RunDetail(RunView run, List<StepView> steps, List<TaskView> tasks,
                             List<MemorySnapshotView> memorySnapshots, List<ArtifactView> artifacts, List<EventView> events,
-                            String memoryReferenceNotice) {}
+                            List<StreamEventView> streamEvents, String memoryReferenceNotice) {}
     public record RunView(Long id, String projectKey, String businessType, String businessId, Long agentId,
                           Long agentVersionId, String status, String traceId, String memoryTraceId, Integer totalTokens,
                           String errorMessage, boolean canCancel, boolean canApprove, LocalDateTime createTime, LocalDateTime startTime,
@@ -503,4 +544,10 @@ public class AgentRunService {
                                LocalDateTime createTime, LocalDateTime updateTime) {}
     public record EventView(Long id, String fromStatus, String toStatus, String actorName, String reason,
                             String traceId, LocalDateTime createTime) {}
+    public record StreamEventView(Long id, String eventType, Long sequenceNo, String payloadJson,
+                                  LocalDateTime createTime) {}
+    public record ToolCallView(Long id, Long stepId, String callId, String toolName, String riskLevel,
+                               String permissionDecision, String status, String outputSummary, String errorMessage,
+                               Integer inputTokens, Integer outputTokens, LocalDateTime startTime,
+                               LocalDateTime endTime) {}
 }

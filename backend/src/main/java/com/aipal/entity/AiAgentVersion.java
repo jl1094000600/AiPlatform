@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class AiAgentVersion {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long tenantId;
     private Long agentId;
     private String version;
     private String changelog;

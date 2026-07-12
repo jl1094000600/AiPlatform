@@ -11,6 +11,7 @@ import com.aipal.mapper.AgentHeartbeatMapper;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AiModelMapper;
 import com.aipal.mapper.MonCallRecordMapper;
+import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +61,9 @@ public class AgentService {
     }
 
     public boolean saveAgent(AiAgent agent) {
+        if (agent.getTenantId() == null && TenantContext.get() != null) {
+            agent.setTenantId(TenantContext.tenantId());
+        }
         if (agent.getStatus() == null) {
             agent.setStatus(2);
         }
@@ -96,6 +100,7 @@ public class AgentService {
         AiAgentVersion latestVersion = agentVersionService.getLatestVersion(id);
         if (latestVersion == null) {
             AiAgentVersion version = new AiAgentVersion();
+            version.setTenantId(agent.getTenantId());
             version.setAgentId(id);
             version.setVersion("1.0.0");
             version.setStatus(1);
