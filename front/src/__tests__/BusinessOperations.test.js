@@ -144,6 +144,21 @@ const testApprovalActionUsesCurrentRowId = () => {
 
 testApprovalActionUsesCurrentRowId()
 
+const testTokenUsesSessionStorageHelper = () => {
+  const apiSource = readFileSync(new URL('../api/index.js', import.meta.url), 'utf8')
+  const loginSource = readFileSync(new URL('../views/Login.vue', import.meta.url), 'utf8')
+  const homeSource = readFileSync(new URL('../views/Home.vue', import.meta.url), 'utf8')
+  const storageSource = readFileSync(new URL('../utils/authStorage.js', import.meta.url), 'utf8')
+  assert.ok(apiSource.includes('getAuthToken()'))
+  assert.ok(loginSource.includes('setAuthToken(res.data.data.token)'))
+  assert.ok(homeSource.includes('setAuthToken(payload.token)'))
+  assert.ok(storageSource.includes('sessionStorage.setItem(TOKEN_KEY, token)'))
+  assert.equal(loginSource.includes("localStorage.setItem('token'"), false)
+  assert.equal(homeSource.includes("localStorage.setItem('token'"), false)
+}
+
+testTokenUsesSessionStorageHelper()
+
 const testModelTrainingDefaults = () => {
   const form = {
     modelPath: 'BAAI/bge-m3',

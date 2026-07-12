@@ -67,4 +67,25 @@ class SecurityConfigurationTest {
         assertFalse(loginPage.contains("admin123"));
         assertFalse(deploymentGuide.contains("admin123"));
     }
+
+    @Test
+    void requirementAndAsrBusinessEntrypointsRequirePermissions() throws Exception {
+        String requirementController = Files.readString(Path.of(
+                "src/main/java/com/aipal/controller/RequirementController.java"));
+        String realtimeAsrController = Files.readString(Path.of(
+                "src/main/java/com/aipal/controller/RealtimeAsrController.java"));
+
+        assertTrue(requirementController.contains("@RequirePermission(\"automation:create\")"));
+        assertTrue(requirementController.contains("@RequirePermission(\"automation:list\")"));
+        assertTrue(realtimeAsrController.contains("@RequirePermission(\"automation:create\")"));
+    }
+
+    @Test
+    void automationApprovalReviewerComesFromCurrentRequest() throws Exception {
+        String automationController = Files.readString(Path.of(
+                "src/main/java/com/aipal/controller/AutomationPipelineController.java"));
+
+        assertTrue(automationController.contains("HttpServletRequest httpRequest"));
+        assertTrue(automationController.contains("request.setReviewedBy(currentUsername(httpRequest))"));
+    }
 }

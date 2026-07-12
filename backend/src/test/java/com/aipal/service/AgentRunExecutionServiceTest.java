@@ -1,6 +1,7 @@
 package com.aipal.service;
 
 import com.aipal.agent.runtime.AgentRunStatus;
+import com.aipal.agent.runtime.AgentRunStreamEventType;
 import com.aipal.agent.runtime.AgentTaskStatus;
 import com.aipal.entity.AgentArtifact;
 import com.aipal.entity.AgentRun;
@@ -43,8 +44,8 @@ class AgentRunExecutionServiceTest {
     @Test
     void executesWithFrozenSnapshotAndCreatesPendingApprovalArtifact() {
         Fixtures fixtures = fixtures(100);
-        when(fixtures.agentService.callAgentFrozen(eq(11L), any(), eq(7L), eq(null),
-                eq(1001L), eq(3003L), eq(4004L))).thenReturn(Map.of("answer", "ok", "totalTokens", 24));
+        when(fixtures.loopExecutor.execute(eq(fixtures.run), any(), any()))
+                .thenReturn(new AgentLoopExecutor.LoopResult(Map.of("answer", "ok", "totalTokens", 24), 24));
 
         fixtures.service.execute(fixtures.task, "worker-a");
 
@@ -53,19 +54,24 @@ class AgentRunExecutionServiceTest {
         assertEquals("AGENT_RESULT", artifact.getValue().getArtifactType());
         assertEquals("PENDING_APPROVAL", artifact.getValue().getStatus());
         verify(fixtures.eventService).record(fixtures.run, AgentRunStatus.RUNNING.name(), AgentRunStatus.WAITING_APPROVAL.name(), "Awaiting artifact approval");
+        verify(fixtures.streamEventService).record(eq(1L), eq(99L), eq(AgentRunStreamEventType.RUN_STARTED), any(), eq(true));
+        verify(fixtures.streamEventService).record(eq(1L), eq(99L), eq(AgentRunStreamEventType.ARTIFACT_CREATED), any(), eq(true));
+        verify(fixtures.streamEventService).record(eq(1L), eq(99L), eq(AgentRunStreamEventType.APPROVAL_REQUIRED), any(), eq(true));
         fixtures.service.shutdownHeartbeatScheduler();
     }
 
     @Test
     void tokenBudgetExceededFailsWithoutArtifact() {
         Fixtures fixtures = fixtures(10);
-        when(fixtures.agentService.callAgentFrozen(eq(11L), any(), eq(7L), eq(null),
-                eq(1001L), eq(3003L), eq(4004L))).thenReturn(Map.of("answer", "too large", "totalTokens", 11));
+        when(fixtures.loopExecutor.execute(eq(fixtures.run), any(), any()))
+                .thenReturn(new AgentLoopExecutor.LoopResult(Map.of("answer", "too large", "totalTokens", 11), 11));
 
         fixtures.service.execute(fixtures.task, "worker-a");
 
         verify(fixtures.artifactMapper, never()).insert(any());
         verify(fixtures.eventService).record(fixtures.run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), "Token budget exceeded");
+        verify(fixtures.streamEventService).record(eq(1L), eq(99L), eq(AgentRunStreamEventType.RUN_STARTED), any(), eq(true));
+        verify(fixtures.streamEventService).record(eq(1L), eq(99L), eq(AgentRunStreamEventType.RUN_FAILED), any(), eq(true));
         fixtures.service.shutdownHeartbeatScheduler();
     }
 
@@ -77,7 +83,8 @@ class AgentRunExecutionServiceTest {
         AgentArtifactMapper artifactMapper = mock(AgentArtifactMapper.class);
         AgentTaskService taskService = mock(AgentTaskService.class);
         AgentRunEventService eventService = mock(AgentRunEventService.class);
-        AgentService agentService = mock(AgentService.class);
+        AgentRunStreamEventService streamEventService = mock(AgentRunStreamEventService.class);
+        AgentLoopExecutor loopExecutor = mock(AgentLoopExecutor.class);
         AgentRunExecutionSnapshotService snapshotService = mock(AgentRunExecutionSnapshotService.class);
         AgentRun run = run(maxTotalTokens);
         AgentTask task = task();
@@ -95,8 +102,9 @@ class AgentRunExecutionServiceTest {
                 "promptVersionId", 4004
         )));
         AgentRunExecutionService service = new AgentRunExecutionService(runMapper, taskMapper, stepMapper,
-                artifactMapper, taskService, eventService, agentService, snapshotService, new ObjectMapper(), transactionTemplate());
-        return new Fixtures(service, run, task, artifactMapper, eventService, agentService);
+                artifactMapper, taskService, eventService, streamEventService, loopExecutor, snapshotService,
+                new ObjectMapper(), transactionTemplate());
+        return new Fixtures(service, run, task, artifactMapper, eventService, streamEventService, loopExecutor);
     }
 
     private AgentRun run(int maxTotalTokens) {
@@ -136,5 +144,6 @@ class AgentRunExecutionServiceTest {
 
     private record Fixtures(AgentRunExecutionService service, AgentRun run, AgentTask task,
                             AgentArtifactMapper artifactMapper, AgentRunEventService eventService,
-                            AgentService agentService) {}
+                            AgentRunStreamEventService streamEventService,
+                            AgentLoopExecutor loopExecutor) {}
 }

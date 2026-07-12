@@ -38,6 +38,16 @@ class ModelTrainingServiceTest {
     }
 
     @Test
+    void rejectsUnsafeModelPath() {
+        ModelTrainingService service = new ModelTrainingService();
+        ModelTrainingRequest request = new ModelTrainingRequest();
+        request.setTrainData("bge-m3-training/data/sample_train.jsonl");
+        request.setModelPath("../models/private");
+
+        assertThrows(IllegalArgumentException.class, () -> service.createJob(request));
+    }
+
+    @Test
     void rejectsNonPositiveEpochs() {
         ModelTrainingService service = new ModelTrainingService();
         ModelTrainingRequest request = new ModelTrainingRequest();
