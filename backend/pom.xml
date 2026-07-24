@@ -159,6 +159,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
+
+        <!--
+            Netty 原生 DNS 解析器的平台差异：
+            1. Apple Silicon Mac 使用 osx-aarch_64；缺少时会因无法加载 x86_64 原生库而回退到 JDK DNS 实现。
+            2. Intel Mac 所需的 osx-x86_64 已由 Spring Boot / Reactor Netty 传递引入，无需重复声明。
+            3. Windows 不加载 macOS 原生库，会使用 Windows/JDK 的 DNS 实现，因此无需添加 Windows 专用依赖。
+        -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-resolver-dns-native-macos</artifactId>
+            <classifier>osx-aarch_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 
     <build>
