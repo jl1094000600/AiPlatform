@@ -5,6 +5,7 @@
 # Claude
 .claude/
 .superpowers/
+.worktrees/
 
 # Temporary README capture failures
 docs/assets/readme/dashboard.png
