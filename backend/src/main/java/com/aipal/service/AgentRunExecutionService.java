@@ -4,6 +4,12 @@ import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.agent.runtime.AgentRunStreamEventType;
 import com.aipal.agent.runtime.AgentStepType;
 import com.aipal.agent.runtime.AgentTaskStatus;
+import com.aipal.agent.runtime.budget.BudgetExceededException;
+import com.aipal.agent.runtime.budget.RunBudgetGuard;
+import com.aipal.agent.runtime.trace.RunTracer;
+import com.aipal.agent.runtime.trace.Span;
+import com.aipal.agent.runtime.trace.SpanStatus;
+import com.aipal.agent.runtime.trace.SpanType;
 import com.aipal.entity.AgentArtifact;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentStep;
@@ -22,8 +28,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -42,6 +50,8 @@ public class AgentRunExecutionService {
     private final AgentRunStreamEventService streamEventService;
     private final AgentLoopExecutor loopExecutor;
     private final AgentRunExecutionSnapshotService executionSnapshotService;
+    private final RunBudgetGuard runBudgetGuard;
+    private final RunTracer runTracer;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1, runnable -> {
@@ -59,21 +69,43 @@ public class AgentRunExecutionService {
         if (run == null || !TenantContext.tenantId().equals(run.getTenantId()) || !AgentRunStatus.RUNNING.name().equals(run.getStatus())) return;
         AgentStep step = startStep(run, task);
         recordRunStarted(run, step);
+        Span runSpan = runTracer.start(run.getTenantId(), run.getId(), SpanType.RUN, "run", step.getId(), null, null,
+                run.getTraceId());
         ScheduledFuture<?> heartbeat = startHeartbeat(task, workerId);
+        LocalDateTime startedAt = LocalDateTime.now();
         try {
             Object input = objectMapper.readValue(run.getInputJson(), Object.class);
             Map<String, Object> definition = executionSnapshotService.decrypt(run);
+            Span replySpan = runTracer.start(run.getTenantId(), run.getId(), SpanType.REPLY, "model-reply",
+                    step.getId(), null, null, run.getTraceId());
             AgentLoopExecutor.LoopResult loopResult = loopExecutor.execute(run, input, definition);
+            runTracer.end(replySpan, SpanStatus.OK, "model reply completed",
+                    0, loopResult.totalTokens());
             Map<String, Object> result = loopResult.output();
             String resultJson = objectMapper.writeValueAsString(result);
             int totalTokens = loopResult.totalTokens();
-            if (run.getMaxTotalTokens() != null && totalTokens > run.getMaxTotalTokens()) {
-                transactionTemplate.executeWithoutResult(ignored -> finalizeBudgetExceeded(run, task, step, workerId, totalTokens));
+            Duration elapsed = Duration.between(startedAt, LocalDateTime.now());
+            Span budgetSpan = runTracer.start(run.getTenantId(), run.getId(), SpanType.BUDGET_CHECK, "budget",
+                    step.getId(), null, null, run.getTraceId());
+            Optional<RunBudgetGuard.BudgetViolation> violation =
+                    runBudgetGuard.check(run, totalTokens, loopResult.steps(), elapsed);
+            if (violation.isPresent()) {
+                runTracer.end(budgetSpan, SpanStatus.ERROR, violation.get().reason(), 0, 0);
+                transactionTemplate.executeWithoutResult(ignored ->
+                        finalizeBudgetExceeded(run, task, step, workerId, totalTokens, violation.get().reason()));
+                runTracer.end(runSpan, SpanStatus.ERROR, violation.get().reason(), 0, totalTokens);
                 return;
             }
+            runTracer.end(budgetSpan, SpanStatus.OK, "within budget", 0, 0);
             transactionTemplate.executeWithoutResult(ignored -> finalizeSuccess(run, task, step, workerId,
                     resultJson, totalTokens));
+            runTracer.end(runSpan, SpanStatus.OK, "run completed", 0, totalTokens);
+        } catch (BudgetExceededException budget) {
+            transactionTemplate.executeWithoutResult(ignored -> finalizeBudgetExceeded(run, task, step, workerId,
+                    run.getTotalTokens() == null ? 0 : run.getTotalTokens(), budget.getMessage()));
+            runTracer.end(runSpan, SpanStatus.ERROR, budget.getMessage(), 0, 0);
         } catch (Exception exception) {
+            runTracer.end(runSpan, SpanStatus.ERROR, exception.getClass().getSimpleName(), 0, 0);
             transactionTemplate.executeWithoutResult(ignored -> finalizeFailure(run, task, step, workerId,
                     exception.getClass().getSimpleName()));
         } finally {
@@ -131,6 +163,9 @@ public class AgentRunExecutionService {
             streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.APPROVAL_REQUIRED,
                     Map.of("status", AgentRunStatus.WAITING_APPROVAL.name(), "stepId", step.getId(),
                             "totalTokens", totalTokens, "artifactStatus", "PENDING_APPROVAL"), true);
+            runTracer.record(run.getTenantId(), run.getId(), SpanType.APPROVAL_WAIT, "artifact-approval",
+                    step.getId(), null, null, run.getTraceId(), SpanStatus.WAITING,
+                    "Awaiting artifact approval", now, null, 0, totalTokens);
         }
     }
 
@@ -166,21 +201,23 @@ public class AgentRunExecutionService {
     }
 
     @Transactional
-    protected void finalizeBudgetExceeded(AgentRun run, AgentTask task, AgentStep step, String workerId, int totalTokens) {
-        if (!completeOwnedTask(task, workerId, AgentTaskStatus.FAILED, "Token budget exceeded")) {
+    protected void finalizeBudgetExceeded(AgentRun run, AgentTask task, AgentStep step, String workerId, int totalTokens,
+                                          String reason) {
+        String budgetReason = reason == null || reason.isBlank() ? "Token budget exceeded" : reason.trim();
+        if (!completeOwnedTask(task, workerId, AgentTaskStatus.FAILED, budgetReason)) {
             markStepCancelled(step);
             return;
         }
         LocalDateTime now = LocalDateTime.now();
         step.setStatus(AgentTaskStatus.FAILED.name());
         step.setOutputTokens(totalTokens);
-        step.setErrorMessage("Token budget exceeded");
+        step.setErrorMessage(budgetReason);
         step.setEndTime(now);
         step.setUpdateTime(now);
         stepMapper.updateById(step);
         AgentRun update = new AgentRun();
         update.setStatus(AgentRunStatus.FAILED.name());
-        update.setErrorMessage("Token budget exceeded");
+        update.setErrorMessage(budgetReason);
         update.setTotalTokens(totalTokens);
         update.setEndTime(now);
         update.setVersion(run.getVersion() + 1);
@@ -188,10 +225,10 @@ public class AgentRunExecutionService {
         int changed = runMapper.update(update, new LambdaUpdateWrapper<AgentRun>().eq(AgentRun::getId, run.getId())
                 .eq(AgentRun::getTenantId, run.getTenantId()).eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
         if (changed == 1) {
-            eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), "Token budget exceeded");
+            eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), budgetReason);
             streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_FAILED,
                     Map.of("status", AgentRunStatus.FAILED.name(), "stepId", step.getId(),
-                            "reason", "Token budget exceeded", "totalTokens", totalTokens), true);
+                            "reason", budgetReason, "totalTokens", totalTokens), true);
         }
     }
 

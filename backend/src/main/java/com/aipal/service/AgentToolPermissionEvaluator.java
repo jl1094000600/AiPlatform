@@ -32,7 +32,7 @@ public class AgentToolPermissionEvaluator {
         AgentToolPolicy policy = policies.stream()
                 .max(Comparator.comparingInt(candidate -> specificity(candidate, run)))
                 .orElse(null);
-        if (policy == null) return denied(definition.getRiskLevel());
+        if (policy == null) return defaultDecision(definition);
 
         AgentToolPermissionDecision decision = parseDecision(policy.getDecision());
         String riskLevel = blank(policy.getRiskLevel()) ? definition.getRiskLevel() : policy.getRiskLevel();
@@ -45,6 +45,26 @@ public class AgentToolPermissionEvaluator {
 
     private ToolPermissionResult denied(String riskLevel) {
         return new ToolPermissionResult(AgentToolPermissionDecision.DENY, riskLevel, false, null);
+    }
+
+    /**
+     * Default strategy when no policy row matches: READ risk is allowed,
+     * WRITE/EXEC (MUTATING / EXTERNAL / DESTRUCTIVE) requires an explicit policy.
+     */
+    private ToolPermissionResult defaultDecision(AgentToolDefinition definition) {
+        String riskLevel = definition == null ? null : definition.getRiskLevel();
+        if (isReadRisk(riskLevel)) {
+            return new ToolPermissionResult(AgentToolPermissionDecision.ALLOW, riskLevel, false, null);
+        }
+        return denied(riskLevel);
+    }
+
+    private boolean isReadRisk(String riskLevel) {
+        if (blank(riskLevel)) {
+            return false;
+        }
+        String value = riskLevel.trim().toUpperCase();
+        return "READ".equals(value) || "READ_ONLY".equals(value);
     }
 
     private AgentToolPermissionDecision parseDecision(String value) {

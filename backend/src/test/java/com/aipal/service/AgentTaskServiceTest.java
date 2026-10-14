@@ -43,7 +43,8 @@ class AgentTaskServiceTest {
         when(runMapper.update(any(), any())).thenReturn(1);
 
         AgentRunEventService eventService = mock(AgentRunEventService.class);
-        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class), eventService);
+        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class), eventService,
+                new com.aipal.agent.runtime.budget.RunBudgetGuard(), new com.fasterxml.jackson.databind.ObjectMapper());
         AgentTask claimed = service.claimNext("worker-a", 30);
 
         assertNotNull(claimed);
@@ -67,7 +68,9 @@ class AgentTaskServiceTest {
         when(runMapper.selectById(9L)).thenReturn(run);
         when(taskMapper.update(any(), any())).thenReturn(1);
 
-        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class), mock(AgentRunEventService.class));
+        AgentTaskService service = new AgentTaskService(taskMapper, runMapper, mock(TenantTaskRunner.class),
+                mock(AgentRunEventService.class),
+                new com.aipal.agent.runtime.budget.RunBudgetGuard(), new com.fasterxml.jackson.databind.ObjectMapper());
 
         assertNull(service.claimNext("worker-a", 30));
         verify(taskMapper).update(any(), any());

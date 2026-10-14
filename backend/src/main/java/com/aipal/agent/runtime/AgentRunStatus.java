@@ -5,6 +5,8 @@ public enum AgentRunStatus {
     QUEUED,
     RUNNING,
     WAITING_APPROVAL,
+    /** Suspended by an in-flight ask_user tool call; distinct from pipeline artifact approval. */
+    WAITING_USER_INPUT,
     SUCCEEDED,
     FAILED,
     CANCELLED,

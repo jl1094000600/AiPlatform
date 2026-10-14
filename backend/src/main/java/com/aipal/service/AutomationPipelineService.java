@@ -81,6 +81,7 @@ public class AutomationPipelineService {
     private static final String STAGE_REQUIREMENT_ANALYSIS = PipelineStages.REQUIREMENT_ANALYSIS;
     private static final String STAGE_CODE_GENERATION = PipelineStages.CODE_GENERATION;
     private static final String STAGE_CODE_QUALITY_EVALUATION = PipelineStages.CODE_QUALITY_EVALUATION;
+    private static final String STAGE_TEST_CASE_GENERATION = PipelineStages.TEST_CASE_GENERATION;
     private static final int MAX_CODE_PREVIEW_CHARS = 200_000;
     private static final String DEFAULT_TEMPLATE_FILE = "default-code-template.md";
     private static final String DEFAULT_PRD_TEMPLATE_FILE = "default-prd-template.md";
@@ -132,6 +133,9 @@ public class AutomationPipelineService {
 
     @Autowired
     private MemoryTrustedProjectContext trustedMemoryProjectContext;
+
+    @Autowired(required = false)
+    private TestCaseGenerationService testCaseGenerationService;
 
     @Autowired
     @Qualifier("tenantAwareExecutor")
@@ -223,7 +227,9 @@ public class AutomationPipelineService {
             stage.setStatus(definition.order() == 1 ? STATUS_QUEUED : STATUS_PENDING);
             boolean autoDeployStage = autoDeployEnabled && deploymentExecutionService.isDeploymentStage(definition.key());
             stage.setExecutorType(autoDeployStage ? "DEPLOY" : "AI");
-            stage.setRequiresApproval(autoDeployStage || STAGE_CODE_QUALITY_EVALUATION.equals(definition.key()) ? 0 : 1);
+            stage.setRequiresApproval(autoDeployStage
+                    || STAGE_CODE_QUALITY_EVALUATION.equals(definition.key())
+                    || STAGE_TEST_CASE_GENERATION.equals(definition.key()) ? 0 : 1);
             stage.setInputSummary(inputForStage(request, definition));
             if (definition.order() == 1) {
                 stage.setOutputSummary("PRD 生成任务已进入队列。");
@@ -368,6 +374,14 @@ public class AutomationPipelineService {
         }
         if (STAGE_CODE_QUALITY_EVALUATION.equals(stage.getStageKey())) {
             return runCodeQualityEvaluation(pipeline);
+        }
+        if (STAGE_TEST_CASE_GENERATION.equals(stage.getStageKey())) {
+            AutomationStageRun result = runTestCaseGeneration(pipeline, stage);
+            refreshPipelineProgress(pipeline.getId());
+            if (STATUS_SUCCESS.equals(result.getStatus())) {
+                runBuildAndTestStages(pipeline.getId(), STAGE_TEST_CASE_GENERATION);
+            }
+            return result;
         }
         if ("build_compile".equals(stage.getStageKey())) {
             AutomationStageRun result = buildTestExecutionService.executeBuild(pipeline, stage);
@@ -1614,7 +1628,9 @@ public class AutomationPipelineService {
     }
 
     private void runBuildAndTestStages(Long pipelineId, String afterStageKey) {
-        List<String> stageKeys = List.of("build_compile", "test_execution");
+        // test_case_generation is present only on pipelines created after the stage shipped;
+        // missing stages are skipped so legacy pipelines keep working.
+        List<String> stageKeys = List.of(STAGE_TEST_CASE_GENERATION, "build_compile", "test_execution");
         boolean start = afterStageKey == null;
         for (String stageKey : stageKeys) {
             if (!start) {
@@ -1630,9 +1646,14 @@ public class AutomationPipelineService {
                 break;
             }
             AutomationPipeline pipeline = requirePipeline(pipelineId);
-            AutomationStageRun result = "build_compile".equals(stageKey)
-                    ? buildTestExecutionService.executeBuild(pipeline, stage)
-                    : buildTestExecutionService.executeTest(pipeline, stage);
+            AutomationStageRun result;
+            if (STAGE_TEST_CASE_GENERATION.equals(stageKey)) {
+                result = runTestCaseGeneration(pipeline, stage);
+            } else if ("build_compile".equals(stageKey)) {
+                result = buildTestExecutionService.executeBuild(pipeline, stage);
+            } else {
+                result = buildTestExecutionService.executeTest(pipeline, stage);
+            }
             refreshPipelineProgress(pipelineId);
             if (!STATUS_SUCCESS.equals(result.getStatus())) {
                 break;
@@ -1643,6 +1664,72 @@ public class AutomationPipelineService {
                 && isAutoDeployEnabled(requirePipeline(pipelineId))) {
             runAutoDeployStages(pipelineId, "test_execution");
         }
+    }
+
+    private AutomationStageRun runTestCaseGeneration(AutomationPipeline pipeline, AutomationStageRun stage) {
+        LocalDateTime start = LocalDateTime.now();
+        stage.setStatus(STATUS_RUNNING);
+        stage.setStartTime(start);
+        stage.setEndTime(null);
+        stage.setDurationMs(null);
+        stage.setErrorMessage(null);
+        stage.setOutputSummary("测试用例生成中。");
+        stage.setUpdateTime(start);
+        stageRunMapper.updateById(stage);
+        pipeline.setStatus(STATUS_RUNNING);
+        pipeline.setCurrentStage(STAGE_TEST_CASE_GENERATION);
+        pipeline.setUpdateTime(start);
+        pipelineMapper.updateById(pipeline);
+
+        try {
+            Path codeRoot = resolveCodeRootForTests(pipeline.getId());
+            Path testsDir = codeRoot.resolve("tests").normalize();
+            TestCaseGenerationService generator = resolveTestCaseGenerationService();
+            TestCaseGenerationService.TestCaseGenerationResult result =
+                    generator.generate(pipeline, codeRoot, testsDir);
+            LocalDateTime end = LocalDateTime.now();
+            stage.setArtifactPath(result.testsDir().toAbsolutePath().toString());
+            stage.setArtifactContent(result.summary());
+            stage.setOutputSummary(result.summary());
+            stage.setErrorMessage(null);
+            stage.setStatus(STATUS_SUCCESS);
+            stage.setEndTime(end);
+            stage.setDurationMs((int) Duration.between(start, end).toMillis());
+            stage.setUpdateTime(end);
+            stageRunMapper.updateById(stage);
+            Map<String, Object> metadata = generator.toMetadata(result);
+            recordAutomationGovernance(pipeline, stage, null, "TEST_CASES", stage.getArtifactPath(),
+                    stage.getOutputSummary(), stage.getAiModelCode(), metadata);
+            return stage;
+        } catch (Exception e) {
+            LocalDateTime end = LocalDateTime.now();
+            stage.setStatus(STATUS_BLOCKED);
+            stage.setErrorMessage(e.getMessage());
+            stage.setOutputSummary("测试用例生成失败：" + e.getMessage());
+            stage.setEndTime(end);
+            stage.setDurationMs((int) Duration.between(start, end).toMillis());
+            stage.setUpdateTime(end);
+            stageRunMapper.updateById(stage);
+            return stage;
+        }
+    }
+
+    private TestCaseGenerationService resolveTestCaseGenerationService() {
+        if (testCaseGenerationService == null) {
+            testCaseGenerationService = new TestCaseGenerationService();
+        }
+        return testCaseGenerationService;
+    }
+
+    private Path resolveCodeRootForTests(Long pipelineId) {
+        AutomationStageRun codeStage = findStage(pipelineId, STAGE_CODE_GENERATION);
+        if (codeStage != null && codeStage.getArtifactPath() != null && !codeStage.getArtifactPath().isBlank()) {
+            Path path = Paths.get(codeStage.getArtifactPath()).toAbsolutePath().normalize();
+            if (Files.isDirectory(path)) {
+                return path;
+            }
+        }
+        return codeArtifactRoot(pipelineId);
     }
 
     private boolean isAutoDeployEnabled(AutomationPipeline pipeline) {
@@ -2334,6 +2421,7 @@ public class AutomationPipelineService {
             case "requirement_analysis" -> "梳理「" + title + "」的业务目标、范围、验收标准与交付约束，生成 PRD 供审核。";
             case "code_generation" -> "根据已通过的 PRD 为「" + title + "」生成前后端代码与必要的工程文件。";
             case "code_quality_evaluation" -> "依据代码质量标准检查生成结果，识别风险、阻塞项和需要修复的问题。";
+            case "test_case_generation" -> "根据已生成代码与 PRD 验收标准，生成可读的 JUnit/Vitest 风格测试用例文件。";
             case "build_compile" -> "对生成代码执行构建与编译检查，确认项目结构、依赖和基础语法可用。";
             case "test_execution" -> "执行测试验证核心流程，确认主要功能符合 PRD 和质量门禁要求。";
             case "deployment_release" -> "按部署配置发布构建产物，并记录镜像、容器或流水线执行结果。";
@@ -2348,6 +2436,7 @@ public class AutomationPipelineService {
             case "requirement_analysis" -> "product_manager";
             case "code_generation" -> "architect";
             case "code_quality_evaluation" -> "architect";
+            case "test_case_generation" -> "tester";
             case "build_compile" -> "developer";
             case "test_execution" -> "tester";
             case "deployment_release" -> "ops";
@@ -2380,6 +2469,9 @@ public class AutomationPipelineService {
         if (codeQualityEnabled) {
             stages.add(new StageDefinition("code_quality_evaluation", "代码质量评估", order++));
         }
+        // New pipelines only: test_case_generation sits between code_generation and build_compile.
+        // Pipelines created before this stage existed simply skip it (findStage returns null).
+        stages.add(new StageDefinition(STAGE_TEST_CASE_GENERATION, "测试用例生成", order++));
         stages.add(new StageDefinition("build_compile", "构建编译", order++));
         stages.add(new StageDefinition("test_execution", "测试执行", order++));
         stages.add(new StageDefinition("deployment_release", "部署发布", order++));

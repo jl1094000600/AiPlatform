@@ -1,11 +1,13 @@
 package com.aipal.controller;
 
+import com.aipal.agent.runtime.trace.RunTracer;
 import com.aipal.common.Result;
 import com.aipal.entity.AgentRun;
 import com.aipal.security.RequirePermission;
 import com.aipal.security.TenantContext;
 import com.aipal.service.AgentRunStreamEventService;
 import com.aipal.service.AgentRunService;
+import com.aipal.service.AgentToolResponseService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -28,6 +30,8 @@ import java.util.List;
 public class AgentRunController {
     private final AgentRunService agentRunService;
     private final AgentRunStreamEventService streamEventService;
+    private final AgentToolResponseService toolResponseService;
+    private final RunTracer runTracer;
 
     @PostMapping
     @RequirePermission("agent:invoke")
@@ -61,6 +65,24 @@ public class AgentRunController {
     @RequirePermission("agent:invoke")
     public Result<List<AgentRunService.ToolCallView>> toolCalls(@PathVariable Long id) {
         return Result.success(agentRunService.listToolCalls(id));
+    }
+
+    /** Span timeline. Contains no prompt bodies and no memory bodies. */
+    @GetMapping("/{id}/trace")
+    @RequirePermission("agent:invoke")
+    public Result<RunTracer.TraceTimeline> trace(@PathVariable Long id) {
+        AgentRun run = agentRunService.get(id);
+        return Result.success(runTracer.timeline(run.getTenantId(), run.getId(), run.getTraceId(), run.getStatus()));
+    }
+
+    /** Answers an in-flight ask_user tool call. */
+    @PostMapping("/{id}/tools/{callId}/respond")
+    @RequirePermission("agent:invoke")
+    public Result<AgentToolResponseService.RespondResult> respondToTool(
+            @PathVariable Long id, @PathVariable String callId,
+            @Valid @RequestBody RespondToolRequest request) {
+        agentRunService.assertCanRespondToUserInput(id);
+        return Result.success(toolResponseService.respondToToolCall(id, callId, request.answer()));
     }
 
     @GetMapping("/{id}/stream")
@@ -98,6 +120,7 @@ public class AgentRunController {
                                         @NotBlank String businessType, @NotBlank String businessId, Object input) {}
     public record CancelRequest(String reason) {}
     public record ApprovalRequest(String reason) {}
+    public record RespondToolRequest(@NotBlank String answer) {}
     public record AgentRunView(Long id, String projectKey, String businessType, String businessId,
                                Long agentId, Long agentVersionId, String status, String traceId, String memoryTraceId,
                                Integer totalTokens, String errorMessage, boolean canCancel, boolean canApprove, LocalDateTime createTime,

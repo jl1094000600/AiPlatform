@@ -2,6 +2,8 @@ package com.aipal.service;
 
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.agent.runtime.AgentTaskStatus;
+import com.aipal.agent.runtime.budget.RunBudgetGuard;
+import com.aipal.common.BizException;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentTask;
 import com.aipal.mapper.AgentRunMapper;
@@ -10,6 +12,7 @@ import com.aipal.security.TenantContext;
 import com.aipal.security.TenantTaskRunner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.transaction.annotation.Isolation;
@@ -18,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Durable task lifecycle for on-demand subagents. A worker only owns a task while it holds
@@ -31,6 +36,136 @@ public class AgentTaskService {
     private final AgentRunMapper runMapper;
     private final TenantTaskRunner tenantTaskRunner;
     private final AgentRunEventService eventService;
+    private final RunBudgetGuard runBudgetGuard;
+    private final ObjectMapper objectMapper;
+
+    private static final Set<String> MODEL_TASK_STATUSES = Set.of(
+            AgentTaskStatus.QUEUED.name(), AgentTaskStatus.RUNNING.name(),
+            AgentTaskStatus.SUCCEEDED.name(), AgentTaskStatus.FAILED.name(), AgentTaskStatus.CANCELLED.name());
+
+    // ---- Model-facing task CRUD (task.create / task.list / task.get / task.update) ----
+
+    /**
+     * Creates a child task owned by the run. Worker claim only picks up root RUN tasks, so
+     * model-created tasks are never leased to workers.
+     */
+    @Transactional
+    public AgentTask createModelTask(Long tenantId, Long runId, String taskType, Object payload) {
+        AgentRun run = requireRun(tenantId, runId);
+        AgentTask root = rootTask(runId, tenantId);
+        long existing = countChildTasks(runId, tenantId);
+        runBudgetGuard.checkChildTaskCount(run, existing).ifPresent(violation -> {
+            throw new BizException(409, violation.reason());
+        });
+        String normalizedType = taskType == null || taskType.isBlank() ? "MODEL_TASK" : taskType.trim();
+        if (normalizedType.length() > 64) throw new BizException(400, "taskType too long");
+        AgentTask task = new AgentTask();
+        task.setTenantId(tenantId);
+        task.setRunId(runId);
+        task.setParentTaskId(root == null ? null : root.getId());
+        task.setTaskType(normalizedType);
+        task.setStatus(AgentTaskStatus.QUEUED.name());
+        task.setPayloadJson(payload == null ? null : json(payload));
+        task.setAttemptCount(0);
+        task.setMaxAttempts(1);
+        task.setAvailableAt(LocalDateTime.now());
+        task.setCreateTime(LocalDateTime.now());
+        task.setUpdateTime(LocalDateTime.now());
+        task.setIsDeleted(0);
+        taskMapper.insert(task);
+        return task;
+    }
+
+    public List<AgentTask> listModelTasks(Long tenantId, Long runId, String status) {
+        requireRun(tenantId, runId);
+        LambdaQueryWrapper<AgentTask> query = new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, tenantId)
+                .eq(AgentTask::getRunId, runId)
+                .orderByAsc(AgentTask::getCreateTime)
+                .orderByAsc(AgentTask::getId);
+        if (status != null && !status.isBlank()) {
+            String normalized = status.trim().toUpperCase();
+            if (!MODEL_TASK_STATUSES.contains(normalized)) throw new BizException(400, "Invalid task status");
+            query.eq(AgentTask::getStatus, normalized);
+        }
+        return taskMapper.selectList(query);
+    }
+
+    public AgentTask getModelTask(Long tenantId, Long runId, Long taskId) {
+        requireRun(tenantId, runId);
+        AgentTask task = taskMapper.selectById(taskId);
+        if (task == null || !tenantId.equals(task.getTenantId()) || !runId.equals(task.getRunId())) {
+            throw new BizException(404, "Task not found");
+        }
+        return task;
+    }
+
+    /** Model-driven status transition for a task it can see on this run. */
+    @Transactional
+    public AgentTask updateModelTaskStatus(Long tenantId, Long runId, Long taskId, String status, String note) {
+        AgentTask task = getModelTask(tenantId, runId, taskId);
+        String normalized = status == null || status.isBlank() ? null : status.trim().toUpperCase();
+        if (normalized == null || !MODEL_TASK_STATUSES.contains(normalized)) {
+            throw new BizException(400, "Invalid task status");
+        }
+        if (task.getStatus() != null && isClosedTaskStatus(task.getStatus())
+                && !task.getStatus().equals(normalized)) {
+            throw new BizException(409, "Task is already closed");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        AgentTask update = new AgentTask();
+        update.setStatus(normalized);
+        update.setErrorMessage(note == null || note.isBlank() ? task.getErrorMessage()
+                : note.trim().substring(0, Math.min(512, note.trim().length())));
+        if (AgentTaskStatus.RUNNING.name().equals(normalized) && task.getStartTime() == null) {
+            update.setStartTime(now);
+        }
+        if (isClosedTaskStatus(normalized)) {
+            update.setEndTime(now);
+        }
+        update.setUpdateTime(now);
+        taskMapper.update(update, new LambdaUpdateWrapper<AgentTask>()
+                .eq(AgentTask::getId, taskId)
+                .eq(AgentTask::getTenantId, tenantId));
+        return taskMapper.selectById(taskId);
+    }
+
+    private AgentTask rootTask(Long runId, Long tenantId) {
+        return taskMapper.selectOne(new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, tenantId)
+                .eq(AgentTask::getRunId, runId)
+                .eq(AgentTask::getTaskType, "RUN")
+                .isNull(AgentTask::getParentTaskId)
+                .last("LIMIT 1"));
+    }
+
+    private long countChildTasks(Long runId, Long tenantId) {
+        Long count = taskMapper.selectCount(new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, tenantId)
+                .eq(AgentTask::getRunId, runId)
+                .ne(AgentTask::getTaskType, "RUN"));
+        return count == null ? 0L : count;
+    }
+
+    private AgentRun requireRun(Long tenantId, Long runId) {
+        AgentRun run = runMapper.selectById(runId);
+        if (run == null || !tenantId.equals(run.getTenantId())) throw new BizException(404, "Agent Run不存在");
+        return run;
+    }
+
+    private boolean isClosedTaskStatus(String status) {
+        return AgentTaskStatus.SUCCEEDED.name().equals(status)
+                || AgentTaskStatus.FAILED.name().equals(status)
+                || AgentTaskStatus.CANCELLED.name().equals(status);
+    }
+
+    private String json(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new BizException(400, "Task payload cannot be serialized");
+        }
+    }
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public AgentTask claimNext(String workerId, int leaseSeconds) {

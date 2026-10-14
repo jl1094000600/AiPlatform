@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.agent.runtime.budget.BudgetExceededException;
+import com.aipal.agent.runtime.budget.RunBudgetGuard;
 import com.aipal.entity.AgentRun;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,7 @@ import java.util.Map;
 public class AgentLoopExecutor {
     private final AgentService agentService;
     private final AgentToolExecutor toolExecutor;
+    private final RunBudgetGuard runBudgetGuard;
 
     public LoopResult execute(AgentRun run, Object input, Map<String, Object> definition) {
         Map<String, Object> runtime = mapValue(definition.get("runtimeConfig"));
@@ -28,12 +31,12 @@ public class AgentLoopExecutor {
         Long modelId = requiredLong(runtime, "modelId");
         Map<String, Object> output = agentService.callAgentFrozen(run.getAgentId(), input, run.getOwnerUserId(), null,
                 modelId, nullableLong(runtime.get("promptId")), nullableLong(runtime.get("promptVersionId")));
-        return new LoopResult(output, number(output.get("totalTokens")));
+        return new LoopResult(output, number(output.get("totalTokens")), 1);
     }
 
     private LoopResult executeV2(AgentRun run, Object input, Map<String, Object> runtime) {
         Long modelId = requiredLong(runtime, "modelId");
-        int maxSteps = Math.max(1, Math.min(run.getMaxSteps() == null ? 8 : run.getMaxSteps(), 20));
+        int maxSteps = runBudgetGuard.effectiveMaxSteps(run);
         int totalTokens = 0;
         Object turnInput = input;
         for (int turn = 1; turn <= maxSteps; turn++) {
@@ -43,7 +46,7 @@ public class AgentLoopExecutor {
             totalTokens += number(modelOutput.get("totalTokens"));
             AgentAction action = AgentAction.from(modelOutput);
             if (action.type() == AgentActionType.FINAL) {
-                return new LoopResult(action.output(), totalTokens);
+                return new LoopResult(action.output(), totalTokens, turn);
             }
             if (action.type() != AgentActionType.TOOL_CALL) {
                 throw new UnsupportedOperationException("Agent action " + action.type() + " is not enabled yet");
@@ -55,7 +58,7 @@ public class AgentLoopExecutor {
             }
             turnInput = nextTurnInput(input, modelOutput, toolResult, turn);
         }
-        throw new IllegalStateException("Agent loop exceeded max steps");
+        throw new BudgetExceededException("STEPS", "Step budget exceeded");
     }
 
     private Map<String, Object> nextTurnInput(Object originalInput, Map<String, Object> modelOutput,
@@ -93,7 +96,10 @@ public class AgentLoopExecutor {
         return value instanceof Number number ? number.intValue() : 0;
     }
 
-    public record LoopResult(Map<String, Object> output, int totalTokens) {
+    public record LoopResult(Map<String, Object> output, int totalTokens, int steps) {
+        public LoopResult(Map<String, Object> output, int totalTokens) {
+            this(output, totalTokens, 1);
+        }
     }
 
     private enum AgentActionType {

@@ -283,7 +283,16 @@ VALUES
  '{"type":"object","properties":{"executionId":{"type":"string"}}}', 'MUTATING', 0, 0, 60, 1, '{"scope":"project"}', 1),
 ('artifact.create', 'Create a structured artifact that must enter approval before final delivery.',
  '{"type":"object","properties":{"title":{"type":"string"},"artifactType":{"type":"string"},"content":{"type":"object"}},"required":["title","artifactType"]}',
- '{"type":"object","properties":{"artifactId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 1, 20, 1, '{"scope":"project"}', 1);
+ '{"type":"object","properties":{"artifactId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 1, 20, 1, '{"scope":"project"}', 1),
+('fs.read', 'Read a file from the agent run workspace. Rejects path escapes.',
+ '{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}',
+ '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}', 'READ_ONLY', 1, 1, 15, 0, '{"scope":"project"}', 1),
+('fs.write', 'Write a file into the agent run workspace. Rejects path escapes.',
+ '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}',
+ '{"type":"object","properties":{"path":{"type":"string"},"size":{"type":"integer"}}}', 'MUTATING', 0, 0, 20, 0, '{"scope":"project"}', 1),
+('shell.exec', 'Execute a allow-listed command inside the workspace sandbox. Dangerous commands are rejected.',
+ '{"type":"object","properties":{"command":{"type":"string"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":600}},"required":["command"]}',
+ '{"type":"object","properties":{"exitCode":{"type":"integer"},"stdout":{"type":"string"},"stderr":{"type":"string"}}}', 'DESTRUCTIVE', 0, 0, 600, 0, '{"scope":"project"}', 1);
 
 UPDATE agent_tool_definition
 SET input_schema = '{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}'

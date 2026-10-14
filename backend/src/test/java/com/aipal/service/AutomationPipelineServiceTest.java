@@ -43,7 +43,7 @@ import static org.mockito.Mockito.when;
 class AutomationPipelineServiceTest {
 
     @Test
-    void createsPipelineWithSevenStandardStages() {
+    void createsPipelineWithEightStandardStagesIncludingTestCaseGeneration() {
         AutomationPipelineMapper pipelineMapper = mock(AutomationPipelineMapper.class);
         AutomationStageRunMapper stageRunMapper = mock(AutomationStageRunMapper.class);
         AutomationApprovalMapper approvalMapper = mock(AutomationApprovalMapper.class);
@@ -78,12 +78,13 @@ class AutomationPipelineServiceTest {
         assertEquals("ai-platform", pipeline.getProjectKey());
         assertEquals("ai-platform", request.getProjectKey());
         assertEquals("default-prd-template.md", pipeline.getTemplateFile());
-        assertEquals(7, insertedStages.size());
+        assertEquals(8, insertedStages.size());
         assertEquals(1L, insertedStages.get(0).getTenantId());
         assertEquals("requirement_analysis", insertedStages.get(0).getStageKey());
         assertEquals("QUEUED", insertedStages.get(0).getStatus());
-        assertEquals("delivery_report", insertedStages.get(6).getStageKey());
-        verify(stageRunMapper, times(7)).insert(any());
+        assertEquals("test_case_generation", insertedStages.get(2).getStageKey());
+        assertEquals("delivery_report", insertedStages.get(7).getStageKey());
+        verify(stageRunMapper, times(8)).insert(any());
         verify(generationJobMapper, times(1)).insert(any());
     }
 
@@ -211,7 +212,7 @@ class AutomationPipelineServiceTest {
         AutomationPipeline pipeline = service.createPipeline(request);
 
         assertEquals("quality-model", pipeline.getQualityModelCode());
-        assertEquals(8, insertedStages.size());
+        assertEquals(9, insertedStages.size());
         AutomationStageRun codeStage = insertedStages.stream()
                 .filter(stage -> "code_generation".equals(stage.getStageKey()))
                 .findFirst()
@@ -423,7 +424,8 @@ class AutomationPipelineServiceTest {
         when(stageRunMapper.selectById(2L)).thenReturn(codeStage);
         when(pipelineMapper.selectById(1L)).thenReturn(pipeline);
         when(stageRunMapper.selectList(any())).thenReturn(List.of(codeStage, buildStage, testStage));
-        when(stageRunMapper.selectOne(any())).thenReturn(buildStage, testStage, testStage);
+        // Legacy pipeline: no test_case_generation stage row; lookup returns null and is skipped.
+        when(stageRunMapper.selectOne(any())).thenReturn(null, buildStage, testStage, testStage);
         when(buildTestExecutionService.executeBuild(any(), any())).thenAnswer(invocation -> {
             AutomationStageRun stage = invocation.getArgument(1);
             stage.setStatus("SUCCESS");
@@ -457,6 +459,74 @@ class AutomationPipelineServiceTest {
 
         service.approve(7L, request);
 
+        verify(buildTestExecutionService, times(1)).executeBuild(any(), any());
+        verify(buildTestExecutionService, times(1)).executeTest(any(), any());
+    }
+
+    @Test
+    void approvingCodeGenerationRunsTestCaseGenerationOnNewPipelines() {
+        AutomationPipelineMapper pipelineMapper = mock(AutomationPipelineMapper.class);
+        AutomationStageRunMapper stageRunMapper = mock(AutomationStageRunMapper.class);
+        AutomationApprovalMapper approvalMapper = mock(AutomationApprovalMapper.class);
+        AutomationBuildTestExecutionService buildTestExecutionService = mock(AutomationBuildTestExecutionService.class);
+        AutomationApproval approval = new AutomationApproval();
+        approval.setId(8L);
+        approval.setPipelineId(2L);
+        approval.setStageRunId(20L);
+        approval.setStatus("PENDING");
+        AutomationStageRun codeStage = stage(20L, 2L, "code_generation", 2, "WAITING_APPROVAL");
+        try {
+            codeStage.setArtifactPath(java.nio.file.Files.createTempDirectory("gen-code").toString());
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+        AutomationStageRun testCasesStage = stage(21L, 2L, "test_case_generation", 3, "PENDING");
+        AutomationStageRun buildStage = stage(22L, 2L, "build_compile", 4, "PENDING");
+        AutomationStageRun testStage = stage(23L, 2L, "test_execution", 5, "PENDING");
+        AutomationPipeline pipeline = pipeline(2L, "code_generation", "RUNNING");
+
+        when(approvalMapper.selectById(8L)).thenReturn(approval);
+        when(stageRunMapper.selectById(20L)).thenReturn(codeStage);
+        when(pipelineMapper.selectById(2L)).thenReturn(pipeline);
+        when(stageRunMapper.selectList(any())).thenReturn(List.of(codeStage, testCasesStage, buildStage, testStage));
+        // Order of selectOne lookups:
+        // 1) test_case_generation stage  2) code_generation (artifact root)  3) build_compile
+        // 4) test_execution  5) test_execution (auto-deploy check)
+        when(stageRunMapper.selectOne(any())).thenReturn(testCasesStage, codeStage, buildStage, testStage, testStage);
+        when(buildTestExecutionService.executeBuild(any(), any())).thenAnswer(invocation -> {
+            AutomationStageRun stage = invocation.getArgument(1);
+            stage.setStatus("SUCCESS");
+            return stage;
+        });
+        when(buildTestExecutionService.executeTest(any(), any())).thenAnswer(invocation -> {
+            AutomationStageRun stage = invocation.getArgument(1);
+            stage.setStatus("SUCCESS");
+            return stage;
+        });
+
+        AutomationPipelineService service = new AutomationPipelineService(
+                pipelineMapper,
+                stageRunMapper,
+                approvalMapper,
+                mock(AutomationGenerationJobMapper.class),
+                mock(AutomationGeneratedCodeBatchMapper.class),
+                mock(AutomationGeneratedCodeFileMapper.class),
+                mock(AutomationCodeRequirementFeedbackMapper.class),
+                mock(AiModelMapper.class),
+                mock(SkillService.class),
+                buildTestExecutionService,
+                mock(AutomationDeployProfileService.class),
+                mock(AutomationDeploymentExecutionService.class),
+                mock(CodeQualityService.class),
+                mock(AiOutputGovernanceService.class),
+                mock(UserMemoryService.class), mock(BadCaseService.class), mock(MemoryProjectService.class), mock(ModelGateway.class), mock(CodeGenerationService.class)
+        );
+        AutomationApprovalRequest request = new AutomationApprovalRequest();
+        request.setStatus("SUCCESS");
+
+        service.approve(8L, request);
+
+        assertEquals("SUCCESS", testCasesStage.getStatus());
         verify(buildTestExecutionService, times(1)).executeBuild(any(), any());
         verify(buildTestExecutionService, times(1)).executeTest(any(), any());
     }

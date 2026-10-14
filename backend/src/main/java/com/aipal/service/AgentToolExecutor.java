@@ -7,6 +7,10 @@ import com.aipal.agent.runtime.AgentToolPermissionDecision;
 import com.aipal.agent.runtime.tool.AgentTool;
 import com.aipal.agent.runtime.tool.ToolInvocationContext;
 import com.aipal.agent.runtime.tool.ToolResult;
+import com.aipal.agent.runtime.trace.RunTracer;
+import com.aipal.agent.runtime.trace.Span;
+import com.aipal.agent.runtime.trace.SpanStatus;
+import com.aipal.agent.runtime.trace.SpanType;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentStep;
 import com.aipal.entity.AgentToolCall;
@@ -18,7 +22,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -35,6 +38,7 @@ public class AgentToolExecutor {
     private final AgentToolCallMapper toolCallMapper;
     private final AgentStepMapper stepMapper;
     private final AgentRunStreamEventService streamEventService;
+    private final RunTracer runTracer;
     private final ObjectMapper objectMapper;
     private final Map<String, AgentTool> tools;
 
@@ -43,6 +47,7 @@ public class AgentToolExecutor {
                              AgentToolCallMapper toolCallMapper,
                              AgentStepMapper stepMapper,
                              AgentRunStreamEventService streamEventService,
+                             RunTracer runTracer,
                              ObjectMapper objectMapper,
                              List<AgentTool> tools) {
         this.registryService = registryService;
@@ -50,12 +55,16 @@ public class AgentToolExecutor {
         this.toolCallMapper = toolCallMapper;
         this.stepMapper = stepMapper;
         this.streamEventService = streamEventService;
+        this.runTracer = runTracer;
         this.objectMapper = objectMapper;
         this.tools = tools == null ? Map.of() : tools.stream()
                 .collect(Collectors.toUnmodifiableMap(AgentTool::name, Function.identity(), (left, ignored) -> left));
     }
 
-    @Transactional
+    /**
+     * Deliberately not transactional: ask_user blocks on the user's answer and must not hold a
+     * DB connection. Audit writes are individual inserts/updates that auto-commit.
+     */
     public ToolExecutionResult execute(AgentRun run, String callId, String toolName, Object input) {
         AgentToolDefinition definition = registryService.requireEnabled(toolName);
         boolean allowedByVersion = allowedByRunSnapshot(run, definition.getToolName());
@@ -77,6 +86,9 @@ public class AgentToolExecutor {
                     : "Tool is not allowed by Agent Version whitelist";
             markFailed(step, call, reason);
             recordEvent(run, step, call, AgentRunStreamEventType.TOOL_FAILED, failurePayload(step, call, reason));
+            runTracer.record(run.getTenantId(), run.getId(), SpanType.TOOL_CALL, definition.getToolName(),
+                    step.getId(), call.getId(), resolvedCallId, run.getTraceId(), SpanStatus.ERROR, reason,
+                    step.getStartTime(), LocalDateTime.now(), 0, 0);
             return new ToolExecutionResult(false, permission.decision().name(), null, reason, call.getId(), step.getId());
         }
 
@@ -85,9 +97,14 @@ public class AgentToolExecutor {
             String reason = "Tool implementation not registered";
             markFailed(step, call, reason);
             recordEvent(run, step, call, AgentRunStreamEventType.TOOL_FAILED, failurePayload(step, call, reason));
+            runTracer.record(run.getTenantId(), run.getId(), SpanType.TOOL_CALL, definition.getToolName(),
+                    step.getId(), call.getId(), resolvedCallId, run.getTraceId(), SpanStatus.ERROR, reason,
+                    step.getStartTime(), LocalDateTime.now(), 0, 0);
             return new ToolExecutionResult(false, AgentTaskStatus.FAILED.name(), null, reason, call.getId(), step.getId());
         }
 
+        Span span = runTracer.start(run.getTenantId(), run.getId(), SpanType.TOOL_CALL, definition.getToolName(),
+                step.getId(), call.getId(), resolvedCallId, run.getTraceId());
         try {
             recordEvent(run, step, call, AgentRunStreamEventType.TOOL_STARTED, payload(step, call, definition, permission));
             RuntimeSnapshot runtime = runtimeSnapshot(run);
@@ -97,12 +114,19 @@ public class AgentToolExecutor {
                     runtime.promptVersionId()), input);
             markSucceeded(step, call, result);
             recordEvent(run, step, call, AgentRunStreamEventType.TOOL_COMPLETED, successPayload(step, call, result));
+            runTracer.end(span, SpanStatus.OK, "tool " + definition.getToolName() + " completed",
+                    result == null ? 0 : result.inputTokens(), result == null ? 0 : result.outputTokens());
+            runTracer.record(run.getTenantId(), run.getId(), SpanType.TOOL_RESULT, definition.getToolName(),
+                    step.getId(), call.getId(), resolvedCallId, run.getTraceId(), SpanStatus.OK,
+                    result == null ? null : result.outputSummary(), span.startTime(), LocalDateTime.now(),
+                    result == null ? 0 : result.inputTokens(), result == null ? 0 : result.outputTokens());
             return new ToolExecutionResult(true, AgentTaskStatus.SUCCEEDED.name(), result == null ? null : result.output(),
                     null, call.getId(), step.getId());
         } catch (Exception exception) {
             String reason = exception.getClass().getSimpleName();
             markFailed(step, call, reason);
             recordEvent(run, step, call, AgentRunStreamEventType.TOOL_FAILED, failurePayload(step, call, reason));
+            runTracer.end(span, SpanStatus.ERROR, "tool " + definition.getToolName() + " failed: " + reason, 0, 0);
             return new ToolExecutionResult(true, AgentTaskStatus.FAILED.name(), null, reason, call.getId(), step.getId());
         }
     }

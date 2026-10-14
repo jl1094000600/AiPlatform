@@ -161,6 +161,7 @@
               </div>
               <div class="queue-actions">
                 <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
+                <el-button size="small" plain @click="openRunConsole(run)">运行观测</el-button>
                 <el-button v-if="run.canApprove" size="small" type="success" plain @click="approveRun(run)">确认</el-button>
                 <el-button v-if="run.canApprove" size="small" type="warning" plain @click="rejectRun(run)">驳回</el-button>
                 <el-button v-if="run.canCancel" size="small" type="danger" plain @click="cancelRun(run)">取消</el-button>
@@ -406,6 +407,10 @@ const openProject = (projectKey) => {
 }
 
 const goAutomation = () => router.push('/automation')
+const openRunConsole = (run) => {
+  if (!run?.id) return
+  router.push({ path: '/agent-runs', query: { runId: run.id } })
+}
 const goAgentRuns = () => router.push('/agent-runs')
 
 const selectBusinessAction = (action) => {

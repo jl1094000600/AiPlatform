@@ -65,7 +65,9 @@
           </div>
           <el-alert v-if="selected.run.errorMessage" :title="selected.run.errorMessage" type="warning" :closable="false" show-icon />
 
-          <el-collapse v-model="openPanels">
+          <el-tabs v-model="detailTab" class="detail-tabs">
+            <el-tab-pane label="执行概览" name="overview">
+              <el-collapse v-model="openPanels">
             <el-collapse-item name="steps" title="执行进度与任务">
               <h4>步骤</h4>
               <el-table :data="selected.steps" size="small">
@@ -119,7 +121,21 @@
               </el-table>
               <el-empty v-if="selected.artifacts.length === 0" description="尚未生成交付物" :image-size="70" />
             </el-collapse-item>
-          </el-collapse>
+              </el-collapse>
+            </el-tab-pane>
+
+            <el-tab-pane label="工具调用" name="tools" lazy>
+              <ToolCallsPanel v-if="selected" :run-id="selected.run.id" />
+            </el-tab-pane>
+
+            <el-tab-pane label="Trace 时间线" name="trace" lazy>
+              <TraceTimelinePanel v-if="selected" :run-id="selected.run.id" />
+            </el-tab-pane>
+
+            <el-tab-pane label="Workspace" name="workspace" lazy>
+              <WorkspacePanel v-if="selected" :run-id="selected.run.id" />
+            </el-tab-pane>
+          </el-tabs>
         </template>
       </section>
     </div>
@@ -128,10 +144,14 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import ToolCallsPanel from '../components/agent-runtime/ToolCallsPanel.vue'
+import TraceTimelinePanel from '../components/agent-runtime/TraceTimelinePanel.vue'
+import WorkspacePanel from '../components/agent-runtime/WorkspacePanel.vue'
 
+const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -141,6 +161,7 @@ const total = ref(0)
 const pageSize = 20
 const filters = ref({ pageNum: 1, status: '' })
 const openPanels = ref(['steps', 'events', 'memory', 'artifacts'])
+const detailTab = ref('overview')
 const statuses = ['QUEUED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMEOUT']
 
 const loadRuns = async () => {
@@ -150,7 +171,12 @@ const loadRuns = async () => {
     const page = response.data.data || {}
     runs.value = page.records || []
     total.value = page.total || 0
-    if (runs.value.length && !runs.value.some(item => item.id === selected.value?.run?.id)) await loadDetail(runs.value[0].id)
+    const preferredId = Number(route.query.runId) || selected.value?.run?.id
+    if (preferredId) {
+      await loadDetail(preferredId)
+    } else if (runs.value.length && !runs.value.some(item => item.id === selected.value?.run?.id)) {
+      await loadDetail(runs.value[0].id)
+    }
     if (!runs.value.length) selected.value = null
   } catch {
     ElMessage.error('运行记录加载失败')
@@ -232,6 +258,7 @@ onMounted(loadRuns)
 .run-list { overflow: hidden; }
 .pager { padding: 12px; display: flex; justify-content: flex-end; }
 .detail { padding: 18px; min-height: 520px; }
+.detail-tabs { margin-top: 6px; }
 .detail-title { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .eyebrow { color: var(--accent-cyan); font-size: 12px; font-weight: 700; letter-spacing: .08em; }
 .detail-title h3 { margin: 5px 0; font-size: 20px; }

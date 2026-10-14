@@ -1,6 +1,8 @@
 package com.aipal.service;
 
 import com.aipal.dto.AutomationDeployProfileResponse;
+import com.aipal.agent.runtime.workspace.Workspace;
+import com.aipal.agent.runtime.workspace.WorkspaceFactory;
 import com.aipal.entity.AutomationBuildRun;
 import com.aipal.entity.AutomationGeneratedCodeBatch;
 import com.aipal.entity.AutomationPipeline;
@@ -50,6 +52,7 @@ public class AutomationBuildTestExecutionService {
     private final AutomationPipelineMapper pipelineMapper;
     private final AutomationDeployProfileService deployProfileService;
     private final ObjectMapper objectMapper;
+    private final WorkspaceFactory workspaceFactory;
 
     public boolean isBuildOrTestStage(String stageKey) {
         return com.aipal.common.PipelineStages.BUILD_COMPILE.equals(stageKey)
@@ -112,7 +115,7 @@ public class AutomationBuildTestExecutionService {
 
         CommandResult result = isBlank(command)
                 ? CommandResult.success("No test command configured; test stage skipped.")
-                : runCommand(command, workDir, timeoutSeconds);
+                : runTestCommandInWorkspace(command, workDir, timeoutSeconds);
         TestSummary summary = parseTestSummary(result.log());
         finishTestRun(run, result, summary, start);
         finishStage(stage, result, start);
@@ -210,6 +213,38 @@ public class AutomationBuildTestExecutionService {
                     : CommandResult.failure(exitCode, log, "Command failed with exit code " + exitCode);
         } catch (Exception e) {
             return CommandResult.failure(-1, "$ " + command + "\n" + e.getMessage(), e.getMessage());
+        }
+    }
+
+    /**
+     * Prefer the Workspace sandbox for test commands; fall back to a direct process when
+     * the workspace cannot be created (keeps legacy pipelines working).
+     */
+    private CommandResult runTestCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
+        if (workspaceFactory == null) {
+            return runCommand(command, workDir, timeoutSeconds);
+        }
+        try {
+            AutomationCommandGuard.requireSafeCommand(command, "testCommand");
+            Workspace workspace = workspaceFactory.openLocal(workDir);
+            try {
+                com.aipal.agent.runtime.workspace.CommandResult wsResult =
+                        workspace.exec(shellCommand(command),
+                                Duration.ofSeconds(Math.max(10, timeoutSeconds == null ? 600 : timeoutSeconds)));
+                String log = "$ " + command + "\n" + wsResult.stdout()
+                        + (wsResult.stderr().isBlank() ? "" : "\n" + wsResult.stderr());
+                if (wsResult.timedOut()) {
+                    return CommandResult.failure(-1, log + "\nCommand timed out", "Command timed out");
+                }
+                return wsResult.exitCode() == 0
+                        ? CommandResult.success(log)
+                        : CommandResult.failure(wsResult.exitCode(), log,
+                        "Command failed with exit code " + wsResult.exitCode());
+            } finally {
+                workspace.close();
+            }
+        } catch (Exception e) {
+            return runCommand(command, workDir, timeoutSeconds);
         }
     }
 

@@ -8,6 +8,7 @@ public final class PipelineStages {
     public static final String REQUIREMENT_ANALYSIS = "requirement_analysis";
     public static final String CODE_GENERATION = "code_generation";
     public static final String CODE_QUALITY_EVALUATION = "code_quality_evaluation";
+    public static final String TEST_CASE_GENERATION = "test_case_generation";
     public static final String BUILD_COMPILE = "build_compile";
     public static final String TEST_EXECUTION = "test_execution";
     public static final String DEPLOYMENT_RELEASE = "deployment_release";

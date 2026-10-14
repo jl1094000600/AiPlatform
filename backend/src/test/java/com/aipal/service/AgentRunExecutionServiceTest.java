@@ -103,6 +103,8 @@ class AgentRunExecutionServiceTest {
         )));
         AgentRunExecutionService service = new AgentRunExecutionService(runMapper, taskMapper, stepMapper,
                 artifactMapper, taskService, eventService, streamEventService, loopExecutor, snapshotService,
+                new com.aipal.agent.runtime.budget.RunBudgetGuard(),
+                mock(com.aipal.agent.runtime.trace.RunTracer.class),
                 new ObjectMapper(), transactionTemplate());
         return new Fixtures(service, run, task, artifactMapper, eventService, streamEventService, loopExecutor);
     }

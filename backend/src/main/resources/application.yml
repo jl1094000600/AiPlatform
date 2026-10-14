@@ -84,6 +84,19 @@ aipal:
     snapshot-encryption:
       key-id: ${AGENT_RUNTIME_SNAPSHOT_KEY_ID}
       key-b64: ${AGENT_RUNTIME_SNAPSHOT_KEY_B64}
+    ask-user:
+      timeout-seconds: ${AGENT_ASK_USER_TIMEOUT_SECONDS:300}
+      min-timeout-seconds: ${AGENT_ASK_USER_MIN_TIMEOUT_SECONDS:1}
+      max-timeout-seconds: ${AGENT_ASK_USER_MAX_TIMEOUT_SECONDS:3600}
+    budget:
+      default-max-duration-seconds: ${AGENT_BUDGET_MAX_DURATION_SECONDS:600}
+      default-max-steps: ${AGENT_BUDGET_MAX_STEPS:8}
+      default-max-total-tokens: ${AGENT_BUDGET_MAX_TOTAL_TOKENS:8000}
+      default-max-child-tasks: ${AGENT_BUDGET_MAX_CHILD_TASKS:5}
+  workspace:
+    mode: ${WORKSPACE_MODE:auto}
+    docker-binary: ${WORKSPACE_DOCKER_BINARY:docker}
+    docker-image: ${WORKSPACE_DOCKER_IMAGE:maven:3.9-eclipse-temurin-21}
   asr:
     dashscope:
       endpoint: ${DASHSCOPE_ASR_ENDPOINT:wss://dashscope.aliyuncs.com/api-ws/v1/inference}

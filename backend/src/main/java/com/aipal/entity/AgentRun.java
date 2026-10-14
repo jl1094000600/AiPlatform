@@ -18,7 +18,8 @@ public class AgentRun {
     private String inputJson; private String resultJson; private String traceId; private String memoryTraceId;
     private String loopVersion; private Integer contextWindowTokens; private Integer contextUsedTokens;
     private Integer compactCount; private Integer currentTurn; private String stopReason;
-    private Integer maxSteps; private Integer maxChildTasks; private Integer maxTotalTokens; private Integer totalTokens;
+    private Integer maxSteps; private Integer maxChildTasks; private Integer maxTotalTokens; private Integer maxDurationSeconds;
+    private Integer totalTokens;
     private String errorMessage; private LocalDateTime startTime; private LocalDateTime endTime; private Integer version;
     private LocalDateTime createTime; private LocalDateTime updateTime; @TableLogic private Integer isDeleted;
 }

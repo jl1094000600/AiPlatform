@@ -138,7 +138,8 @@ class AgentToolExecutorTest {
             }
         };
         AgentToolExecutor executor = new AgentToolExecutor(registryService, evaluator, toolCallMapper, stepMapper,
-                streamEventService, new ObjectMapper(), includeTool ? List.of(tool) : List.of());
+                streamEventService, mock(com.aipal.agent.runtime.trace.RunTracer.class), new ObjectMapper(),
+                includeTool ? List.of(tool) : List.of());
         return new Fixtures(executor, run, evaluator, stepMapper, toolCallMapper, streamEventService, toolExecuted);
     }
 

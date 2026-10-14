@@ -38,7 +38,9 @@ class AgentRunControllerTest {
                 new AgentRunStreamEventService.RunStreamEventView(1L, 99L, "TOOL_STARTED", 4L,
                         Map.of("toolName", "memory.search"), true, LocalDateTime.now());
         when(streamEventService.listForRun(1L, 99L, 3L, 50, false)).thenReturn(List.of(event));
-        AgentRunController controller = new AgentRunController(runService, streamEventService);
+        AgentRunController controller = new AgentRunController(runService, streamEventService,
+                mock(com.aipal.service.AgentToolResponseService.class),
+                mock(com.aipal.agent.runtime.trace.RunTracer.class));
 
         Result<List<AgentRunStreamEventService.RunStreamEventView>> result = controller.stream(99L, 3L, 50);
 
@@ -56,7 +58,9 @@ class AgentRunControllerTest {
                 "memory.search", "READ_ONLY", "ALLOW", "SUCCEEDED", "ok", null,
                 1, 2, LocalDateTime.now(), LocalDateTime.now());
         when(runService.listToolCalls(99L)).thenReturn(List.of(call));
-        AgentRunController controller = new AgentRunController(runService, streamEventService);
+        AgentRunController controller = new AgentRunController(runService, streamEventService,
+                mock(com.aipal.service.AgentToolResponseService.class),
+                mock(com.aipal.agent.runtime.trace.RunTracer.class));
 
         Result<List<AgentRunService.ToolCallView>> result = controller.toolCalls(99L);
 

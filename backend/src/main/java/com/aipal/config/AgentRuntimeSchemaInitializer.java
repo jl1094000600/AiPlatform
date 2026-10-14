@@ -35,6 +35,7 @@ public class AgentRuntimeSchemaInitializer {
             createToolCall(statement);
             createContextSnapshot(statement);
             createRunStreamEvent(statement);
+            createRunSpan(statement);
             ensureRuntimeV2Columns(connection, statement);
             seedBuiltinTools(statement);
         } catch (SQLException e) {
@@ -243,6 +244,23 @@ public class AgentRuntimeSchemaInitializer {
                 """);
     }
 
+    private void createRunSpan(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS agent_run_span (
+                    id BIGINT NOT NULL AUTO_INCREMENT, tenant_id BIGINT NOT NULL, run_id BIGINT NOT NULL,
+                    parent_span_id BIGINT DEFAULT NULL, span_id VARCHAR(96) NOT NULL, trace_id VARCHAR(96) DEFAULT NULL,
+                    span_type VARCHAR(32) NOT NULL, span_name VARCHAR(128) DEFAULT NULL,
+                    step_id BIGINT DEFAULT NULL, tool_call_id BIGINT DEFAULT NULL, call_id VARCHAR(96) DEFAULT NULL,
+                    status VARCHAR(32) NOT NULL, input_tokens INT NOT NULL DEFAULT 0, output_tokens INT NOT NULL DEFAULT 0,
+                    summary VARCHAR(256) DEFAULT NULL, start_time DATETIME DEFAULT NULL, end_time DATETIME DEFAULT NULL,
+                    duration_ms BIGINT DEFAULT NULL, create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    is_deleted TINYINT NOT NULL DEFAULT 0, PRIMARY KEY (id),
+                    UNIQUE KEY uk_agent_run_span_id (span_id),
+                    KEY idx_agent_run_span_run (tenant_id, run_id, start_time, id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+    }
+
     private void ensureRuntimeV2Columns(Connection connection, Statement statement) throws SQLException {
         addColumnIfMissing(connection, statement, "agent_run", "loop_version",
                 "ALTER TABLE agent_run ADD COLUMN loop_version VARCHAR(16) NOT NULL DEFAULT 'v1' AFTER memory_trace_id");
@@ -266,6 +284,8 @@ public class AgentRuntimeSchemaInitializer {
                 "ALTER TABLE agent_step ADD COLUMN compact_status VARCHAR(32) DEFAULT NULL AFTER risk_level");
         addColumnIfMissing(connection, statement, "agent_step", "stream_event_count",
                 "ALTER TABLE agent_step ADD COLUMN stream_event_count INT NOT NULL DEFAULT 0 AFTER compact_status");
+        addColumnIfMissing(connection, statement, "agent_run", "max_duration_seconds",
+                "ALTER TABLE agent_run ADD COLUMN max_duration_seconds INT NOT NULL DEFAULT 600 AFTER max_total_tokens");
     }
 
     private void seedBuiltinTools(Statement statement) throws SQLException {
@@ -287,7 +307,22 @@ public class AgentRuntimeSchemaInitializer {
                  '{"type":"object","properties":{"executionId":{"type":"string"}}}', 'MUTATING', 0, 0, 60, 1, '{"scope":"project"}', 1),
                 ('artifact.create', 'Create a structured artifact that must enter approval before final delivery.',
                  '{"type":"object","properties":{"title":{"type":"string"},"artifactType":{"type":"string"},"content":{"type":"object"}},"required":["title","artifactType"]}',
-                 '{"type":"object","properties":{"artifactId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 1, 20, 1, '{"scope":"project"}', 1)
+                 '{"type":"object","properties":{"artifactId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 1, 20, 1, '{"scope":"project"}', 1),
+                ('ask_user', 'Pause execution and ask the user a clarifying question; the run waits for an answer or times out.',
+                 '{"type":"object","properties":{"question":{"type":"string"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":3600}},"required":["question"]}',
+                 '{"type":"object","properties":{"answer":{"type":"string"},"status":{"type":"string"}}}', 'READ_ONLY', 0, 0, 600, 0, '{"scope":"project"}', 1),
+                ('task.create', 'Create a child task tracked for this agent run.',
+                 '{"type":"object","properties":{"taskType":{"type":"string"},"payload":{"type":"object"}},"required":["taskType"]}',
+                 '{"type":"object","properties":{"taskId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 0, 10, 0, '{"scope":"project"}', 1),
+                ('task.list', 'List tasks belonging to this agent run.',
+                 '{"type":"object","properties":{"status":{"type":"string"}}}',
+                 '{"type":"object","properties":{"tasks":{"type":"array"}}}', 'READ_ONLY', 1, 1, 10, 0, '{"scope":"project"}', 1),
+                ('task.get', 'Get one task of this agent run by id.',
+                 '{"type":"object","properties":{"taskId":{"type":"integer"}},"required":["taskId"]}',
+                 '{"type":"object","properties":{"task":{"type":"object"}}}', 'READ_ONLY', 1, 1, 10, 0, '{"scope":"project"}', 1),
+                ('task.update', 'Update the status of one task of this agent run.',
+                 '{"type":"object","properties":{"taskId":{"type":"integer"},"status":{"type":"string"},"note":{"type":"string"}},"required":["taskId","status"]}',
+                 '{"type":"object","properties":{"taskId":{"type":"integer"},"status":{"type":"string"}}}', 'MUTATING', 0, 0, 10, 0, '{"scope":"project"}', 1)
                 """);
         statement.executeUpdate("""
                 UPDATE agent_tool_definition

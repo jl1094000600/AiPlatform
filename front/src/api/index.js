@@ -7,6 +7,9 @@ const api = axios.create({
   timeout: 10000
 })
 
+// 供 agentRuntime 等模块复用同一实例（鉴权/401 拦截一致）
+export const http = api
+
 api.interceptors.request.use(config => {
   const token = getAuthToken()
   if (token) {

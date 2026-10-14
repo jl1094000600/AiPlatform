@@ -18,15 +18,30 @@ import static org.mockito.Mockito.when;
 class AgentToolPermissionEvaluatorTest {
 
     @Test
-    void defaultsToDenyWhenNoPolicyMatches() {
+    void defaultsToAllowReadOnlyWhenNoPolicyMatches() {
         AgentToolPolicyMapper mapper = mock(AgentToolPolicyMapper.class);
         when(mapper.selectList(any())).thenReturn(List.of());
         AgentToolPermissionEvaluator evaluator = new AgentToolPermissionEvaluator(mapper);
 
         AgentToolPermissionEvaluator.ToolPermissionResult result = evaluator.evaluate(run(), definition("memory.search", 0));
 
-        assertEquals(AgentToolPermissionDecision.DENY, result.decision());
+        assertEquals(AgentToolPermissionDecision.ALLOW, result.decision());
         assertEquals("READ_ONLY", result.riskLevel());
+    }
+
+    @Test
+    void defaultsToDenyWriteRiskWhenNoPolicyMatches() {
+        AgentToolPolicyMapper mapper = mock(AgentToolPolicyMapper.class);
+        when(mapper.selectList(any())).thenReturn(List.of());
+        AgentToolPermissionEvaluator evaluator = new AgentToolPermissionEvaluator(mapper);
+
+        AgentToolDefinition write = definition("fs.write", 0);
+        write.setRiskLevel("MUTATING");
+        assertEquals(AgentToolPermissionDecision.DENY, evaluator.evaluate(run(), write).decision());
+
+        AgentToolDefinition exec = definition("shell.exec", 0);
+        exec.setRiskLevel("DESTRUCTIVE");
+        assertEquals(AgentToolPermissionDecision.DENY, evaluator.evaluate(run(), exec).decision());
     }
 
     @Test

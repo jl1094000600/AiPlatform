@@ -19,7 +19,8 @@ class AgentLoopExecutorTest {
         AgentService agentService = mock(AgentService.class);
         when(agentService.callAgentFrozen(eq(11L), any(), eq(7L), eq(null),
                 eq(1001L), eq(3003L), eq(4004L))).thenReturn(Map.of("answer", "ok", "totalTokens", 24));
-        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, mock(AgentToolExecutor.class));
+        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, mock(AgentToolExecutor.class),
+                new com.aipal.agent.runtime.budget.RunBudgetGuard());
 
         AgentLoopExecutor.LoopResult result = executor.execute(run("v1"), Map.of("requirement", "demo"),
                 Map.of("runtimeConfig", Map.of("modelId", 1001, "promptId", 3003, "promptVersionId", 4004)));
@@ -40,7 +41,8 @@ class AgentLoopExecutorTest {
         when(toolExecutor.execute(eq(run("v2")), eq("call-1"), eq("memory.search"), eq(Map.of("query", "demo"))))
                 .thenReturn(new AgentToolExecutor.ToolExecutionResult(true, "SUCCEEDED",
                         Map.of("items", java.util.List.of()), null, 9L, 8L));
-        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, toolExecutor);
+        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, toolExecutor,
+                new com.aipal.agent.runtime.budget.RunBudgetGuard());
 
         AgentLoopExecutor.LoopResult result = executor.execute(run("v2"), Map.of("requirement", "demo"),
                 Map.of("runtimeConfig", Map.of("modelId", 1001, "promptId", 3003, "promptVersionId", 4004)));
@@ -60,7 +62,8 @@ class AgentLoopExecutorTest {
         when(toolExecutor.execute(eq(run("v2")), any(), eq("memory.search"), eq(Map.of("query", "demo"))))
                 .thenReturn(new AgentToolExecutor.ToolExecutionResult(false, "DENY", null,
                         "Tool permission DENY", 9L, 8L));
-        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, toolExecutor);
+        AgentLoopExecutor executor = new AgentLoopExecutor(agentService, toolExecutor,
+                new com.aipal.agent.runtime.budget.RunBudgetGuard());
 
         assertThrows(IllegalStateException.class, () -> executor.execute(run("v2"), Map.of("requirement", "demo"),
                 Map.of("runtimeConfig", Map.of("modelId", 1001, "promptId", 3003, "promptVersionId", 4004))));
@@ -68,7 +71,8 @@ class AgentLoopExecutorTest {
 
     @Test
     void unknownLoopVersionIsRejected() {
-        AgentLoopExecutor executor = new AgentLoopExecutor(mock(AgentService.class), mock(AgentToolExecutor.class));
+        AgentLoopExecutor executor = new AgentLoopExecutor(mock(AgentService.class), mock(AgentToolExecutor.class),
+                new com.aipal.agent.runtime.budget.RunBudgetGuard());
 
         assertThrows(UnsupportedOperationException.class, () -> executor.execute(run("v3"), Map.of(),
                 Map.of("runtimeConfig", Map.of("modelId", 1001))));

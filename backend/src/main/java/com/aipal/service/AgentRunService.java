@@ -69,6 +69,7 @@ public class AgentRunService {
     private final AgentRuntimeConfigService runtimeConfigService;
     private final AgentRunExecutionSnapshotService executionSnapshotService;
     private final AgentToolSnapshotService toolSnapshotService;
+    private final AgentToolResponseService toolResponseService;
     private final MemoryProjectService memoryProjectService;
     private final MemoryOrchestrator memoryOrchestrator;
     private final ObjectMapper objectMapper;
@@ -255,11 +256,19 @@ public class AgentRunService {
         run.setVersion(run.getVersion() + 1);
         int changed = runMapper.update(run, new LambdaUpdateWrapper<AgentRun>()
                 .eq(AgentRun::getId, runId).eq(AgentRun::getTenantId, TenantContext.tenantId())
-                .in(AgentRun::getStatus, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(), AgentRunStatus.WAITING_APPROVAL.name()));
+                .in(AgentRun::getStatus, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(),
+                        AgentRunStatus.WAITING_APPROVAL.name(), AgentRunStatus.WAITING_USER_INPUT.name()));
         if (changed != 1) return get(runId);
+        toolResponseService.abortPendingForRun(runId, run.getErrorMessage());
         agentTaskService.cancelTasksForRun(runId, run.getErrorMessage());
         eventService.record(run, fromStatus, AgentRunStatus.CANCELLED.name(), run.getErrorMessage());
         return run;
+    }
+
+    /** Same trust boundary as approval: run owner or project manager may answer ask_user. */
+    public void assertCanRespondToUserInput(Long runId) {
+        AgentRun run = get(runId);
+        assertApprover(run);
     }
 
     @Transactional
