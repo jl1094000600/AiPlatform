@@ -48,10 +48,10 @@ public class AutomationDeploymentExecutionService {
     private final ObjectMapper objectMapper;
 
     public boolean isDeploymentStage(String stageKey) {
-        return "build_compile".equals(stageKey)
-                || "test_execution".equals(stageKey)
-                || "deployment_release".equals(stageKey)
-                || "operations_monitoring".equals(stageKey);
+        return com.aipal.common.PipelineStages.BUILD_COMPILE.equals(stageKey)
+                || com.aipal.common.PipelineStages.TEST_EXECUTION.equals(stageKey)
+                || com.aipal.common.PipelineStages.DEPLOYMENT_RELEASE.equals(stageKey)
+                || com.aipal.common.PipelineStages.OPERATIONS_MONITORING.equals(stageKey);
     }
 
     public AutomationStageRun executeStage(AutomationPipeline pipeline, AutomationStageRun stage) {
@@ -83,12 +83,12 @@ public class AutomationDeploymentExecutionService {
 
         try {
             StageResult result = switch (stage.getStageKey()) {
-                case "build_compile" -> executeConfiguredCommand(profile.getBuildCommand(), "No build command configured",
+                case com.aipal.common.PipelineStages.BUILD_COMPILE -> executeConfiguredCommand(profile.getBuildCommand(), "No build command configured",
                         workDir(pipeline, profile), profile.getTimeoutSeconds());
-                case "test_execution" -> executeConfiguredCommand(profile.getTestCommand(), "No test command configured",
+                case com.aipal.common.PipelineStages.TEST_EXECUTION -> executeConfiguredCommand(profile.getTestCommand(), "No test command configured",
                         workDir(pipeline, profile), profile.getTimeoutSeconds());
-                case "deployment_release" -> executeDeployment(pipeline, profile, workDir(pipeline, profile));
-                case "operations_monitoring" -> executeHealthCheck(profile);
+                case com.aipal.common.PipelineStages.DEPLOYMENT_RELEASE -> executeDeployment(pipeline, profile, workDir(pipeline, profile));
+                case com.aipal.common.PipelineStages.OPERATIONS_MONITORING -> executeHealthCheck(profile);
                 default -> StageResult.success("Stage skipped");
             };
             finishRun(run, result, start);

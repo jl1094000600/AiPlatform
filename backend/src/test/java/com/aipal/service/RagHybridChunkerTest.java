@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RagHybridChunkerTest {
 
-    private final RagHybridChunker chunker = new RagHybridChunker(new RagChunker(), new ObjectMapper());
+    private final RagHybridChunker chunker = new RagHybridChunker(new RagChunker(), new ObjectMapper(), null);
 
     @Test
     void keepsArticleAndTableTitlesWithMarkdownTable() {

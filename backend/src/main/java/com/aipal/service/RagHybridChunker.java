@@ -27,6 +27,7 @@ public class RagHybridChunker {
 
     private final RagChunker fixedChunker;
     private final ObjectMapper objectMapper;
+    private final ModelGateway modelGateway;
 
     public HybridChunkResult chunk(String content, String requestedContentType, int chunkSize, int overlap, AiModel semanticModel) {
         String normalized = content == null ? "" : content.trim();
@@ -250,27 +251,19 @@ public class RagHybridChunker {
             return List.of();
         }
         try {
-            String endpoint = semanticModel.getEndpoint().endsWith("/")
-                    ? semanticModel.getEndpoint() + "chat/completions"
-                    : semanticModel.getEndpoint() + "/chat/completions";
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", semanticModel.getModelCode());
-            body.put("temperature", semanticModel.getDefaultTemperature() == null ? BigDecimal.valueOf(0.1) : semanticModel.getDefaultTemperature());
-            body.put("max_tokens", Math.min(semanticModel.getMaxTokens() == null ? 4096 : semanticModel.getMaxTokens(), 8192));
-            body.put("messages", List.of(
-                    Map.of("role", "system", "content", "You split RAG source text into semantically coherent chunks. Return strict JSON only."),
-                    Map.of("role", "user", "content", buildPrompt(candidates, contentType, chunkSize))
-            ));
-
-            RestClient.RequestBodySpec request = RestClient.create()
-                    .post()
-                    .uri(endpoint)
-                    .contentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            if (!isBlank(semanticModel.getApiKey()) && !"******".equals(semanticModel.getApiKey())) {
-                request.header("Authorization", "Bearer " + semanticModel.getApiKey());
-            }
-            String response = request.body(body).retrieve().body(String.class);
-            String content = extractModelContent(response);
+            String systemPrompt = "You split RAG source text into semantically coherent chunks. Return strict JSON only.";
+            String userPrompt = buildPrompt(candidates, contentType, chunkSize);
+            ModelCallResult result = modelGateway.chat(
+                    semanticModel,
+                    systemPrompt,
+                    userPrompt,
+                    BigDecimal.valueOf(0.1),
+                    Math.min(semanticModel.getMaxTokens() == null ? 4096 : semanticModel.getMaxTokens(), 8192),
+                    null,
+                    null,
+                    false
+            );
+            String content = result.contentOrEmpty();
             return validateSemanticChunks(parseChunks(content), original, chunkSize);
         } catch (Exception ignored) {
             return List.of();

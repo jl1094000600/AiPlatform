@@ -68,6 +68,8 @@ public class ModelTrainingService {
     private AiDatasetMapper datasetMapper;
     @Autowired(required = false)
     private AiModelMapper modelMapper;
+    @Autowired
+    private ModelGateway modelGateway;
 
     public List<ModelTrainingDataset> listDatasets() {
         List<ModelTrainingDataset> result = new ArrayList<>();
@@ -480,40 +482,22 @@ public class ModelTrainingService {
     }
 
     private String callModelForDataset(AiModel model, String topic, int count) {
-        String endpoint = model.getEndpoint().endsWith("/")
-                ? model.getEndpoint() + "chat/completions"
-                : model.getEndpoint() + "/chat/completions";
-        Map<String, Object> body = Map.of(
-                "model", model.getModelCode(),
-                "temperature", model.getDefaultTemperature() == null ? BigDecimal.valueOf(0.4) : model.getDefaultTemperature(),
-                "max_tokens", resolveMaxTokens(model, count),
-                "messages", List.of(
-                        Map.of("role", "system", "content", "你是中文检索训练数据专家，负责为 BGE-M3 微调生成高质量 query/pos/neg 样本。只输出 JSON，不要 Markdown。"),
-                        Map.of("role", "user", "content", buildDatasetPrompt(topic, count))
-                )
+        String systemPrompt = "你是中文检索训练数据专家，负责为 BGE-M3 微调生成高质量 query/pos/neg 样本。只输出 JSON，不要 Markdown。";
+        ModelCallResult result = modelGateway.chat(
+                model,
+                systemPrompt,
+                buildDatasetPrompt(topic, count),
+                BigDecimal.valueOf(0.4),
+                resolveMaxTokens(model, count),
+                java.time.Duration.ofSeconds(10),
+                java.time.Duration.ofSeconds(170),
+                true
         );
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(10_000);
-        requestFactory.setReadTimeout(170_000);
-        String response = RestClient.builder()
-                .requestFactory(requestFactory)
-                .build()
-                .post()
-                .uri(endpoint)
-                .header("Authorization", "Bearer " + model.getApiKey())
-                .header("Content-Type", "application/json")
-                .body(body)
-                .retrieve()
-                .body(String.class);
-        try {
-            String content = extractOpenAiContent(response);
-            if (content == null || content.isBlank()) {
-                throw new IllegalStateException("大模型返回内容为空。");
-            }
-            return content;
-        } catch (IOException e) {
-            throw new IllegalStateException("解析大模型响应失败: " + e.getMessage(), e);
+        String content = result.contentOrEmpty();
+        if (content.isBlank()) {
+            throw new IllegalStateException("大模型返回内容为空。");
         }
+        return content;
     }
 
     private String buildDatasetPrompt(String topic, int count) {

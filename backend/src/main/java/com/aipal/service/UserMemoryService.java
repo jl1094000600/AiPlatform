@@ -45,6 +45,7 @@ public class UserMemoryService {
     private final RedisTemplate<String, Object> redisTemplate;
     private final AiUserMemoryMapper userMemoryMapper;
     private final AiModelMapper modelMapper;
+    private final ModelGateway modelGateway;
     private final ObjectMapper objectMapper;
 
     @Autowired
@@ -248,9 +249,6 @@ public class UserMemoryService {
             return fallbackSummary(items);
         }
         try {
-            String endpoint = model.getEndpoint().endsWith("/")
-                    ? model.getEndpoint() + "chat/completions"
-                    : model.getEndpoint() + "/chat/completions";
             String prompt = """
                     Compress the following user pipeline memories into a stable long-term memory.
                     Keep user intent, project facts, constraints, generated decisions, and useful preferences.
@@ -259,25 +257,14 @@ public class UserMemoryService {
                     Memories:
                     %s
                     """.formatted(memoryText);
-            Map<String, Object> body = Map.of(
-                    "model", model.getModelCode(),
-                    "temperature", model.getDefaultTemperature() == null ? BigDecimal.valueOf(0.2) : model.getDefaultTemperature(),
-                    "max_tokens", Math.min(model.getMaxTokens() == null ? 2048 : model.getMaxTokens(), 4096),
-                    "messages", List.of(
-                            Map.of("role", "system", "content", "You compress user memory safely and never mix users."),
-                            Map.of("role", "user", "content", prompt)
-                    )
+            ModelCallResult result = modelGateway.chat(
+                    model,
+                    "You compress user memory safely and never mix users.",
+                    prompt,
+                    BigDecimal.valueOf(0.2),
+                    Math.min(model.getMaxTokens() == null ? 2048 : model.getMaxTokens(), 4096)
             );
-            String response = RestClient.create()
-                    .post()
-                    .uri(endpoint)
-                    .header("Authorization", "Bearer " + model.getApiKey())
-                    .header("Content-Type", "application/json")
-                    .body(body)
-                    .retrieve()
-                    .body(String.class);
-            JsonNode root = objectMapper.readTree(response);
-            String content = root.path("choices").path(0).path("message").path("content").asText("");
+            String content = result.contentOrEmpty();
             return content.isBlank() ? fallbackSummary(items) : content;
         } catch (Exception e) {
             log.warn("Failed to compress user memory with model: {}", e.getMessage());

@@ -52,7 +52,8 @@ public class AutomationBuildTestExecutionService {
     private final ObjectMapper objectMapper;
 
     public boolean isBuildOrTestStage(String stageKey) {
-        return "build_compile".equals(stageKey) || "test_execution".equals(stageKey);
+        return com.aipal.common.PipelineStages.BUILD_COMPILE.equals(stageKey)
+                || com.aipal.common.PipelineStages.TEST_EXECUTION.equals(stageKey);
     }
 
     public AutomationStageRun executeBuild(AutomationPipeline pipeline, AutomationStageRun stage) {

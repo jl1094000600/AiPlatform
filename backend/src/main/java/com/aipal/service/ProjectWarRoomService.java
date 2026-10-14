@@ -281,14 +281,14 @@ public class ProjectWarRoomService {
     private String stageLabel(String stageKey) {
         if (blank(stageKey)) return "未开始";
         return switch (stageKey) {
-            case "requirement_analysis" -> "需求确认";
-            case "code_generation" -> "方案/代码";
-            case "code_quality_evaluation" -> "质量评估";
-            case "build_compile" -> "构建";
-            case "test_execution" -> "测试";
-            case "deployment_release" -> "发布";
-            case "operations_monitoring" -> "运维观察";
-            case "delivery_report" -> "交付报告";
+            case com.aipal.common.PipelineStages.REQUIREMENT_ANALYSIS -> "需求确认";
+            case com.aipal.common.PipelineStages.CODE_GENERATION -> "方案/代码";
+            case com.aipal.common.PipelineStages.CODE_QUALITY_EVALUATION -> "质量评估";
+            case com.aipal.common.PipelineStages.BUILD_COMPILE -> "构建";
+            case com.aipal.common.PipelineStages.TEST_EXECUTION -> "测试";
+            case com.aipal.common.PipelineStages.DEPLOYMENT_RELEASE -> "发布";
+            case com.aipal.common.PipelineStages.OPERATIONS_MONITORING -> "运维观察";
+            case com.aipal.common.PipelineStages.DELIVERY_REPORT -> "交付报告";
             default -> stageKey.replace('_', ' ');
         };
     }

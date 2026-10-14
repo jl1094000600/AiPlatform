@@ -59,13 +59,13 @@ public class CodeQualityService {
     private static final int MAX_REVIEW_CHARS = 120_000;
     private static final int MAX_COMMAND_OUTPUT_CHARS = 16_000;
     private static final int QUALITY_COMMAND_TIMEOUT_SECONDS = 120;
-    private static final int DEFAULT_MAX_TOKENS = 4096;
 
     private final CodeQualityStandardMapper standardMapper;
     private final CodeQualityRuleMapper ruleMapper;
     private final AutomationCodeQualityRunMapper runMapper;
     private final AutomationCodeQualityIssueMapper issueMapper;
     private final AutomationCodeQualityEvidenceMapper evidenceMapper;
+    private final ModelGateway modelGateway;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public Page<CodeQualityStandardResponse> listStandards(int pageNum, int pageSize, Integer status) {
@@ -725,47 +725,7 @@ public class CodeQualityService {
     }
 
     private ModelCallResult callModel(AiModel model, String systemPrompt, String userPrompt) throws IOException {
-        String endpoint = model.getEndpoint().endsWith("/")
-                ? model.getEndpoint() + "chat/completions"
-                : model.getEndpoint() + "/chat/completions";
-        Map<String, Object> body = Map.of(
-                "model", model.getModelCode(),
-                "temperature", model.getDefaultTemperature() == null ? BigDecimal.valueOf(0.2) : model.getDefaultTemperature(),
-                "max_tokens", model.getMaxTokens() == null ? DEFAULT_MAX_TOKENS : model.getMaxTokens(),
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userPrompt)
-                )
-        );
-        String response = RestClient.create()
-                .post()
-                .uri(endpoint)
-                .header("Authorization", "Bearer " + model.getApiKey())
-                .header("Content-Type", "application/json")
-                .body(body)
-                .retrieve()
-                .body(String.class);
-        return extractModelCallResult(response, systemPrompt, userPrompt);
-    }
-
-    private ModelCallResult extractModelCallResult(String response, String systemPrompt, String userPrompt) throws IOException {
-        JsonNode root = objectMapper.readTree(response);
-        String content = root.path("choices").isArray() && root.path("choices").size() > 0
-                ? root.path("choices").get(0).path("message").path("content").asText("")
-                : "";
-        JsonNode usage = root.path("usage");
-        int inputTokens = firstInt(usage, "prompt_tokens", "input_tokens");
-        int outputTokens = firstInt(usage, "completion_tokens", "output_tokens");
-        int totalTokens = firstInt(usage, "total_tokens");
-        if (totalTokens == 0) {
-            totalTokens = inputTokens + outputTokens;
-        }
-        if (totalTokens == 0) {
-            totalTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt) + estimateTokens(content);
-            inputTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
-            outputTokens = estimateTokens(content);
-        }
-        return new ModelCallResult(content, inputTokens, outputTokens, totalTokens);
+        return modelGateway.chat(model, systemPrompt, userPrompt, BigDecimal.valueOf(0.2), null);
     }
 
     private JsonNode parseModelJson(String content) throws IOException {
@@ -999,19 +959,6 @@ public class CodeQualityService {
         return Math.max(0, Math.min(100, value));
     }
 
-    private int firstInt(JsonNode node, String... keys) {
-        for (String key : keys) {
-            if (node.has(key) && node.get(key).isNumber()) {
-                return node.get(key).asInt();
-            }
-        }
-        return 0;
-    }
-
-    private int estimateTokens(String value) {
-        return value == null ? 0 : Math.max(1, value.length() / 4);
-    }
-
     private int toInt(Object value, int fallback) {
         if (value instanceof Number number) {
             return number.intValue();
@@ -1059,9 +1006,6 @@ public class CodeQualityService {
 
     private record GateConfig(int overallScoreMin, int blockerMax, int criticalMax, int majorMax,
                               int securityScoreMin, int prdAlignmentMin) {
-    }
-
-    private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {
     }
 
     private record QualityCommand(String evidenceType, String toolName, Path workingDirectory, List<String> command) {

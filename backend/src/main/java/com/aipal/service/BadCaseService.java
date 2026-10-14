@@ -27,9 +27,9 @@ public class BadCaseService {
     public static final String STAGE_PRD = "PRD";
     public static final String STAGE_CODE = "CODE";
 
-    private static final String STATUS_REJECTED = "REJECTED";
-    private static final String STAGE_REQUIREMENT_ANALYSIS = "requirement_analysis";
-    private static final String STAGE_CODE_GENERATION = "code_generation";
+    private static final String STATUS_REJECTED = com.aipal.common.PipelineStatus.REJECTED;
+    private static final String STAGE_REQUIREMENT_ANALYSIS = com.aipal.common.PipelineStages.REQUIREMENT_ANALYSIS;
+    private static final String STAGE_CODE_GENERATION = com.aipal.common.PipelineStages.CODE_GENERATION;
 
     private final BadCaseRecordMapper badCaseRecordMapper;
 

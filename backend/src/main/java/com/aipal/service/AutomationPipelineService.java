@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.PipelineStages;
+import com.aipal.common.PipelineStatus;
 import com.aipal.dto.AutomationApprovalRequest;
 import com.aipal.dto.AutomationCodeFeedbackRequest;
 import com.aipal.dto.AutomationPipelineDetail;
@@ -40,7 +42,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -69,21 +70,18 @@ import java.util.concurrent.Executor;
 @RequiredArgsConstructor
 public class AutomationPipelineService {
 
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_QUEUED = "QUEUED";
-    private static final String STATUS_RUNNING = "RUNNING";
-    private static final String STATUS_WAITING_APPROVAL = "WAITING_APPROVAL";
-    private static final String STATUS_SUCCESS = "SUCCESS";
-    private static final String STATUS_REJECTED = "REJECTED";
-    private static final String STATUS_BLOCKED = "BLOCKED";
-    private static final String STATUS_COMPLETED = "COMPLETED";
-    private static final String STAGE_REQUIREMENT_ANALYSIS = "requirement_analysis";
-    private static final String STAGE_CODE_GENERATION = "code_generation";
-    private static final String STAGE_CODE_QUALITY_EVALUATION = "code_quality_evaluation";
-    private static final int MAX_CODE_FILE_COUNT = 40;
-    private static final int MAX_CODE_FILE_CHARS = 120_000;
+    private static final String STATUS_PENDING = PipelineStatus.PENDING;
+    private static final String STATUS_QUEUED = PipelineStatus.QUEUED;
+    private static final String STATUS_RUNNING = PipelineStatus.RUNNING;
+    private static final String STATUS_WAITING_APPROVAL = PipelineStatus.WAITING_APPROVAL;
+    private static final String STATUS_SUCCESS = PipelineStatus.SUCCESS;
+    private static final String STATUS_REJECTED = PipelineStatus.REJECTED;
+    private static final String STATUS_BLOCKED = PipelineStatus.BLOCKED;
+    private static final String STATUS_COMPLETED = PipelineStatus.COMPLETED;
+    private static final String STAGE_REQUIREMENT_ANALYSIS = PipelineStages.REQUIREMENT_ANALYSIS;
+    private static final String STAGE_CODE_GENERATION = PipelineStages.CODE_GENERATION;
+    private static final String STAGE_CODE_QUALITY_EVALUATION = PipelineStages.CODE_QUALITY_EVALUATION;
     private static final int MAX_CODE_PREVIEW_CHARS = 200_000;
-    private static final int MINIMAX_OUTPUT_MAX_TOKENS = 8192;
     private static final String DEFAULT_TEMPLATE_FILE = "default-code-template.md";
     private static final String DEFAULT_PRD_TEMPLATE_FILE = "default-prd-template.md";
     private static final String DEFAULT_FRONTEND_OUTPUT_PATH = "front/src/generated";
@@ -122,6 +120,8 @@ public class AutomationPipelineService {
     private final UserMemoryService userMemoryService;
     private final BadCaseService badCaseService;
     private final MemoryProjectService memoryProjectService;
+    private final ModelGateway modelGateway;
+    private final CodeGenerationService codeGenerationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
@@ -1024,7 +1024,7 @@ public class AutomationPipelineService {
         String prdContent = snapshot.path("prdContent").asText("");
         String templateContent = snapshot.path("templateContent").asText("");
         String skillSnapshot = snapshot.path("skillSnapshot").asText("");
-        List<GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent, skillSnapshot, job);
+        List<CodeGenerationService.GeneratedFile> files = generateCodeFiles(pipeline, stage, prdContent, templateContent, skillSnapshot, job);
         String manifest = writeGeneratedCode(pipelineId, job.getId(), files);
 
         stage = requireStage(stageId);
@@ -1089,105 +1089,22 @@ public class AutomationPipelineService {
         pipelineMapper.updateById(pipeline);
     }
 
-    private List<GeneratedFile> generateCodeFiles(AutomationPipeline pipeline, AutomationStageRun stage,
+    private List<CodeGenerationService.GeneratedFile> generateCodeFiles(AutomationPipeline pipeline, AutomationStageRun stage,
                                                   String prdContent, String templateContent, String skillSnapshot,
                                                   AutomationGenerationJob job) {
-        AiModel model = modelMapper.selectOne(
-                new LambdaQueryWrapper<AiModel>()
-                        .eq(stage.getAiModelCode() != null, AiModel::getModelCode, stage.getAiModelCode())
-                        .last("LIMIT 1")
+        return codeGenerationService.generateCodeFiles(
+                pipeline,
+                prdContent,
+                templateContent,
+                skillSnapshot == null ? null : buildSkillContext(skillSnapshot),
+                memoryPromptSection(pipeline, prdContent),
+                stage.getAiModelCode(),
+                result -> applyTokenUsage(job, result)
         );
-        if (model == null || model.getEndpoint() == null || model.getEndpoint().isBlank()
-                || model.getApiKey() == null || model.getApiKey().isBlank()) {
-            return fallbackCodeFiles(pipeline, prdContent, "Model is not configured or API key is missing");
-        }
-
-        try {
-            String systemPrompt = "You are an enterprise full-stack engineer. Return pure JSON only, without Markdown fences.";
-            String userPrompt = buildCodePrompt(pipeline, prdContent, templateContent, skillSnapshot)
-                    + memoryPromptSection(pipeline, prdContent);
-            ModelCallResult result = callModel(model, systemPrompt, userPrompt);
-            applyTokenUsage(job, result);
-            String content = result.content();
-            List<GeneratedFile> files = parseGeneratedCodeFiles(content, pipeline);
-            return files.isEmpty() ? fallbackCodeFiles(pipeline, prdContent, "Model returned no parseable code files") : files;
-        } catch (Exception e) {
-            return fallbackCodeFiles(pipeline, prdContent, "Model call failed: " + e.getMessage());
-        }
-    }
-    private ModelCallResult callModel(AiModel model, String systemPrompt, String userPrompt) throws IOException {
-        String endpoint = model.getEndpoint().endsWith("/")
-                ? model.getEndpoint() + "chat/completions"
-                : model.getEndpoint() + "/chat/completions";
-        Map<String, Object> body = Map.of(
-                "model", model.getModelCode(),
-                "temperature", model.getDefaultTemperature() == null ? BigDecimal.valueOf(0.3) : model.getDefaultTemperature(),
-                "max_tokens", resolveMaxTokens(model),
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userPrompt)
-                )
-        );
-        String response = RestClient.create()
-                .post()
-                .uri(endpoint)
-                .header("Authorization", "Bearer " + model.getApiKey())
-                .header("Content-Type", "application/json")
-                .body(body)
-                .retrieve()
-                .body(String.class);
-        return extractModelCallResult(response, systemPrompt, userPrompt);
     }
 
     private String buildCodePrompt(AutomationPipeline pipeline, String prdContent, String templateContent, String skillSnapshot) {
-        String effectiveTemplateContent = (templateContent == null ? "" : templateContent)
-                + "\n\nSkill Context:\n" + buildSkillContext(skillSnapshot);
-        return """
-                请根据以下 PRD 生成最小可运行的前后端代码增量。
-                项目：%s
-                需求：%s
-                项目模式：%s
-                生成层级：%s
-                是否生成前端：%s
-                是否生成后端：%s
-                前端输出目录：%s
-                后端输出目录：%s
-
-                Markdown 生成模板：
-                %s
-
-                输出格式必须是纯 JSON：
-                {
-                  "files": [
-                    {"path": "%s/ExampleController.java", "content": "..."},
-                    {"path": "%s/ExampleView.vue", "content": "..."}
-                  ]
-                }
-
-                约束：
-                - 只生成被启用端的代码。若前端未启用，不要返回前端文件；若后端未启用，不要返回后端文件。
-                - 前端文件必须放在前端输出目录下，后端文件必须放在后端输出目录下。
-                - 当前项目不是从零开始时，只生成与需求相关的增量文件，不要重写无关模块。
-                - 单文件内容保持精简，避免生成依赖大段二进制或锁文件。
-                - 后端使用 Spring Boot 风格，前端使用 Vue 单文件组件风格。
-                - 不要返回解释文字，不要使用 Markdown 代码围栏。
-
-                PRD：
-                %s
-                """.formatted(
-                pipeline.getProjectName(),
-                pipeline.getRequirementTitle(),
-                pipeline.getProjectMode(),
-                pipeline.getCodeLevel(),
-                pipeline.getGenerateFrontend() != null && pipeline.getGenerateFrontend() == 1,
-                pipeline.getGenerateBackend() != null && pipeline.getGenerateBackend() == 1,
-                pipeline.getFrontendOutputPath(),
-                pipeline.getBackendOutputPath(),
-                effectiveTemplateContent,
-                pipeline.getBackendOutputPath(),
-                pipeline.getFrontendOutputPath(),
-                prdContent == null ? "" : prdContent
-        );
+        return codeGenerationService.buildCodePrompt(pipeline, prdContent, templateContent, buildSkillContext(skillSnapshot));
     }
 
     private String memoryPromptSection(AutomationPipeline pipeline, String requestSummary) {
@@ -1206,69 +1123,16 @@ public class AutomationPipelineService {
         return value == null ? "" : value.trim();
     }
 
-    private List<GeneratedFile> parseGeneratedCodeFiles(String modelContent, AutomationPipeline pipeline) throws IOException {
-        if (modelContent == null || modelContent.isBlank()) {
-            return List.of();
-        }
-        String json = extractJsonPayload(modelContent);
-        JsonNode filesNode = objectMapper.readTree(json).path("files");
-        if (!filesNode.isArray()) {
-            return List.of();
-        }
-        List<GeneratedFile> files = new ArrayList<>();
-        for (JsonNode node : filesNode) {
-            if (files.size() >= MAX_CODE_FILE_COUNT) {
-                break;
-            }
-            String path = normalizeRelativePath(node.path("path").asText(""));
-            String content = node.path("content").asText("");
-            if (!isSafeGeneratedCodePath(path, pipeline) || content.isBlank()) {
-                continue;
-            }
-            if (content.length() > MAX_CODE_FILE_CHARS) {
-                content = content.substring(0, MAX_CODE_FILE_CHARS)
-                        + "\n\n/* Truncated by AI Platform code artifact size guard. */\n";
-            }
-            files.add(new GeneratedFile(path, content));
-        }
-        return files;
+    private List<CodeGenerationService.GeneratedFile> parseGeneratedCodeFiles(String modelContent, AutomationPipeline pipeline) throws IOException {
+        return codeGenerationService.parseGeneratedCodeFiles(modelContent, pipeline);
     }
 
     private String extractJsonPayload(String value) {
-        String trimmed = value.trim();
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.replaceFirst("^```(?:json)?", "").replaceFirst("```$", "").trim();
-        }
-        int start = trimmed.indexOf('{');
-        int end = trimmed.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return trimmed.substring(start, end + 1);
-        }
-        return trimmed;
+        return codeGenerationService.extractJsonPayload(value);
     }
 
-    private String writeGeneratedCode(Long pipelineId, Long jobId, List<GeneratedFile> files) throws IOException {
-        Path root = codeArtifactRoot(pipelineId, jobId);
-        Files.createDirectories(root);
-        List<Map<String, Object>> manifestFiles = new ArrayList<>();
-        for (GeneratedFile file : files) {
-            Path target = root.resolve(file.path()).normalize();
-            if (!target.startsWith(root)) {
-                continue;
-            }
-            Files.createDirectories(target.getParent());
-            Files.writeString(target, file.content());
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("path", file.path());
-            entry.put("size", Files.size(target));
-            entry.put("type", file.path().startsWith("backend/") ? "backend" : "front");
-            manifestFiles.add(entry);
-        }
-        Map<String, Object> manifest = new LinkedHashMap<>();
-        manifest.put("jobId", jobId);
-        manifest.put("files", manifestFiles);
-        manifest.put("generatedAt", LocalDateTime.now().toString());
-        return objectMapper.writeValueAsString(manifest);
+    private String writeGeneratedCode(Long pipelineId, Long jobId, List<CodeGenerationService.GeneratedFile> files) throws IOException {
+        return codeGenerationService.writeGeneratedCode(pipelineId, jobId, files);
     }
 
     private List<Map<String, Object>> readCodeManifest(AutomationStageRun stage) {
@@ -1294,7 +1158,7 @@ public class AutomationPipelineService {
     }
 
     private AutomationGeneratedCodeBatch archiveGeneratedCode(AutomationPipeline pipeline, AutomationStageRun stage,
-                                                              AutomationGenerationJob job, List<GeneratedFile> files,
+                                                              AutomationGenerationJob job, List<CodeGenerationService.GeneratedFile> files,
                                                               String manifest) {
         LocalDateTime now = LocalDateTime.now();
         long totalBytes = files.stream().mapToLong(file -> utf8Size(file.content())).sum();
@@ -1312,7 +1176,7 @@ public class AutomationPipelineService {
         generatedCodeBatchMapper.insert(batch);
 
         int index = 0;
-        for (GeneratedFile file : files) {
+        for (CodeGenerationService.GeneratedFile file : files) {
             AutomationGeneratedCodeFile codeFile = new AutomationGeneratedCodeFile();
             codeFile.setBatchId(batch.getId());
             codeFile.setPipelineId(pipeline.getId());
@@ -1332,7 +1196,7 @@ public class AutomationPipelineService {
 
     private void recordAiRequirementFeedback(AutomationPipeline pipeline, AutomationStageRun stage,
                                              AutomationGenerationJob job, AutomationGeneratedCodeBatch batch,
-                                             String prdContent, List<GeneratedFile> files) {
+                                             String prdContent, List<CodeGenerationService.GeneratedFile> files) {
         if (batch == null) {
             return;
         }
@@ -1346,7 +1210,7 @@ public class AutomationPipelineService {
         try {
             String systemPrompt = "You are a senior software delivery reviewer. Return pure JSON only.";
             String userPrompt = buildRequirementFeedbackPrompt(pipeline, prdContent, files);
-            ModelCallResult result = callModel(model, systemPrompt, userPrompt);
+            ModelCallResult result = modelGateway.chat(model, systemPrompt, userPrompt, BigDecimal.valueOf(0.2), null);
             ParsedRequirementFeedback parsed = parseRequirementFeedback(result.content());
             AutomationCodeRequirementFeedback feedback = saveRequirementFeedback(batch, FEEDBACK_SOURCE_AI, parsed.status(), parsed.score(),
                     parsed.summary(), parsed.failureReason(), parsed.detailJson(), result.content(), null);
@@ -1370,9 +1234,9 @@ public class AutomationPipelineService {
                 .last("LIMIT 1"));
     }
 
-    private String buildRequirementFeedbackPrompt(AutomationPipeline pipeline, String prdContent, List<GeneratedFile> files) {
+    private String buildRequirementFeedbackPrompt(AutomationPipeline pipeline, String prdContent, List<CodeGenerationService.GeneratedFile> files) {
         StringBuilder codeContext = new StringBuilder();
-        for (GeneratedFile file : files) {
+        for (CodeGenerationService.GeneratedFile file : files) {
             if (codeContext.length() >= MAX_CODE_PREVIEW_CHARS) {
                 break;
             }
@@ -1584,76 +1448,8 @@ public class AutomationPipelineService {
         }
     }
 
-    private List<GeneratedFile> fallbackCodeFiles(AutomationPipeline pipeline, String prdContent, String reason) {
-        String title = sanitizeJavaIdentifier(pipeline.getRequirementTitle());
-        List<GeneratedFile> files = new ArrayList<>();
-        if (pipeline.getGenerateBackend() != null && pipeline.getGenerateBackend() == 1) {
-            String packageName = packageFromBackendPath(pipeline.getBackendOutputPath());
-            String controller = """
-                package %s;
-
-                import org.springframework.web.bind.annotation.GetMapping;
-                import org.springframework.web.bind.annotation.RequestMapping;
-                import org.springframework.web.bind.annotation.RestController;
-
-                import java.util.Map;
-
-                @RestController
-                @RequestMapping("/api/v1/generated/%s")
-                public class %sController {
-
-                    @GetMapping("/health")
-                    public Map<String, Object> health() {
-                        return Map.of("status", "ready", "requirement", "%s");
-                    }
-                }
-                """.formatted(packageName, title.toLowerCase(), title, escapeJava(pipeline.getRequirementTitle()));
-            files.add(new GeneratedFile(pipeline.getBackendOutputPath() + "/" + title + "Controller.java", controller));
-        }
-        if (pipeline.getGenerateFrontend() != null && pipeline.getGenerateFrontend() == 1) {
-            String vue = """
-                <template>
-                  <section class="generated-feature">
-                    <h2>%s</h2>
-                    <p>Generated implementation scaffold is ready for review.</p>
-                    <pre>%s</pre>
-                  </section>
-                </template>
-
-                <script setup>
-                const requirement = %s
-                </script>
-
-                <style scoped>
-                .generated-feature { padding: 24px; }
-                .generated-feature pre { white-space: pre-wrap; color: #475569; }
-                </style>
-                """.formatted(escapeHtml(pipeline.getRequirementTitle()), escapeHtml(reason), objectMapper.valueToTree(prdContent == null ? "" : prdContent).toString());
-            files.add(new GeneratedFile(pipeline.getFrontendOutputPath() + "/" + title + "View.vue", vue));
-        }
-        String readme = """
-                # Generated Code Artifact
-
-                Requirement: %s
-
-                This fallback scaffold was created locally because: %s
-                Template: %s
-                Project mode: %s
-                Code level: %s
-                Frontend enabled: %s
-                Backend enabled: %s
-                The selected model should normally return a JSON file list. Please check model configuration if this appears unexpectedly.
-                """.formatted(
-                pipeline.getRequirementTitle(),
-                reason,
-                pipeline.getTemplateFile(),
-                pipeline.getProjectMode(),
-                pipeline.getCodeLevel(),
-                pipeline.getGenerateFrontend(),
-                pipeline.getGenerateBackend()
-        );
-        files.add(new GeneratedFile("README.md", readme));
-        return files;
+    private List<CodeGenerationService.GeneratedFile> fallbackCodeFiles(AutomationPipeline pipeline, String prdContent, String reason) {
+        return codeGenerationService.fallbackCodeFiles(pipeline, prdContent, reason);
     }
 
     private String generatePrdContent(AutomationPipeline pipeline, AutomationPipelineRequest request, AutomationGenerationJob job) {
@@ -1666,30 +1462,10 @@ public class AutomationPipelineService {
         }
 
         try {
-            String endpoint = model.getEndpoint().endsWith("/")
-                    ? model.getEndpoint() + "chat/completions"
-                    : model.getEndpoint() + "/chat/completions";
             String systemPrompt = "You are a senior product manager. Return a structured Markdown PRD with background, goals, user stories, functional requirements, non-functional requirements, acceptance criteria, and risks.";
             String userPrompt = buildPrdPrompt(request, templateContent)
                     + memoryPromptSection(pipeline, request.getRequirementSummary());
-            Map<String, Object> body = Map.of(
-                    "model", model.getModelCode(),
-                    "temperature", model.getDefaultTemperature() == null ? BigDecimal.ONE : model.getDefaultTemperature(),
-                    "max_tokens", resolveMaxTokens(model),
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemPrompt),
-                            Map.of("role", "user", "content", userPrompt)
-                    )
-            );
-            String response = RestClient.create()
-                    .post()
-                    .uri(endpoint)
-                    .header("Authorization", "Bearer " + model.getApiKey())
-                    .header("Content-Type", "application/json")
-                    .body(body)
-                    .retrieve()
-                    .body(String.class);
-            ModelCallResult result = extractModelCallResult(response, systemPrompt, userPrompt);
+            ModelCallResult result = modelGateway.chat(model, systemPrompt, userPrompt, BigDecimal.ONE, null);
             applyTokenUsage(job, result);
             String content = result.content();
             return content == null || content.isBlank() ? fallback : content;
@@ -1716,9 +1492,7 @@ public class AutomationPipelineService {
     }
 
     int resolveMaxTokens(AiModel model) {
-        int configured = model.getMaxTokens() == null ? 4096 : model.getMaxTokens();
-        int providerLimit = "MiniMax".equalsIgnoreCase(model.getProvider()) ? MINIMAX_OUTPUT_MAX_TOKENS : 200000;
-        return Math.max(1, Math.min(configured, providerLimit));
+        return ModelGateway.resolveMaxTokens(model);
     }
 
     private String buildFallbackPrd(AutomationPipelineRequest request) {
@@ -1756,39 +1530,6 @@ public class AutomationPipelineService {
                 """.formatted(request.getRequirementTitle(),
                 request.getRequirementSummary() == null || request.getRequirementSummary().isBlank()
                         ? "由业务输入生成。" : request.getRequirementSummary());
-    }
-
-    private ModelCallResult extractModelCallResult(String response, String systemPrompt, String userPrompt) throws IOException {
-        JsonNode root = objectMapper.readTree(response);
-        JsonNode content = root.path("choices").path(0).path("message").path("content");
-        String text = content.isMissingNode() ? "" : content.asText();
-        JsonNode usage = root.path("usage");
-        int promptTokens = firstInt(usage, "prompt_tokens", "input_tokens");
-        int completionTokens = firstInt(usage, "completion_tokens", "output_tokens");
-        int totalTokens = firstInt(usage, "total_tokens");
-        if (totalTokens <= 0) {
-            promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
-            completionTokens = estimateTokens(text);
-            totalTokens = promptTokens + completionTokens;
-        } else if (promptTokens + completionTokens <= 0) {
-            promptTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
-            completionTokens = Math.max(0, totalTokens - promptTokens);
-        }
-        return new ModelCallResult(text, promptTokens, completionTokens, totalTokens);
-    }
-
-    private int firstInt(JsonNode node, String... names) {
-        if (node == null || node.isMissingNode()) return 0;
-        for (String name : names) {
-            JsonNode value = node.path(name);
-            if (value.isNumber()) return Math.max(0, value.asInt());
-        }
-        return 0;
-    }
-
-    private int estimateTokens(String text) {
-        if (text == null || text.isBlank()) return 0;
-        return Math.max(1, (int) Math.ceil(text.length() / 4.0));
     }
 
     private void applyTokenUsage(AutomationGenerationJob job, ModelCallResult result) {
@@ -2123,11 +1864,11 @@ public class AutomationPipelineService {
     }
 
     private Path codeArtifactRoot(Long pipelineId) {
-        return Paths.get("marketDoc", "generated-code", "pipeline-" + pipelineId).toAbsolutePath().normalize();
+        return codeGenerationService.codeArtifactRoot(pipelineId);
     }
 
     private Path codeArtifactRoot(Long pipelineId, Long jobId) {
-        return codeArtifactRoot(pipelineId).resolve("job-" + jobId).normalize();
+        return codeGenerationService.codeArtifactRoot(pipelineId, jobId);
     }
 
     private Path codeTemplateRoot() {
@@ -2650,13 +2391,7 @@ public class AutomationPipelineService {
     private record StageDefinition(String key, String name, int order) {
     }
 
-    private record GeneratedFile(String path, String content) {
-    }
-
     private record ParsedRequirementFeedback(String status, Integer score, String summary, String failureReason,
                                              String detailJson) {
-    }
-
-    private record ModelCallResult(String content, int inputTokens, int outputTokens, int totalTokens) {
     }
 }
