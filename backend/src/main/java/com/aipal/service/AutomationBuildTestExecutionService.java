@@ -89,7 +89,7 @@ public class AutomationBuildTestExecutionService {
             try {
                 Path workDir = resolveWorkDir(pipeline, profile);
                 run.setWorkDir(workDir.toString());
-                result = runCommand(command, workDir, timeoutSeconds);
+                result = runCommandInWorkspace(command, workDir, timeoutSeconds);
             } catch (Exception e) {
                 result = CommandResult.failure(-1, "",
                         "Cannot resolve build work directory: " + e.getMessage());
@@ -212,6 +212,10 @@ public class AutomationBuildTestExecutionService {
         testRunMapper.updateById(run);
     }
 
+    CommandResult runCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
+        return runTestCommandInWorkspace(command, workDir, timeoutSeconds);
+    }
+
     // package-private so gate unit tests can stub process execution
     CommandResult runCommand(String command, Path workDir, Integer timeoutSeconds) {
         try {
@@ -250,7 +254,7 @@ public class AutomationBuildTestExecutionService {
         }
         try {
             AutomationCommandGuard.requireSafeCommand(command, "testCommand");
-            Workspace workspace = workspaceFactory.openLocal(workDir);
+            Workspace workspace = workspaceFactory.open(workDir);
             try {
                 com.aipal.agent.runtime.workspace.CommandResult wsResult =
                         workspace.exec(shellCommand(command),

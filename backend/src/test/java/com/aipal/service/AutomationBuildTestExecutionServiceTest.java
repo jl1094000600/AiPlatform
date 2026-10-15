@@ -433,6 +433,14 @@ class AutomationBuildTestExecutionServiceTest {
                 }
 
                 @Override
+                AutomationBuildTestExecutionService.CommandResult runCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
+                    buildCommandSeen = command;
+                    return buildResult != null
+                            ? buildResult
+                            : success("$ " + command + "\nBUILD SUCCESS");
+                }
+
+                @Override
                 AutomationBuildTestExecutionService.CommandResult runTestCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
                     testCommandSeen = command;
                     return testResult != null

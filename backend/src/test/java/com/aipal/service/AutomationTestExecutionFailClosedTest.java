@@ -109,6 +109,12 @@ class AutomationTestExecutionFailClosedTest {
                 probe.opened = true;
                 return probe;
             }
+
+            @Override
+            public Workspace open(Path root) {
+                probe.opened = true;
+                return probe;
+            }
         };
     }
 
