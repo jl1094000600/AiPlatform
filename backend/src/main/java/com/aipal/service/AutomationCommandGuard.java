@@ -20,7 +20,8 @@ final class AutomationCommandGuard {
 
     static void requireSafeCommand(String command, String fieldName) {
         if (command == null || command.isBlank()) {
-            return;
+            // fail-closed: a missing command must be rejected, never treated as allowed
+            throw new IllegalArgumentException(fieldName + " must not be empty");
         }
         String trimmed = command.trim();
         if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {

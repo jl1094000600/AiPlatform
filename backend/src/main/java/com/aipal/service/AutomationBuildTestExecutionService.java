@@ -43,7 +43,8 @@ public class AutomationBuildTestExecutionService {
     private static final String STATUS_BLOCKED = "BLOCKED";
     private static final int MAX_LOG_CHARS = 120_000;
     private static final Pattern MAVEN_TESTS = Pattern.compile("Tests run:\\s*(\\d+),\\s*Failures:\\s*(\\d+),\\s*Errors:\\s*(\\d+),\\s*Skipped:\\s*(\\d+)");
-    private static final Pattern VITEST_TESTS = Pattern.compile("Tests\\s+(\\d+)\\s+passed(?:\\s*\\((\\d+)\\))?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VITEST_PASSED = Pattern.compile("Tests\\s+(\\d+)\\s+passed", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VITEST_FAILED = Pattern.compile("(\\d+)\\s+failed", Pattern.CASE_INSENSITIVE);
 
     private final AutomationBuildRunMapper buildRunMapper;
     private final AutomationTestRunMapper testRunMapper;
@@ -67,7 +68,6 @@ public class AutomationBuildTestExecutionService {
         AutomationDeployProfileResponse profile = deployProfileService.readSnapshot(pipeline.getDeployProfileSnapshot());
         String command = profile == null ? null : profile.getBuildCommand();
         int timeoutSeconds = profile == null || profile.getTimeoutSeconds() == null ? 600 : profile.getTimeoutSeconds();
-        Path workDir = resolveWorkDir(pipeline, profile);
         LocalDateTime start = LocalDateTime.now();
         AutomationBuildRun run = new AutomationBuildRun();
         run.setPipelineId(pipeline.getId());
@@ -75,16 +75,26 @@ public class AutomationBuildTestExecutionService {
         run.setGeneratedCodeBatchId(generatedCodeBatchId);
         run.setStatus(STATUS_RUNNING);
         run.setCommandText(command);
-        run.setWorkDir(workDir.toString());
         run.setStartTime(start);
         run.setCreateTime(start);
         run.setUpdateTime(start);
         buildRunMapper.insert(run);
         startStage(pipeline, stage, start);
 
-        CommandResult result = isBlank(command)
-                ? CommandResult.success("No build command configured; build stage skipped.")
-                : runCommand(command, workDir, timeoutSeconds);
+        CommandResult result;
+        if (isBlank(command)) {
+            result = CommandResult.failure(-1, "",
+                    "No build command configured; build stage blocked (fail-closed, empty command cannot succeed)");
+        } else {
+            try {
+                Path workDir = resolveWorkDir(pipeline, profile);
+                run.setWorkDir(workDir.toString());
+                result = runCommand(command, workDir, timeoutSeconds);
+            } catch (Exception e) {
+                result = CommandResult.failure(-1, "",
+                        "Cannot resolve build work directory: " + e.getMessage());
+            }
+        }
         finishBuildRun(run, result, start);
         finishStage(stage, result, start);
         return stage;
@@ -98,7 +108,6 @@ public class AutomationBuildTestExecutionService {
         AutomationDeployProfileResponse profile = deployProfileService.readSnapshot(pipeline.getDeployProfileSnapshot());
         String command = profile == null ? null : profile.getTestCommand();
         int timeoutSeconds = profile == null || profile.getTimeoutSeconds() == null ? 600 : profile.getTimeoutSeconds();
-        Path workDir = resolveWorkDir(pipeline, profile);
         LocalDateTime start = LocalDateTime.now();
         AutomationTestRun run = new AutomationTestRun();
         run.setPipelineId(pipeline.getId());
@@ -106,18 +115,30 @@ public class AutomationBuildTestExecutionService {
         run.setGeneratedCodeBatchId(generatedCodeBatchId);
         run.setStatus(STATUS_RUNNING);
         run.setCommandText(command);
-        run.setWorkDir(workDir.toString());
         run.setStartTime(start);
         run.setCreateTime(start);
         run.setUpdateTime(start);
         testRunMapper.insert(run);
         startStage(pipeline, stage, start);
 
-        CommandResult result = isBlank(command)
-                ? CommandResult.success("No test command configured; test stage skipped.")
-                : runTestCommandInWorkspace(command, workDir, timeoutSeconds);
+        CommandResult result;
+        if (isBlank(command)) {
+            result = CommandResult.failure(-1, "",
+                    "No test command configured; test stage blocked (fail-closed, empty command cannot succeed)");
+        } else {
+            try {
+                Path workDir = resolveWorkDir(pipeline, profile);
+                run.setWorkDir(workDir.toString());
+                result = runTestCommandInWorkspace(command, workDir, timeoutSeconds);
+            } catch (Exception e) {
+                result = CommandResult.failure(-1, "",
+                        "Cannot resolve test work directory: " + e.getMessage());
+            }
+        }
+        // Always parse the report when present so failure counts stay accurate even on non-zero exit.
         TestSummary summary = parseTestSummary(result.log());
-        finishTestRun(run, result, summary, start);
+        result = gateTestOutcome(result, summary);
+        finishTestRun(run, result, summary == null ? new TestSummary(0, 0, 0, 0) : summary, start);
         finishStage(stage, result, start);
         return stage;
     }
@@ -191,7 +212,8 @@ public class AutomationBuildTestExecutionService {
         testRunMapper.updateById(run);
     }
 
-    private CommandResult runCommand(String command, Path workDir, Integer timeoutSeconds) {
+    // package-private so gate unit tests can stub process execution
+    CommandResult runCommand(String command, Path workDir, Integer timeoutSeconds) {
         try {
             AutomationCommandGuard.requireSafeCommand(command, "automation command");
             ProcessBuilder builder = new ProcessBuilder(shellCommand(command));
@@ -217,12 +239,14 @@ public class AutomationBuildTestExecutionService {
     }
 
     /**
-     * Prefer the Workspace sandbox for test commands; fall back to a direct process when
-     * the workspace cannot be created (keeps legacy pipelines working).
+     * Execute test commands inside the Workspace sandbox. Fail closed when the workspace
+     * cannot be created or used — never silently fall back to a host process (B02/G8).
      */
-    private CommandResult runTestCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
+    // package-private so gate unit tests can stub process execution
+    CommandResult runTestCommandInWorkspace(String command, Path workDir, Integer timeoutSeconds) {
         if (workspaceFactory == null) {
-            return runCommand(command, workDir, timeoutSeconds);
+            return CommandResult.failure(-1, "$ " + command,
+                    "Workspace factory unavailable; refusing to execute tests outside workspace isolation (fail-closed)");
         }
         try {
             AutomationCommandGuard.requireSafeCommand(command, "testCommand");
@@ -244,13 +268,38 @@ public class AutomationBuildTestExecutionService {
                 workspace.close();
             }
         } catch (Exception e) {
-            return runCommand(command, workDir, timeoutSeconds);
+            return CommandResult.failure(-1, "$ " + command + "\n" + e.getMessage(),
+                    "Workspace test execution failed; refusing to fall back to host process (fail-closed): "
+                            + e.getMessage());
         }
+    }
+
+    /**
+     * Fail-closed test gate: exit code 0 alone is not success. Requires a parseable
+     * summary, total > 0 and zero failing tests (G4/G5/G6).
+     */
+    private CommandResult gateTestOutcome(CommandResult result, TestSummary summary) {
+        if (!result.success()) {
+            return result;
+        }
+        if (summary == null) {
+            return CommandResult.failure(result.exitCode(), result.log(),
+                    "Test report could not be parsed (no recognized test summary in output); failing closed");
+        }
+        if (summary.total() <= 0) {
+            return CommandResult.failure(result.exitCode(), result.log(),
+                    "Zero tests were executed or reported; failing closed");
+        }
+        if (summary.failed() > 0) {
+            return CommandResult.failure(result.exitCode(), result.log(),
+                    "Test run reported " + summary.failed() + " failing test(s); failing closed");
+        }
+        return result;
     }
 
     private TestSummary parseTestSummary(String log) {
         if (isBlank(log)) {
-            return new TestSummary(0, 0, 0, 0);
+            return null;
         }
         Matcher maven = MAVEN_TESTS.matcher(log);
         TestSummary latest = null;
@@ -265,12 +314,17 @@ public class AutomationBuildTestExecutionService {
         if (latest != null) {
             return latest;
         }
-        Matcher vitest = VITEST_TESTS.matcher(log);
-        if (vitest.find()) {
-            int passed = parseInt(vitest.group(1));
-            return new TestSummary(passed, passed, 0, 0);
+        Matcher passed = VITEST_PASSED.matcher(log);
+        if (passed.find()) {
+            int passedCount = parseInt(passed.group(1));
+            int failedCount = 0;
+            Matcher failedMatcher = VITEST_FAILED.matcher(log);
+            if (failedMatcher.find()) {
+                failedCount = parseInt(failedMatcher.group(1));
+            }
+            return new TestSummary(passedCount + failedCount, passedCount, failedCount, 0);
         }
-        return new TestSummary(0, 0, 0, 0);
+        return null;
     }
 
     private Path resolveWorkDir(AutomationPipeline pipeline, AutomationDeployProfileResponse profile) {
@@ -282,11 +336,16 @@ public class AutomationBuildTestExecutionService {
                     return resolveInsideWorkspaceOrGenerated(configured, projectRoot());
                 }
             }
-            Path codeRoot = latestCodeArtifactRoot(pipeline.getId());
-            return codeRoot == null ? projectRoot() : codeRoot;
         } catch (Exception e) {
-            return projectRoot();
+            throw new IllegalStateException(
+                    "Failed to resolve configured buildContext/work directory: " + e.getMessage(), e);
         }
+        Path codeRoot = latestCodeArtifactRoot(pipeline.getId());
+        if (codeRoot == null) {
+            throw new IllegalStateException(
+                    "Generated code artifact directory is missing; refusing to fall back to platform project root (fail-closed)");
+        }
+        return codeRoot;
     }
 
     private Long latestCodeBatchId(Long pipelineId) {
@@ -394,7 +453,8 @@ public class AutomationBuildTestExecutionService {
         return value == null || value.isBlank();
     }
 
-    private record CommandResult(boolean success, int exitCode, String log, String errorMessage) {
+    // package-private so gate unit tests can build stub results
+    record CommandResult(boolean success, int exitCode, String log, String errorMessage) {
         static CommandResult success(String log) {
             return new CommandResult(true, 0, log, null);
         }

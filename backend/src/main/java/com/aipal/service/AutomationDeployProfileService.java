@@ -130,8 +130,12 @@ public class AutomationDeployProfileService {
         if (request.getTimeoutSeconds() != null && (request.getTimeoutSeconds() < 10 || request.getTimeoutSeconds() > 7200)) {
             throw new IllegalArgumentException("timeoutSeconds must be between 10 and 7200");
         }
-        AutomationCommandGuard.requireSafeCommand(request.getBuildCommand(), "buildCommand");
-        AutomationCommandGuard.requireSafeCommand(request.getTestCommand(), "testCommand");
+        if (!isBlank(request.getBuildCommand())) {
+            AutomationCommandGuard.requireSafeCommand(request.getBuildCommand(), "buildCommand");
+        }
+        if (!isBlank(request.getTestCommand())) {
+            AutomationCommandGuard.requireSafeCommand(request.getTestCommand(), "testCommand");
+        }
         assertJson(request.getDockerConfig(), "dockerConfig");
         assertJson(request.getJenkinsConfig(), "jenkinsConfig");
     }

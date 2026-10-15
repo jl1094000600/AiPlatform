@@ -22,4 +22,16 @@ class AutomationCommandGuardTest {
         assertThrows(IllegalArgumentException.class,
                 () -> AutomationCommandGuard.requireSafeCommand("cmd.exe /c whoami", "testCommand"));
     }
+
+    @Test
+    void rejectsBlankAndNullCommands() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AutomationCommandGuard.requireSafeCommand(null, "buildCommand"));
+        assertThrows(IllegalArgumentException.class,
+                () -> AutomationCommandGuard.requireSafeCommand("", "buildCommand"));
+        assertThrows(IllegalArgumentException.class,
+                () -> AutomationCommandGuard.requireSafeCommand("   ", "testCommand"));
+        assertThrows(IllegalArgumentException.class,
+                () -> AutomationCommandGuard.requireSafeCommand("\t\n", "testCommand"));
+    }
 }
