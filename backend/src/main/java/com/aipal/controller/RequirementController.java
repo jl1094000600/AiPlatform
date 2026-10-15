@@ -7,6 +7,7 @@ import com.aipal.dto.RequirementPrdRequest;
 import com.aipal.security.RequirePermission;
 import com.aipal.service.RequirementAttachmentService;
 import com.aipal.service.RequirementDraftService;
+import com.aipal.service.RequirementPrdRevisionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class RequirementController {
     private final RequirementAttachmentService attachmentService;
     private final RequirementDraftService draftService;
+    private final RequirementPrdRevisionService revisionService;
 
     @PostMapping("/attachments")
     @RequirePermission("automation:create")
@@ -73,5 +75,34 @@ public class RequirementController {
     @RequirePermission("automation:list")
     public Result<?> getPrd(@PathVariable Long pipelineId) {
         return Result.success(draftService.getPrd(pipelineId));
+    }
+
+    @GetMapping("/prd/{pipelineId}/revision")
+    @RequirePermission("automation:list")
+    public Result<?> getPrdRevision(@PathVariable Long pipelineId) {
+        return Result.success(revisionService.getRevision(pipelineId));
+    }
+
+    @PostMapping("/prd/{pipelineId}/acceptance-criteria")
+    @RequirePermission("automation:approve")
+    public Result<?> saveAcceptanceCriteria(
+            @PathVariable Long pipelineId,
+            @RequestBody java.util.List<RequirementPrdRevisionService.AcceptanceCriterionInput> criteria) {
+        return Result.success(revisionService.saveAcceptanceCriteria(pipelineId, criteria));
+    }
+
+    @PostMapping("/prd/{pipelineId}/confirm")
+    @RequirePermission("automation:approve")
+    public Result<?> confirmPrd(
+            @PathVariable Long pipelineId,
+            @RequestBody ConfirmPrdRequest request) {
+        return Result.success(revisionService.confirmPrd(
+                pipelineId,
+                request == null ? null : request.expectedVersion(),
+                request == null || request.approved(),
+                request == null ? null : request.reason()));
+    }
+
+    public record ConfirmPrdRequest(Integer expectedVersion, boolean approved, String reason) {
     }
 }

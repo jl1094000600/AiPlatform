@@ -89,6 +89,28 @@ public class AgentRunController {
         return Result.success(toolResponseService.respondToToolCall(id, callId, request.answer()));
     }
 
+    @GetMapping("/{id}/events")
+    @RequirePermission("agent:invoke")
+    public Result<java.util.Map<String, Object>> events(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long afterSequenceNo,
+            @RequestParam(defaultValue = "200") int limit) {
+        AgentRun run = agentRunService.get(id);
+        boolean includeRestricted = TenantContext.hasPermission("agent:manage")
+                || TenantContext.hasPermission("memory:policy");
+        var events = streamEventService.listForRun(run.getTenantId(), run.getId(), afterSequenceNo, limit,
+                includeRestricted);
+        Long nextCursor = events.isEmpty()
+                ? (afterSequenceNo == null ? 0L : afterSequenceNo)
+                : events.get(events.size() - 1).sequenceNo();
+        java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("runId", run.getId());
+        body.put("nextCursor", nextCursor);
+        body.put("hasMore", events.size() >= Math.min(Math.max(limit, 1), 500));
+        body.put("events", events);
+        return Result.success(body);
+    }
+
     @GetMapping("/{id}/stream")
     @RequirePermission("agent:invoke")
     public Result<java.util.List<AgentRunStreamEventService.RunStreamEventView>> stream(
