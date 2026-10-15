@@ -108,6 +108,24 @@ class AutomationBuildTestExecutionServiceTest {
     }
 
     @Test
+    void mavenFailuresWithExitZeroAreBlockedNotSuccess() {
+        // A01 gap branch: Failures>0 with Errors=0 and exit=0 still fails closed
+        // (complements mavenErrorsWithExitZeroAreBlockedNotSuccess on the same gate)
+        Harness harness = Harness.withResults(null, success(
+                "$ mvn test\nTests run: 3, Failures: 2, Errors: 0, Skipped: 0"));
+        harness.installValidWorkDir();
+
+        AutomationStageRun stage = harness.executeTest();
+
+        assertEquals(STATUS_BLOCKED, stage.getStatus());
+        AutomationTestRun run = harness.testRun.get();
+        assertNotNull(run);
+        assertEquals(STATUS_BLOCKED, run.getStatus());
+        assertEquals(2, run.getFailedCount(), "Failures must be recorded as failed count");
+        assertTrue(stage.getErrorMessage() != null && !stage.getErrorMessage().isBlank());
+    }
+
+    @Test
     void vitestZeroTestsExitZeroIsBlockedNotSuccess() {
         Harness harness = Harness.withResults(null, success("$ npx vitest run\nTests  0 passed (0)"));
         harness.installValidWorkDir();
