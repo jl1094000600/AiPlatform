@@ -49,4 +49,19 @@ public class WorkspaceManager {
     public String key(Long tenantId, Long runId) {
         return (tenantId == null ? "0" : tenantId) + ":" + (runId == null ? "0" : runId);
     }
+
+    /** Non-creating lookup for queries. Returns null when no workspace is bound. */
+    public Workspace find(String key) {
+        return active.get(key);
+    }
+
+    public Workspace find(Long tenantId, Long runId) {
+        return find(key(tenantId, runId));
+    }
+
+    /** True when a live workspace is currently bound to this key. */
+    public boolean isActive(String key) {
+        return active.containsKey(key);
+    }
 }
+

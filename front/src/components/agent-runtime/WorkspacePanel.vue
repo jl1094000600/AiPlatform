@@ -10,8 +10,8 @@
 
     <el-alert
       v-if="mocked"
-      title="后端接口未就绪，当前展示演示数据。接口就绪后将自动切换为真实数据。"
-      type="info"
+      title="开发 mock：当前展示演示数据。仅在开发环境或 VITE_AGENT_RUNTIME_MOCK=1 时启用；正式运行请求失败将直接报错，不会静默降级。"
+      type="warning"
       :closable="false"
       show-icon
     />

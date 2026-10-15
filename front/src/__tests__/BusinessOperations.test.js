@@ -2,6 +2,24 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { locale, setLocale, t } from '../i18n/index.js'
 import { filterNavByPermissions, hasPermission, isPlatformAdmin } from '../utils/permissions.js'
+import {
+  isMockAllowed,
+  isMockForced,
+  normalizeSpan,
+  normalizeToolCall,
+  normalizeSpans,
+  normalizeToolCalls,
+  spanStatusLabel,
+  spanStatusType,
+  spanTypeLabel,
+  toolStatusLabel,
+  toolStatusType,
+  isAskUserPending,
+  isAskUserTimedOut,
+  TOOL_CALLS_PATH,
+  TOOL_CALLS_PATH_LEGACY,
+  WORKSPACE_PATH
+} from '../api/agentRuntimeContract.js'
 
 const testMenuTargets = () => {
   const routes = ['/dashboard', '/automation', '/agent-quality', '/billing', '/alerts', '/audit-logs', '/customers', '/invoke', '/model-training', '/benchmark', '/workflows']
@@ -262,3 +280,234 @@ const testWorkflowEditorBuildsSupportedGraphContract = () => {
 
 testBenchmarkFlowUsesPersistedDatasetsAndBatchEvaluations()
 testWorkflowEditorBuildsSupportedGraphContract()
+
+const testAgentRuntimeMockGate = () => {
+  // production default: no mock, no forced demo data
+  assert.equal(isMockAllowed({ DEV: false }), false)
+  assert.equal(isMockAllowed({ DEV: false, VITE_AGENT_RUNTIME_MOCK: '' }), false)
+  assert.equal(isMockAllowed({ DEV: false, VITE_AGENT_RUNTIME_MOCK: '0' }), false)
+  assert.equal(isMockForced({ DEV: false }), false)
+  // dev preview allows demo fallback
+  assert.equal(isMockAllowed({ DEV: true }), true)
+  assert.equal(isMockForced({ DEV: true }), false)
+  // explicit flag allows (and forces) demo data even outside dev
+  assert.equal(isMockAllowed({ DEV: false, VITE_AGENT_RUNTIME_MOCK: '1' }), true)
+  assert.equal(isMockForced({ DEV: false, VITE_AGENT_RUNTIME_MOCK: '1' }), true)
+  // missing env object never mocks
+  assert.equal(isMockAllowed(null), false)
+  assert.equal(isMockAllowed(undefined), false)
+}
+
+testAgentRuntimeMockGate()
+
+const testAgentRuntimePaths = () => {
+  assert.equal(TOOL_CALLS_PATH, '/tool-calls')
+  assert.equal(TOOL_CALLS_PATH_LEGACY, '/tools')
+  assert.equal(WORKSPACE_PATH, '/workspaces/')
+  const source = readFileSync(new URL('../api/agentRuntime.js', import.meta.url), 'utf8')
+  assert.ok(source.includes('TOOL_CALLS_PATH'))
+  assert.ok(source.includes('TOOL_CALLS_PATH_LEGACY'))
+  assert.ok(source.includes('WORKSPACE_PATH'))
+  assert.ok(source.includes('/trace'))
+  assert.ok(source.includes('/respond'))
+  // silent production mock must be gone: fallback only when MOCK_ALLOWED
+  assert.ok(source.includes('MOCK_ALLOWED && isBackendMissing'))
+  assert.equal(source.includes('if (isBackendMissing(error)) return asResponse'), false)
+}
+
+testAgentRuntimePaths()
+
+const testNormalizeSpanDualContract = () => {
+  // backend SpanView shape
+  const backendSpan = normalizeSpan({
+    spanId: 'sp-1',
+    spanType: 'TOOL_CALL',
+    spanName: 'fs.read',
+    status: 'OK',
+    summary: 'read file',
+    startTime: '2026-10-15T10:00:00',
+    endTime: '2026-10-15T10:00:01',
+    durationMs: 1000
+  })
+  assert.equal(backendSpan.id, 'sp-1')
+  assert.equal(backendSpan.spanId, 'sp-1')
+  assert.equal(backendSpan.type, 'TOOL_CALL')
+  assert.equal(backendSpan.spanType, 'TOOL_CALL')
+  assert.equal(backendSpan.detail, 'read file')
+  assert.equal(backendSpan.summary, 'read file')
+  assert.equal(backendSpan.status, 'OK')
+  assert.equal(backendSpan.durationMs, 1000)
+  assert.ok(backendSpan.startedAt)
+  assert.equal(backendSpan.startTime, backendSpan.startedAt)
+
+  // legacy frontend shape
+  const legacySpan = normalizeSpan({
+    id: 'sp-2',
+    type: 'tool',
+    detail: 'legacy detail',
+    startedAt: '2026-10-15T10:00:00',
+    durationMs: 42,
+    status: 'SUCCESS'
+  })
+  assert.equal(legacySpan.id, 'sp-2')
+  assert.equal(legacySpan.type, 'tool')
+  assert.equal(legacySpan.detail, 'legacy detail')
+  assert.equal(legacySpan.status, 'SUCCESS')
+  assert.equal(legacySpan.durationMs, 42)
+
+  // duration derived from start/end when durationMs absent
+  const derived = normalizeSpan({
+    spanId: 'sp-3',
+    spanType: 'RUN',
+    status: 'ERROR',
+    startTime: '2026-10-15T10:00:00',
+    endTime: '2026-10-15T10:00:02'
+  })
+  assert.equal(derived.durationMs, 2000)
+
+  // list wrappers
+  assert.equal(normalizeSpans({ spans: [legacySpan] }).length, 1)
+  assert.equal(normalizeSpans([backendSpan, legacySpan]).length, 2)
+  assert.equal(normalizeSpans(null).length, 0)
+}
+
+testNormalizeSpanDualContract()
+
+const testNormalizeToolCallDualContract = () => {
+  // backend ToolCallView shape
+  const backendCall = normalizeToolCall({
+    id: 9,
+    stepId: 3,
+    callId: 'call-abc',
+    toolName: 'ask_user',
+    riskLevel: 'READ',
+    permissionDecision: 'ALLOW',
+    status: 'WAITING_USER_INPUT',
+    outputSummary: 'ask_user answered',
+    errorMessage: null,
+    startTime: '2026-10-15T10:00:00',
+    endTime: null,
+    inputTokens: 1,
+    outputTokens: 2
+  })
+  // respond endpoint resolves by callId string
+  assert.equal(backendCall.id, 'call-abc')
+  assert.equal(backendCall.callId, 'call-abc')
+  assert.equal(backendCall.rowId, 9)
+  assert.equal(backendCall.status, 'WAITING_USER_INPUT')
+  assert.equal(backendCall.resultSummary, 'ask_user answered')
+  assert.ok(backendCall.startedAt)
+  assert.equal(backendCall.startTime, backendCall.startedAt)
+
+  // legacy frontend shape
+  const legacyCall = normalizeToolCall({
+    id: 'tc-1001',
+    toolName: 'fs.read',
+    riskLevel: 'READ',
+    status: 'SUCCESS',
+    startedAt: '2026-10-15T10:00:00',
+    durationMs: 42,
+    argsSummary: 'path=a',
+    resultSummary: 'ok'
+  })
+  assert.equal(legacyCall.id, 'tc-1001')
+  assert.equal(legacyCall.argsSummary, 'path=a')
+  assert.equal(legacyCall.resultSummary, 'ok')
+  assert.equal(legacyCall.durationMs, 42)
+
+  // errorMessage fills resultSummary when outputSummary missing
+  const failed = normalizeToolCall({
+    callId: 'call-x',
+    toolName: 'shell.exec',
+    status: 'FAILED',
+    errorMessage: 'exit 1',
+    startTime: '2026-10-15T10:00:00',
+    endTime: '2026-10-15T10:00:03'
+  })
+  assert.equal(failed.resultSummary, 'exit 1')
+  assert.equal(failed.durationMs, 3000)
+
+  assert.equal(normalizeToolCalls({ records: [legacyCall] }).length, 1)
+  assert.equal(normalizeToolCalls([backendCall, legacyCall]).length, 2)
+}
+
+testNormalizeToolCallDualContract()
+
+const testSpanStatusAndTypeEnums = () => {
+  // status pairs required by B04: OK|SUCCESS, ERROR|FAILED
+  assert.equal(spanStatusLabel('OK'), spanStatusLabel('SUCCESS'))
+  assert.equal(spanStatusLabel('ERROR'), spanStatusLabel('FAILED'))
+  assert.equal(spanStatusType('OK'), 'success')
+  assert.equal(spanStatusType('SUCCESS'), 'success')
+  assert.equal(spanStatusType('SUCCEEDED'), 'success')
+  assert.equal(spanStatusType('ERROR'), 'danger')
+  assert.equal(spanStatusType('FAILED'), 'danger')
+  assert.equal(spanStatusType('WAITING'), 'warning')
+  assert.equal(spanStatusType('WAITING_USER'), 'warning')
+  assert.equal(spanStatusType('WAITING_USER_INPUT'), 'warning')
+  assert.equal(spanStatusType('TIMEOUT'), 'danger')
+  assert.equal(spanStatusType('CANCELLED'), 'info')
+  assert.equal(spanStatusType('RUNNING'), 'primary')
+
+  // tool-call status colors share the same table
+  assert.equal(toolStatusLabel('SUCCEEDED'), '成功')
+  assert.equal(toolStatusType('SUCCEEDED'), 'success')
+  assert.equal(toolStatusType('FAILED'), 'danger')
+  assert.equal(toolStatusType('WAITING_USER_INPUT'), 'warning')
+
+  // span types: backend SpanType + legacy frontend keys
+  assert.equal(spanTypeLabel('RUN'), '运行')
+  assert.equal(spanTypeLabel('TOOL_CALL'), '工具调用')
+  assert.equal(spanTypeLabel('TOOL_RESULT'), '工具结果')
+  assert.equal(spanTypeLabel('ASK_USER_WAIT'), '用户交互')
+  assert.equal(spanTypeLabel('BUDGET_CHECK'), '预算检查')
+  assert.equal(spanTypeLabel('REPLY'), '模型')
+  assert.equal(spanTypeLabel('run'), '运行')
+  assert.equal(spanTypeLabel('llm'), '模型')
+  assert.equal(spanTypeLabel('tool'), '工具')
+  assert.equal(spanTypeLabel('ask_user'), '用户交互')
+  assert.equal(spanTypeLabel('budget'), '预算')
+}
+
+testSpanStatusAndTypeEnums()
+
+const testAskUserStatusCompat = () => {
+  const waiting = { toolName: 'ask_user', status: 'WAITING_USER_INPUT' }
+  const legacyWaiting = { toolName: 'ask_user', status: 'WAITING_USER' }
+  const running = { toolName: 'ask_user', status: 'RUNNING' }
+  const timedOut = { toolName: 'ask_user', status: 'FAILED', errorMessage: 'ask_user timed out' }
+  const legacyTimeout = { toolName: 'ask_user', status: 'TIMEOUT' }
+  const done = { toolName: 'ask_user', status: 'SUCCEEDED' }
+  const notAsk = { toolName: 'fs.read', status: 'WAITING_USER_INPUT' }
+
+  assert.equal(isAskUserPending(waiting), true)
+  assert.equal(isAskUserPending(legacyWaiting), true)
+  assert.equal(isAskUserPending(running), true)
+  assert.equal(isAskUserPending(done), false)
+  assert.equal(isAskUserPending(notAsk), false)
+
+  assert.equal(isAskUserTimedOut(timedOut), true)
+  assert.equal(isAskUserTimedOut(legacyTimeout), true)
+  assert.equal(isAskUserTimedOut(waiting), false)
+}
+
+testAskUserStatusCompat()
+
+const testAgentRuntimePanelsUseContractHelpers = () => {
+  const tracePanel = readFileSync(new URL('../components/agent-runtime/TraceTimelinePanel.vue', import.meta.url), 'utf8')
+  const toolPanel = readFileSync(new URL('../components/agent-runtime/ToolCallsPanel.vue', import.meta.url), 'utf8')
+  const workspacePanel = readFileSync(new URL('../components/agent-runtime/WorkspacePanel.vue', import.meta.url), 'utf8')
+
+  // UI must label demo data as 开发 mock
+  ;[tracePanel, toolPanel, workspacePanel].forEach(source => {
+    assert.ok(source.includes('开发 mock'), 'panel must show 开发 mock banner')
+    assert.ok(source.includes('VITE_AGENT_RUNTIME_MOCK'), 'panel must document mock flag')
+  })
+
+  assert.ok(tracePanel.includes('normalizeSpans') || tracePanel.includes('spanTypeLabel'))
+  assert.ok(toolPanel.includes('normalizeToolCalls') || toolPanel.includes('toolStatusLabel'))
+  // respond by callId (backend contract), not numeric row id alone
+  assert.ok(toolPanel.includes('callId') || toolPanel.includes('item.callId'))
+}
+
+testAgentRuntimePanelsUseContractHelpers()

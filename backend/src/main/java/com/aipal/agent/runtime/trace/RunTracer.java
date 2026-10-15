@@ -99,13 +99,14 @@ public class RunTracer {
                 .orderByAsc(AgentRunSpan::getId));
     }
 
-    /** Sanitized timeline projection for REST: identifiers, timings, token counts, short status summaries only. */
+    /**
+     * Sanitized timeline projection for REST: identifiers, timings, token counts, short status
+     * summaries only. Each span carries dual frontend/backend field names
+     * ({@code id|spanId}, {@code type|spanType}, {@code startedAt|startTime}, {@code detail|summary}).
+     */
     public TraceTimeline timeline(Long tenantId, Long runId, String runTraceId, String runStatus) {
-        List<SpanView> spans = listForRun(tenantId, runId).stream()
-                .map(span -> new SpanView(span.getSpanId(), span.getSpanType(), span.getSpanName(),
-                        span.getStatus(), span.getStepId(), span.getToolCallId(), span.getCallId(),
-                        span.getInputTokens(), span.getOutputTokens(), span.getSummary(),
-                        span.getStartTime(), span.getEndTime(), span.getDurationMs()))
+        List<SpanContractView> spans = listForRun(tenantId, runId).stream()
+                .map(SpanContractView::from)
                 .toList();
         return new TraceTimeline(runId, runTraceId, runStatus, spans);
     }
@@ -116,11 +117,6 @@ public class RunTracer {
         return trimmed.substring(0, Math.min(trimmed.length(), max));
     }
 
-    public record SpanView(String spanId, String spanType, String spanName, String status, Long stepId,
-                           Long toolCallId, String callId, Integer inputTokens, Integer outputTokens,
-                           String summary, LocalDateTime startTime, LocalDateTime endTime, Long durationMs) {
-    }
-
-    public record TraceTimeline(Long runId, String traceId, String status, List<SpanView> spans) {
+    public record TraceTimeline(Long runId, String traceId, String status, List<SpanContractView> spans) {
     }
 }

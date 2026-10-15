@@ -5,11 +5,11 @@ import com.aipal.mapper.AgentRunSpanMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -59,6 +59,7 @@ class RunTracerTest {
         span.setInputTokens(1);
         span.setOutputTokens(2);
         span.setDurationMs(42L);
+        span.setStartTime(LocalDateTime.of(2026, 10, 15, 10, 0, 0));
         when(mapper.selectList(any())).thenReturn(List.of(span));
         RunTracer tracer = new RunTracer(mapper);
 
@@ -66,12 +67,37 @@ class RunTracerTest {
 
         assertEquals(99L, timeline.runId());
         assertEquals(1, timeline.spans().size());
-        RunTracer.SpanView view = timeline.spans().get(0);
+        SpanContractView view = timeline.spans().get(0);
+        // Dual-field contract: frontend names and backend names carry the same value.
+        assertEquals("span-1", view.id());
+        assertEquals("span-1", view.spanId());
+        assertEquals("llm", view.type());
         assertEquals("REPLY", view.spanType());
-        assertEquals("OK", view.status());
+        assertEquals("SUCCESS", view.status());
+        assertEquals("OK", view.spanStatus());
+        assertEquals("model reply completed", view.detail());
         assertEquals("model reply completed", view.summary());
-        // Span projection carries only identifiers/timings/summaries — no raw payloads.
-        assertNull(getFieldOrNull(view));
+        assertEquals(view.startTime(), view.startedAt());
+        assertEquals(42L, view.durationMs());
+    }
+
+    @Test
+    void statusVocabularyAcceptsBothOkSuccessAndErrorFailed() {
+        assertEquals("SUCCESS", SpanContractView.frontendStatus("OK"));
+        assertEquals("SUCCESS", SpanContractView.frontendStatus("SUCCESS"));
+        assertEquals("FAILED", SpanContractView.frontendStatus("ERROR"));
+        assertEquals("FAILED", SpanContractView.frontendStatus("FAILED"));
+        assertEquals("WAITING_USER", SpanContractView.frontendStatus("WAITING"));
+    }
+
+    @Test
+    void typeVocabularyMapsBackendToFrontend() {
+        assertEquals("run", SpanContractView.frontendType("RUN"));
+        assertEquals("llm", SpanContractView.frontendType("REPLY"));
+        assertEquals("tool", SpanContractView.frontendType("TOOL_CALL"));
+        assertEquals("tool", SpanContractView.frontendType("TOOL_RESULT"));
+        assertEquals("ask_user", SpanContractView.frontendType("ASK_USER_WAIT"));
+        assertEquals("budget", SpanContractView.frontendType("BUDGET_CHECK"));
     }
 
     @Test
@@ -86,12 +112,5 @@ class RunTracerTest {
         ArgumentCaptor<AgentRunSpan> inserted = ArgumentCaptor.forClass(AgentRunSpan.class);
         verify(mapper).insert(inserted.capture());
         assertTrue(inserted.getValue().getSummary().length() <= 256);
-    }
-
-    /** Guard: the REST projection type exposes no content-bearing field beyond summary. */
-    private Object getFieldOrNull(RunTracer.SpanView view) {
-        // SpanView is a record of (spanId, spanType, spanName, status, stepId, toolCallId, callId,
-        // inputTokens, outputTokens, summary, startTime, endTime, durationMs) — none carry prompt/memory bodies.
-        return view.getClass().getRecordComponents().length == 13 ? null : "unexpected shape";
     }
 }

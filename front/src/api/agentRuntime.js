@@ -1,7 +1,36 @@
 import { http } from './index'
+import {
+  TOOL_CALLS_PATH,
+  TOOL_CALLS_PATH_LEGACY,
+  WORKSPACE_PATH,
+  isMockAllowed,
+  isMockForced,
+  normalizeSpans,
+  normalizeToolCalls,
+  riskLevelLabel,
+  riskLevelType,
+  RISK_LEVELS,
+  toolStatusLabel,
+  toolStatusType,
+  isAskUserPending,
+  isAskUserTimedOut,
+  isAskUserTool
+} from './agentRuntimeContract'
 
-// 后端未就绪时自动降级 mock，便于前端预览；联调时路径已对齐契约。
-const FORCE_MOCK = String(import.meta.env?.VITE_AGENT_RUNTIME_MOCK || '') === '1'
+export {
+  RISK_LEVELS,
+  riskLevelType,
+  riskLevelLabel,
+  toolStatusLabel,
+  toolStatusType,
+  isAskUserPending,
+  isAskUserTimedOut,
+  isAskUserTool
+}
+
+const env = typeof import.meta !== 'undefined' ? import.meta.env : undefined
+const FORCE_MOCK = isMockForced(env)
+const MOCK_ALLOWED = isMockAllowed(env)
 
 const unwrap = (response) => response?.data?.data ?? response?.data ?? null
 
@@ -14,119 +43,76 @@ const isBackendMissing = (error) => {
 
 const isForbidden = (error) => error?.response?.status === 403
 
-export const RISK_LEVELS = ['READ', 'WRITE', 'EXEC']
-
-export const riskLevelType = (level) => ({ READ: 'success', WRITE: 'warning', EXEC: 'danger' })[level] || 'info'
-export const riskLevelLabel = (level) => ({ READ: '读取', WRITE: '写入', EXEC: '执行' })[level] || level || '-'
-
-export const toolStatusLabel = (status) => ({
-  PENDING: '待执行',
-  RUNNING: '执行中',
-  WAITING_USER: '待用户回复',
-  WAITING: '待用户回复',
-  ANSWERED: '已回复',
-  SUCCESS: '成功',
-  SUCCEEDED: '成功',
-  FAILED: '失败',
-  TIMEOUT: '已超时',
-  CANCELLED: '已取消',
-  DENIED: '已拒绝'
-})[status] || status || '-'
-
-export const toolStatusType = (status) => ({
-  PENDING: 'info',
-  RUNNING: 'primary',
-  WAITING_USER: 'warning',
-  WAITING: 'warning',
-  ANSWERED: 'success',
-  SUCCESS: 'success',
-  SUCCEEDED: 'success',
-  FAILED: 'danger',
-  TIMEOUT: 'danger',
-  CANCELLED: 'info',
-  DENIED: 'danger'
-})[status] || 'info'
-
-export const isAskUserPending = (tool) => {
-  const name = String(tool?.toolName || '').toLowerCase()
-  if (!name.includes('ask_user') && name !== 'askuser') return false
-  return ['PENDING', 'RUNNING', 'WAITING_USER', 'WAITING'].includes(tool?.status)
-}
-
-export const isAskUserTimedOut = (tool) => {
-  const name = String(tool?.toolName || '').toLowerCase()
-  if (!name.includes('ask_user') && name !== 'askuser') return false
-  return tool?.status === 'TIMEOUT'
-}
-
-export const isAskUserTool = (tool) => {
-  const name = String(tool?.toolName || '').toLowerCase()
-  return name.includes('ask_user') || name === 'askuser'
-}
+const isPathMissing = (error) => error?.response?.status === 404
 
 const nowIso = () => new Date().toISOString()
 
 const mockToolCalls = () => ([
   {
+    callId: 'tc-1001',
     id: 'tc-1001',
     toolName: 'fs.read',
     riskLevel: 'READ',
-    status: 'SUCCESS',
-    startedAt: nowIso(),
+    status: 'SUCCEEDED',
+    startTime: nowIso(),
     durationMs: 42,
     argsSummary: 'path=src/main/java/App.java',
-    resultSummary: '读取 128 行，UTF-8'
+    outputSummary: '读取 128 行，UTF-8'
   },
   {
+    callId: 'tc-1002',
     id: 'tc-1002',
     toolName: 'fs.write',
     riskLevel: 'WRITE',
-    status: 'SUCCESS',
-    startedAt: nowIso(),
+    status: 'SUCCEEDED',
+    startTime: nowIso(),
     durationMs: 87,
     argsSummary: 'path=src/test/java/AppTest.java',
-    resultSummary: '写入 64 行'
+    outputSummary: '写入 64 行'
   },
   {
+    callId: 'tc-1003',
     id: 'tc-1003',
     toolName: 'shell.exec',
     riskLevel: 'EXEC',
     status: 'FAILED',
-    startedAt: nowIso(),
+    startTime: nowIso(),
     durationMs: 3210,
     argsSummary: 'cmd=mvn -q test',
-    resultSummary: '退出码 1，2 个用例失败'
+    errorMessage: '退出码 1，2 个用例失败'
   },
   {
+    callId: 'tc-1004',
     id: 'tc-1004',
     toolName: 'ask_user',
     riskLevel: 'READ',
-    status: 'WAITING_USER',
-    startedAt: nowIso(),
+    status: 'WAITING_USER_INPUT',
+    startTime: nowIso(),
     durationMs: null,
     argsSummary: '请选择测试失败时的处理策略：跳过失败用例，或修复后重跑？',
-    resultSummary: '等待用户回复'
+    outputSummary: '等待用户回复'
   },
   {
+    callId: 'tc-1005',
     id: 'tc-1005',
     toolName: 'ask_user',
     riskLevel: 'READ',
-    status: 'TIMEOUT',
-    startedAt: nowIso(),
+    status: 'FAILED',
+    startTime: nowIso(),
     durationMs: 60000,
     argsSummary: '是否允许执行 npm install？',
-    resultSummary: '等待超时，已按策略失败'
+    errorMessage: 'ask_user timed out'
   }
 ])
 
 const mockTraceSpans = () => ([
-  { id: 'sp-1', type: 'run', status: 'SUCCESS', startedAt: nowIso(), durationMs: 12500, detail: 'Agent Run 启动' },
-  { id: 'sp-2', type: 'llm', status: 'SUCCESS', startedAt: nowIso(), durationMs: 2100, detail: '规划下一步工具调用' },
-  { id: 'sp-3', type: 'tool', status: 'SUCCESS', startedAt: nowIso(), durationMs: 42, detail: 'fs.read src/main/java/App.java' },
-  { id: 'sp-4', type: 'tool', status: 'SUCCESS', startedAt: nowIso(), durationMs: 87, detail: 'fs.write src/test/java/AppTest.java' },
-  { id: 'sp-5', type: 'tool', status: 'FAILED', startedAt: nowIso(), durationMs: 3210, detail: 'shell.exec mvn -q test' },
-  { id: 'sp-6', type: 'ask_user', status: 'WAITING_USER', startedAt: nowIso(), durationMs: null, detail: '等待用户确认测试策略' },
-  { id: 'sp-7', type: 'budget', status: 'SUCCESS', startedAt: nowIso(), durationMs: 3, detail: '预算检查：已用 62%' }
+  { spanId: 'sp-1', spanType: 'RUN', status: 'OK', startTime: nowIso(), durationMs: 12500, summary: 'Agent Run 启动' },
+  { spanId: 'sp-2', spanType: 'REPLY', status: 'OK', startTime: nowIso(), durationMs: 2100, summary: '规划下一步工具调用' },
+  { spanId: 'sp-3', spanType: 'TOOL_CALL', status: 'OK', startTime: nowIso(), durationMs: 42, summary: 'fs.read src/main/java/App.java' },
+  { spanId: 'sp-4', spanType: 'TOOL_CALL', status: 'OK', startTime: nowIso(), durationMs: 87, summary: 'fs.write src/test/java/AppTest.java' },
+  { spanId: 'sp-5', spanType: 'TOOL_RESULT', status: 'ERROR', startTime: nowIso(), durationMs: 3210, summary: 'shell.exec mvn -q test' },
+  { spanId: 'sp-6', spanType: 'ASK_USER_WAIT', status: 'WAITING', startTime: nowIso(), durationMs: null, summary: '等待用户确认测试策略' },
+  { spanId: 'sp-7', spanType: 'BUDGET_CHECK', status: 'OK', startTime: nowIso(), durationMs: 3, summary: '预算检查：已用 62%' }
 ])
 
 const mockWorkspace = () => ({
@@ -151,6 +137,12 @@ const mockWorkspace = () => ({
 
 const mockResponded = new Set()
 
+/**
+ * Demo data is never a silent production fallback.
+ * - default: request failures propagate as real errors
+ * - only when DEV or VITE_AGENT_RUNTIME_MOCK=1 may backend-missing fall back to demo data
+ * - VITE_AGENT_RUNTIME_MOCK=1 also forces demo data without hitting the network
+ */
 const withMockFallback = async (request, mockFactory) => {
   if (FORCE_MOCK) return asResponse(mockFactory(), true)
   try {
@@ -158,25 +150,47 @@ const withMockFallback = async (request, mockFactory) => {
     return response
   } catch (error) {
     if (isForbidden(error)) throw error
-    if (isBackendMissing(error)) return asResponse(mockFactory(), true)
+    if (MOCK_ALLOWED && isBackendMissing(error)) return asResponse(mockFactory(), true)
     throw error
   }
 }
 
+const normalizeToolCallPayload = (payload) => normalizeToolCalls(payload)
+const normalizeSpanPayload = (payload) => normalizeSpans(payload)
+
 export default {
-  /** GET /api/v1/agent-runs/{id}/tools */
+  /** GET /api/v1/agent-runs/{id}/tool-calls  (legacy fallback: /tools) */
   getAgentRunTools(runId) {
     return withMockFallback(
-      () => http.get('/agent-runs/' + runId + '/tools'),
-      () => mockToolCalls().map(item => (mockResponded.has(item.id) ? { ...item, status: 'ANSWERED', resultSummary: '用户已回复' } : item))
+      async () => {
+        try {
+          const response = await http.get('/agent-runs/' + runId + TOOL_CALLS_PATH)
+          response.data = { ...response.data, data: normalizeToolCallPayload(unwrap(response)) }
+          return response
+        } catch (error) {
+          if (!isPathMissing(error)) throw error
+          const response = await http.get('/agent-runs/' + runId + TOOL_CALLS_PATH_LEGACY)
+          response.data = { ...response.data, data: normalizeToolCallPayload(unwrap(response)) }
+          return response
+        }
+      },
+      () => normalizeToolCallPayload(mockToolCalls().map(item => (
+        mockResponded.has(item.id)
+          ? { ...item, status: 'ANSWERED', outputSummary: '用户已回复' }
+          : item
+      )))
     )
   },
 
   /** GET /api/v1/agent-runs/{id}/trace */
   getAgentRunTrace(runId) {
     return withMockFallback(
-      () => http.get('/agent-runs/' + runId + '/trace'),
-      () => mockTraceSpans()
+      async () => {
+        const response = await http.get('/agent-runs/' + runId + '/trace')
+        response.data = { ...response.data, data: normalizeSpanPayload(unwrap(response)) }
+        return response
+      },
+      () => normalizeSpanPayload(mockTraceSpans())
     )
   },
 
@@ -187,7 +201,7 @@ export default {
       () => http.post('/agent-runs/' + runId + '/tools/' + callId + '/respond', payload),
       () => {
         mockResponded.add(String(callId))
-        return { id: callId, status: 'ANSWERED', answer: payload.answer }
+        return { id: callId, callId, status: 'ANSWERED', answer: payload.answer }
       }
     )
   },
@@ -195,12 +209,13 @@ export default {
   /** GET /api/v1/workspaces/{runId} */
   getWorkspace(runId) {
     return withMockFallback(
-      () => http.get('/workspaces/' + runId),
+      () => http.get(WORKSPACE_PATH + runId),
       () => mockWorkspace()
     )
   },
 
   unwrap,
   isForbidden,
-  isBackendMissing
+  isBackendMissing,
+  isMockAllowed: () => MOCK_ALLOWED
 }

@@ -237,10 +237,16 @@ public class AgentRunService {
                         .orderByAsc(AgentToolCall::getStartTime)
                         .orderByAsc(AgentToolCall::getId))
                 .stream()
-                .map(call -> new ToolCallView(call.getId(), call.getStepId(), call.getCallId(), call.getToolName(),
-                        call.getRiskLevel(), call.getPermissionDecision(), call.getStatus(),
-                        call.getOutputSummary(), safeStatusMessage(call.getStatus(), call.getErrorMessage()),
-                        call.getInputTokens(), call.getOutputTokens(), call.getStartTime(), call.getEndTime()))
+                .map(call -> {
+                    long durationMs = call.getStartTime() != null && call.getEndTime() != null
+                            ? java.time.temporal.ChronoUnit.MILLIS.between(call.getStartTime(), call.getEndTime())
+                            : 0L;
+                    return new ToolCallView(call.getId(), call.getStepId(), call.getCallId(), call.getToolName(),
+                            call.getRiskLevel(), call.getPermissionDecision(), call.getStatus(),
+                            call.getOutputSummary(), safeStatusMessage(call.getStatus(), call.getErrorMessage()),
+                            call.getInputTokens(), call.getOutputTokens(), call.getStartTime(), call.getEndTime(),
+                            summarizeArgs(call.getInputJson()), call.getOutputSummary(), durationMs);
+                })
                 .toList();
     }
 
@@ -558,5 +564,17 @@ public class AgentRunService {
     public record ToolCallView(Long id, Long stepId, String callId, String toolName, String riskLevel,
                                String permissionDecision, String status, String outputSummary, String errorMessage,
                                Integer inputTokens, Integer outputTokens, LocalDateTime startTime,
-                               LocalDateTime endTime) {}
+                               LocalDateTime endTime,
+                               /** frontend alias of inputJson, truncated */
+                               String argsSummary,
+                               /** frontend alias of outputSummary */
+                               String resultSummary,
+                               Long durationMs) {}
+
+    /** Short, content-light argument summary for the tool-calls panel. */
+    static String summarizeArgs(String inputJson) {
+        if (inputJson == null || inputJson.isBlank()) return null;
+        String trimmed = inputJson.trim();
+        return trimmed.length() <= 200 ? trimmed : trimmed.substring(0, 200) + "...";
+    }
 }

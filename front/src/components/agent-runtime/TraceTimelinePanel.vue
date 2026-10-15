@@ -7,8 +7,8 @@
 
     <el-alert
       v-if="mocked"
-      title="后端接口未就绪，当前展示演示数据。接口就绪后将自动切换为真实数据。"
-      type="info"
+      title="开发 mock：当前展示演示数据。仅在开发环境或 VITE_AGENT_RUNTIME_MOCK=1 时启用；正式运行请求失败将直接报错，不会静默降级。"
+      type="warning"
       :closable="false"
       show-icon
     />
@@ -30,18 +30,18 @@
     <el-timeline v-if="!forbidden && spans.length" class="trace-timeline">
       <el-timeline-item
         v-for="span in spans"
-        :key="span.id"
-        :timestamp="formatTime(span.startedAt)"
-        :type="spanType(span.status)"
+        :key="spanKey(span)"
+        :timestamp="formatTime(spanStartedAt(span))"
+        :type="spanDotType(span.status)"
         placement="top"
       >
         <div class="span-card">
           <div class="span-head">
-            <el-tag size="small" effect="plain">{{ typeLabel(span.type) }}</el-tag>
+            <el-tag size="small" effect="plain">{{ typeLabel(span.spanType ?? span.type) }}</el-tag>
             <el-tag :type="statusType(span.status)" size="small">{{ statusLabel(span.status) }}</el-tag>
-            <span class="span-duration">{{ formatDuration(span.durationMs) }}</span>
+            <span class="span-duration">{{ formatDuration(spanDurationMs(span)) }}</span>
           </div>
-          <p class="span-detail">{{ span.detail || '-' }}</p>
+          <p class="span-detail">{{ spanDetail(span) || '-' }}</p>
         </div>
       </el-timeline-item>
     </el-timeline>
@@ -57,6 +57,12 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
 import agentRuntime from '../../api/agentRuntime'
+import {
+  normalizeSpans,
+  spanStatusLabel,
+  spanStatusType,
+  spanTypeLabel
+} from '../../api/agentRuntimeContract'
 
 const props = defineProps({
   runId: { type: [String, Number], required: true }
@@ -68,46 +74,16 @@ const mocked = ref(false)
 const forbidden = ref(false)
 const error = ref('')
 
-const typeLabel = (type) => ({
-  run: '运行',
-  llm: '模型',
-  tool: '工具',
-  ask_user: '用户交互',
-  budget: '预算',
-  workspace: '沙箱',
-  pipeline: '流水线'
-})[type] || type || '-'
+// Dual-enum compatible: backend spanType/startTime/summary/spanId + legacy type/startedAt/detail/id
+const typeLabel = (type) => spanTypeLabel(type)
+const statusLabel = (status) => spanStatusLabel(status)
+const statusType = (status) => spanStatusType(status)
+const spanDotType = (status) => spanStatusType(status)
 
-const statusLabel = (status) => ({
-  SUCCESS: '成功',
-  SUCCEEDED: '成功',
-  FAILED: '失败',
-  RUNNING: '进行中',
-  WAITING_USER: '待回复',
-  TIMEOUT: '超时',
-  CANCELLED: '已取消',
-  PENDING: '待执行'
-})[status] || status || '-'
-
-const statusType = (status) => ({
-  SUCCESS: 'success',
-  SUCCEEDED: 'success',
-  FAILED: 'danger',
-  RUNNING: 'primary',
-  WAITING_USER: 'warning',
-  TIMEOUT: 'danger',
-  CANCELLED: 'info',
-  PENDING: 'info'
-})[status] || 'info'
-
-const spanType = (status) => ({
-  SUCCESS: 'success',
-  SUCCEEDED: 'success',
-  FAILED: 'danger',
-  RUNNING: 'primary',
-  WAITING_USER: 'warning',
-  TIMEOUT: 'danger'
-})[status] || 'info'
+const spanKey = (span) => span?.spanId ?? span?.id
+const spanStartedAt = (span) => span?.startTime ?? span?.startedAt
+const spanDurationMs = (span) => span?.durationMs
+const spanDetail = (span) => span?.summary ?? span?.detail ?? span?.spanName
 
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const formatDuration = (ms) => {
@@ -125,8 +101,8 @@ const load = async () => {
   try {
     const response = await agentRuntime.getAgentRunTrace(props.runId)
     const payload = response?.data?.data
-    spans.value = Array.isArray(payload) ? payload : (payload?.spans || payload?.records || [])
-    spans.value = [...spans.value].sort((a, b) => new Date(a.startedAt || 0) - new Date(b.startedAt || 0))
+    spans.value = normalizeSpans(payload)
+    spans.value = [...spans.value].sort((a, b) => new Date(spanStartedAt(a) || 0) - new Date(spanStartedAt(b) || 0))
     mocked.value = Boolean(response?.data?.mock)
   } catch (err) {
     if (agentRuntime.isForbidden(err)) {

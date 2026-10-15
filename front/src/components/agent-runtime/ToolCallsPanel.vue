@@ -7,8 +7,8 @@
 
     <el-alert
       v-if="mocked"
-      title="后端接口未就绪，当前展示演示数据。接口就绪后将自动切换为真实数据。"
-      type="info"
+      title="开发 mock：当前展示演示数据。仅在开发环境或 VITE_AGENT_RUNTIME_MOCK=1 时启用；正式运行请求失败将直接报错，不会静默降级。"
+      type="warning"
       :closable="false"
       show-icon
       class="mock-alert"
@@ -33,27 +33,27 @@
     <template v-if="!forbidden">
       <div v-if="askPending.length" class="ask-block">
         <h4>待回复（ask_user）</h4>
-        <div v-for="item in askPending" :key="item.id" class="ask-card">
+        <div v-for="item in askPending" :key="toolKey(item)" class="ask-card">
           <div class="ask-head">
             <el-tag type="warning" size="small">待用户回复</el-tag>
-            <span class="ask-id">{{ item.id }}</span>
-            <span v-if="item.startedAt" class="ask-time">{{ formatTime(item.startedAt) }}</span>
+            <span class="ask-id">{{ toolKey(item) }}</span>
+            <span v-if="toolStartedAt(item)" class="ask-time">{{ formatTime(toolStartedAt(item)) }}</span>
           </div>
-          <p class="ask-question">{{ item.argsSummary || 'Agent 正在等待你的确认' }}</p>
+          <p class="ask-question">{{ toolArgs(item) || 'Agent 正在等待你的确认' }}</p>
           <div class="ask-actions">
             <el-input
-              v-model="answers[item.id]"
+              v-model="answers[toolKey(item)]"
               type="textarea"
               :rows="2"
               resize="none"
               placeholder="输入回复内容后提交"
-              :disabled="submittingId === item.id"
+              :disabled="submittingId === toolKey(item)"
             />
             <el-button
               type="primary"
               size="small"
-              :loading="submittingId === item.id"
-              :disabled="!(answers[item.id] || '').trim()"
+              :loading="submittingId === toolKey(item)"
+              :disabled="!(answers[toolKey(item)] || '').trim()"
               @click="submitAnswer(item)"
             >提交回复</el-button>
           </div>
@@ -62,18 +62,20 @@
 
       <div v-if="askTimedOut.length" class="ask-block">
         <h4>已超时（ask_user）</h4>
-        <div v-for="item in askTimedOut" :key="item.id" class="ask-card timed-out">
+        <div v-for="item in askTimedOut" :key="toolKey(item)" class="ask-card timed-out">
           <div class="ask-head">
             <el-tag type="danger" size="small">等待超时</el-tag>
-            <span class="ask-id">{{ item.id }}</span>
+            <span class="ask-id">{{ toolKey(item) }}</span>
           </div>
-          <p class="ask-question">{{ item.argsSummary || '等待用户回复超时' }}</p>
-          <p class="ask-result">{{ item.resultSummary || '按超时策略失败，未静默继续' }}</p>
+          <p class="ask-question">{{ toolArgs(item) || '等待用户回复超时' }}</p>
+          <p class="ask-result">{{ toolResult(item) || '按超时策略失败，未静默继续' }}</p>
         </div>
       </div>
 
       <el-table v-loading="loading" :data="tools" size="small" class="tool-table">
-        <el-table-column prop="id" label="调用号" width="100" show-overflow-tooltip />
+        <el-table-column label="调用号" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ toolKey(row) }}</template>
+        </el-table-column>
         <el-table-column prop="toolName" label="工具" min-width="120" show-overflow-tooltip />
         <el-table-column label="风险" width="86">
           <template #default="{ row }">
@@ -86,13 +88,17 @@
           </template>
         </el-table-column>
         <el-table-column label="开始时间" min-width="150">
-          <template #default="{ row }">{{ formatTime(row.startedAt) }}</template>
+          <template #default="{ row }">{{ formatTime(toolStartedAt(row)) }}</template>
         </el-table-column>
         <el-table-column label="耗时" width="90">
-          <template #default="{ row }">{{ formatDuration(row.durationMs) }}</template>
+          <template #default="{ row }">{{ formatDuration(toolDuration(row)) }}</template>
         </el-table-column>
-        <el-table-column prop="argsSummary" label="参数摘要" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="resultSummary" label="结果摘要" min-width="150" show-overflow-tooltip />
+        <el-table-column label="参数摘要" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ toolArgs(row) }}</template>
+        </el-table-column>
+        <el-table-column label="结果摘要" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ toolResult(row) }}</template>
+        </el-table-column>
       </el-table>
 
       <el-empty
@@ -115,6 +121,7 @@ import agentRuntime, {
   toolStatusLabel,
   toolStatusType
 } from '../../api/agentRuntime'
+import { normalizeToolCalls } from '../../api/agentRuntimeContract'
 
 const props = defineProps({
   runId: { type: [String, Number], required: true }
@@ -130,6 +137,21 @@ const submittingId = ref('')
 
 const askPending = computed(() => tools.value.filter(isAskUserPending))
 const askTimedOut = computed(() => tools.value.filter(isAskUserTimedOut))
+
+// Dual-enum compatible: backend callId/startTime/outputSummary/errorMessage + legacy id/startedAt/resultSummary/argsSummary
+const toolKey = (item) => item?.callId ?? item?.id
+const toolStartedAt = (item) => item?.startTime ?? item?.startedAt
+const toolDuration = (item) => {
+  if (item?.durationMs !== undefined && item?.durationMs !== null) return item.durationMs
+  const start = toolStartedAt(item)
+  const end = item?.endTime
+  if (!start || !end) return null
+  const s = new Date(start).getTime()
+  const e = new Date(end).getTime()
+  return Number.isFinite(s) && Number.isFinite(e) && e >= s ? e - s : null
+}
+const toolArgs = (item) => item?.argsSummary ?? item?.inputSummary ?? null
+const toolResult = (item) => item?.resultSummary ?? item?.outputSummary ?? item?.errorMessage ?? null
 
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const formatDuration = (ms) => {
@@ -147,7 +169,7 @@ const load = async () => {
   try {
     const response = await agentRuntime.getAgentRunTools(props.runId)
     const payload = response?.data?.data
-    tools.value = Array.isArray(payload) ? payload : (payload?.records || payload?.list || [])
+    tools.value = normalizeToolCalls(payload)
     mocked.value = Boolean(response?.data?.mock)
   } catch (err) {
     if (agentRuntime.isForbidden(err)) {
@@ -163,13 +185,15 @@ const load = async () => {
 }
 
 const submitAnswer = async (item) => {
-  const answer = (answers[item.id] || '').trim()
+  const key = toolKey(item)
+  const answer = (answers[key] || '').trim()
   if (!answer) return
-  submittingId.value = item.id
+  submittingId.value = key
   try {
-    await agentRuntime.respondAgentRunTool(props.runId, item.id, answer)
+    // backend resolves ask_user by callId (string), not numeric row id
+    await agentRuntime.respondAgentRunTool(props.runId, item.callId ?? item.id, answer)
     ElMessage.success('回复已提交')
-    answers[item.id] = ''
+    answers[key] = ''
     await load()
   } catch (err) {
     if (agentRuntime.isForbidden(err)) {

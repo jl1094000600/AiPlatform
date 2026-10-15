@@ -7,6 +7,7 @@ import com.aipal.security.RequirePermission;
 import com.aipal.security.TenantContext;
 import com.aipal.service.AgentRunStreamEventService;
 import com.aipal.service.AgentRunService;
+import com.aipal.service.ToolCallContractView;
 import com.aipal.service.AgentToolResponseService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
@@ -61,10 +62,13 @@ public class AgentRunController {
         return Result.success(agentRunService.getDetail(id));
     }
 
-    @GetMapping("/{id}/tool-calls")
+    /** Tool-call list. {@code /tools} is the frontend contract path; {@code /tool-calls} kept as alias. */
+    @GetMapping({"/{id}/tool-calls", "/{id}/tools"})
     @RequirePermission("agent:invoke")
-    public Result<List<AgentRunService.ToolCallView>> toolCalls(@PathVariable Long id) {
-        return Result.success(agentRunService.listToolCalls(id));
+    public Result<List<ToolCallContractView>> toolCalls(@PathVariable Long id) {
+        return Result.success(agentRunService.listToolCalls(id).stream()
+                .map(ToolCallContractView::from)
+                .toList());
     }
 
     /** Span timeline. Contains no prompt bodies and no memory bodies. */
@@ -133,3 +137,4 @@ public class AgentRunController {
                 view.totalTokens(), view.errorMessage(), view.canCancel(), view.canApprove(), view.createTime(), view.startTime(), view.endTime());
     }
 }
+
