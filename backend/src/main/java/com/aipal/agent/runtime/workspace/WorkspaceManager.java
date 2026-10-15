@@ -23,7 +23,7 @@ public class WorkspaceManager {
     }
 
     public Workspace acquire(String key) {
-        return active.computeIfAbsent(key, k -> workspaceFactory.openLocalTemp());
+        return active.computeIfAbsent(key, k -> workspaceFactory.openToolWorkspace());
     }
 
     /** Register a pre-built workspace (tests, pipeline stages). */

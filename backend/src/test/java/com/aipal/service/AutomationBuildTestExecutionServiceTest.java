@@ -90,6 +90,24 @@ class AutomationBuildTestExecutionServiceTest {
     }
 
     @Test
+    void mavenErrorsWithExitZeroAreBlockedNotSuccess() {
+        // A01: Errors>0 and Failures=0 and exit=0 must not authorize success
+        Harness harness = Harness.withResults(null, success(
+                "$ mvn test\nTests run: 3, Failures: 0, Errors: 2, Skipped: 0"));
+        harness.installValidWorkDir();
+
+        AutomationStageRun stage = harness.executeTest();
+
+        assertEquals(STATUS_BLOCKED, stage.getStatus());
+        AutomationTestRun run = harness.testRun.get();
+        assertNotNull(run);
+        assertEquals(STATUS_BLOCKED, run.getStatus());
+        assertTrue(run.getFailedCount() != null && run.getFailedCount() > 0,
+                "errors must count as failures: failed=" + run.getFailedCount());
+        assertTrue(stage.getErrorMessage() != null && !stage.getErrorMessage().isBlank());
+    }
+
+    @Test
     void vitestZeroTestsExitZeroIsBlockedNotSuccess() {
         Harness harness = Harness.withResults(null, success("$ npx vitest run\nTests  0 passed (0)"));
         harness.installValidWorkDir();

@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [master]
+    branches: [master, main, develop]
   pull_request:
-    branches: [master]
+    branches: [master, main, develop]
 
 env:
   JAVA_VERSION: '21'
@@ -110,7 +110,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: [deployment-static, backend, frontend, consumer-frontend]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    # master: verify-only elsewhere; never login/push/deploy from master
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
