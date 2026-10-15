@@ -68,6 +68,37 @@ class RunBudgetGuardTest {
         assertTrue(guard.checkChildTaskCount(run, 1).isEmpty());
     }
 
+    @Test
+    void assertBeforeModelCallBlocksWhenTokensExhausted() {
+        AgentRun run = run(50, 8, 600);
+        BudgetExceededException exception = assertThrows(BudgetExceededException.class,
+                () -> guard.assertBeforeModelCall(run, 51, 1, Duration.ofSeconds(1)));
+        assertEquals("TOKENS", exception.code());
+    }
+
+    @Test
+    void assertBeforeModelCallAllowsNextCallWithinBudget() {
+        AgentRun run = run(50, 8, 600);
+        guard.assertBeforeModelCall(run, 50, 1, Duration.ofSeconds(1));
+    }
+
+    @Test
+    void assertBeforeToolCallBlocksWhenChildTasksExhausted() {
+        AgentRun run = run(8000, 8, 600);
+        run.setMaxChildTasks(2);
+        BudgetExceededException exception = assertThrows(BudgetExceededException.class,
+                () -> guard.assertBeforeToolCall(run, 10, 1, Duration.ofSeconds(1), 2));
+        assertEquals("CHILD_TASKS", exception.code());
+    }
+
+    @Test
+    void assertBeforeToolCallBlocksWhenTimeExhausted() {
+        AgentRun run = run(8000, 8, 5);
+        BudgetExceededException exception = assertThrows(BudgetExceededException.class,
+                () -> guard.assertBeforeToolCall(run, 10, 1, Duration.ofSeconds(6), 0));
+        assertEquals("TIME", exception.code());
+    }
+
     private AgentRun run(int maxTokens, int maxSteps, int maxDurationSeconds) {
         AgentRun run = new AgentRun();
         run.setId(1L);

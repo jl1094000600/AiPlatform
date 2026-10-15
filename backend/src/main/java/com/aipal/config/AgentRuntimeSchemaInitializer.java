@@ -33,6 +33,7 @@ public class AgentRuntimeSchemaInitializer {
             createToolDefinition(statement);
             createToolPolicy(statement);
             createToolCall(statement);
+            createAskInteraction(statement);
             createContextSnapshot(statement);
             createRunStreamEvent(statement);
             createRunSpan(statement);
@@ -212,6 +213,32 @@ public class AgentRuntimeSchemaInitializer {
                     UNIQUE KEY uk_agent_tool_call_idempotency (tenant_id, idempotency_key),
                     KEY idx_agent_tool_call_run (tenant_id, run_id, create_time),
                     KEY idx_agent_tool_call_tool (tenant_id, tool_name, status, create_time)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+    }
+
+    private void createAskInteraction(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS agent_ask_interaction (
+                    id BIGINT NOT NULL AUTO_INCREMENT,
+                    tenant_id BIGINT NOT NULL,
+                    run_id BIGINT NOT NULL,
+                    call_id VARCHAR(96) NOT NULL,
+                    question TEXT NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    answer LONGTEXT DEFAULT NULL,
+                    timeout_seconds INT NOT NULL DEFAULT 300,
+                    deadline DATETIME DEFAULT NULL,
+                    asked_at DATETIME DEFAULT NULL,
+                    answered_at DATETIME DEFAULT NULL,
+                    resolved_at DATETIME DEFAULT NULL,
+                    resolution_reason VARCHAR(512) DEFAULT NULL,
+                    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    is_deleted TINYINT NOT NULL DEFAULT 0,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_agent_ask_interaction_call (tenant_id, run_id, call_id),
+                    KEY idx_agent_ask_interaction_run (tenant_id, run_id, status)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
     }

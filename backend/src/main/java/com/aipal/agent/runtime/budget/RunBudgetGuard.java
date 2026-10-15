@@ -76,6 +76,27 @@ public class RunBudgetGuard {
                 });
     }
 
+    /**
+     * Pre-call gate for the next model invocation. Throws when any of tokens / steps / time is
+     * already exhausted so the model call is never issued after a budget breach.
+     */
+    public void assertBeforeModelCall(AgentRun run, int totalTokens, int completedSteps, Duration elapsed) {
+        assertWithinBudget(run, totalTokens, completedSteps, elapsed);
+    }
+
+    /**
+     * Pre-side-effect gate for the next tool invocation. Checks tokens / steps / time and the
+     * child-task budget so a mutating tool never runs after its budget is exhausted.
+     */
+    public void assertBeforeToolCall(AgentRun run, int totalTokens, int completedSteps, Duration elapsed,
+                                     long currentChildTasks) {
+        assertWithinBudget(run, totalTokens, completedSteps, elapsed);
+        checkChildTaskCount(run, currentChildTasks)
+                .ifPresent(violation -> {
+                    throw new BudgetExceededException(violation.code(), violation.reason());
+                });
+    }
+
     public record BudgetLimits(int maxTokens, int maxSteps, int maxDurationSeconds, int maxChildTasks) {
     }
 

@@ -96,11 +96,20 @@ class AskUserToolTest {
         call.setToolName("ask_user");
         call.setStatus(AgentRunStatus.RUNNING.name());
         when(toolCallMapper.selectOne(any())).thenReturn(call);
+        com.aipal.mapper.AgentAskInteractionMapper askMapper =
+                mock(com.aipal.mapper.AgentAskInteractionMapper.class);
+        when(askMapper.selectOne(any())).thenReturn(null);
+        when(askMapper.insert(any())).thenAnswer(invocation -> {
+            com.aipal.entity.AgentAskInteraction interaction = invocation.getArgument(0);
+            interaction.setId(1L);
+            return 1;
+        });
+        when(askMapper.update(any(), any())).thenReturn(1);
         when(tracer.start(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new Span(1L, 1L, 99L, "span-1", null, "ask_user", null, null, "call-1", "trace-1",
                         LocalDateTime.now()));
         AgentToolResponseService responseService = new AgentToolResponseService(runMapper, toolCallMapper,
-                mock(AgentRunEventService.class), tracer);
+                mock(AgentRunEventService.class), tracer, askMapper);
         ToolInvocationContext context = new ToolInvocationContext(1L, 99L, 11L, 22L, 5L, 7L, "project-a",
                 "trace-1", "call-1", "ask_user", null, null, null);
         return new Fixtures(responseService, runMapper, context);

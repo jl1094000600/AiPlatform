@@ -3,9 +3,14 @@ package com.aipal.service;
 import com.aipal.agent.runtime.budget.BudgetExceededException;
 import com.aipal.agent.runtime.budget.RunBudgetGuard;
 import com.aipal.entity.AgentRun;
+import com.aipal.entity.AgentTask;
+import com.aipal.mapper.AgentTaskMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -15,6 +20,7 @@ public class AgentLoopExecutor {
     private final AgentService agentService;
     private final AgentToolExecutor toolExecutor;
     private final RunBudgetGuard runBudgetGuard;
+    private final AgentTaskMapper taskMapper;
 
     public LoopResult execute(AgentRun run, Object input, Map<String, Object> definition) {
         Map<String, Object> runtime = mapValue(definition.get("runtimeConfig"));
@@ -29,9 +35,13 @@ public class AgentLoopExecutor {
 
     private LoopResult executeV1(AgentRun run, Object input, Map<String, Object> runtime) {
         Long modelId = requiredLong(runtime, "modelId");
+        LocalDateTime clockStart = run.getStartTime() != null ? run.getStartTime() : LocalDateTime.now();
+        runBudgetGuard.assertBeforeModelCall(run, 0, 0, Duration.between(clockStart, LocalDateTime.now()));
         Map<String, Object> output = agentService.callAgentFrozen(run.getAgentId(), input, run.getOwnerUserId(), null,
                 modelId, nullableLong(runtime.get("promptId")), nullableLong(runtime.get("promptVersionId")));
-        return new LoopResult(output, number(output.get("totalTokens")), 1);
+        int totalTokens = number(output.get("totalTokens"));
+        runBudgetGuard.assertBeforeModelCall(run, totalTokens, 1, Duration.between(clockStart, LocalDateTime.now()));
+        return new LoopResult(output, totalTokens, 1);
     }
 
     private LoopResult executeV2(AgentRun run, Object input, Map<String, Object> runtime) {
@@ -39,18 +49,29 @@ public class AgentLoopExecutor {
         int maxSteps = runBudgetGuard.effectiveMaxSteps(run);
         int totalTokens = 0;
         Object turnInput = input;
+        LocalDateTime clockStart = run.getStartTime() != null ? run.getStartTime() : LocalDateTime.now();
         for (int turn = 1; turn <= maxSteps; turn++) {
+            Duration elapsed = Duration.between(clockStart, LocalDateTime.now());
+            // Pre-call budget gate: never issue another model call after a breach.
+            runBudgetGuard.assertBeforeModelCall(run, totalTokens, turn - 1, elapsed);
+
             Map<String, Object> modelOutput = agentService.callAgentFrozen(run.getAgentId(), turnInput,
                     run.getOwnerUserId(), null, modelId, nullableLong(runtime.get("promptId")),
                     nullableLong(runtime.get("promptVersionId")));
             totalTokens += number(modelOutput.get("totalTokens"));
             AgentAction action = AgentAction.from(modelOutput);
+            elapsed = Duration.between(clockStart, LocalDateTime.now());
             if (action.type() == AgentActionType.FINAL) {
+                // No FINAL deliverable is emitted once the budget is exhausted.
+                runBudgetGuard.assertBeforeModelCall(run, totalTokens, turn, elapsed);
                 return new LoopResult(action.output(), totalTokens, turn);
             }
             if (action.type() != AgentActionType.TOOL_CALL) {
                 throw new UnsupportedOperationException("Agent action " + action.type() + " is not enabled yet");
             }
+            // Pre-side-effect budget gate: never run another tool after a breach.
+            runBudgetGuard.assertBeforeToolCall(run, totalTokens, turn, elapsed, currentChildTasks(run));
+
             AgentToolExecutor.ToolExecutionResult toolResult = toolExecutor.execute(run, action.callId(),
                     action.toolName(), action.input());
             if (!toolResult.executed() || !"SUCCEEDED".equals(toolResult.status())) {
@@ -59,6 +80,15 @@ public class AgentLoopExecutor {
             turnInput = nextTurnInput(input, modelOutput, toolResult, turn);
         }
         throw new BudgetExceededException("STEPS", "Step budget exceeded");
+    }
+
+    private long currentChildTasks(AgentRun run) {
+        if (run == null || run.getId() == null || run.getTenantId() == null) return 0L;
+        Long count = taskMapper.selectCount(new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, run.getTenantId())
+                .eq(AgentTask::getRunId, run.getId())
+                .ne(AgentTask::getTaskType, "RUN"));
+        return count == null ? 0L : count;
     }
 
     private Map<String, Object> nextTurnInput(Object originalInput, Map<String, Object> modelOutput,
