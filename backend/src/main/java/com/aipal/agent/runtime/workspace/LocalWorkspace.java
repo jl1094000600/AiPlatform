@@ -35,6 +35,12 @@ public class LocalWorkspace implements Workspace {
 
     public static LocalWorkspace createTemp() throws IOException {
         Path dir = Files.createTempDirectory("aipal-ws-");
+        return wrap(dir);
+    }
+
+    public static LocalWorkspace createTemp(Path parent) throws IOException {
+        Files.createDirectories(parent);
+        Path dir = Files.createTempDirectory(parent, "ws-");
         return new LocalWorkspace(dir, true);
     }
 

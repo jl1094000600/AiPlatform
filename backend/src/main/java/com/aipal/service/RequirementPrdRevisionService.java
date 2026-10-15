@@ -48,17 +48,27 @@ public class RequirementPrdRevisionService {
             throw new IllegalArgumentException("At least one acceptance criterion is required");
         }
         Map<String, Object> doc = readDoc(stage);
+        // F06: editing AC creates a new revision and invalidates prior approval.
+        int version = doc.containsKey("version") ? ((Number) doc.get("version")).intValue() : 1;
+        doc.put("version", version + 1);
+        doc.put("approved", false);
+        doc.put("approvalInvalidatedAt", LocalDateTime.now().toString());
         doc.put("acceptanceCriteria", normalized);
         doc.put("acUpdatedAt", LocalDateTime.now().toString());
-        doc.put("contentHash", contentHash(stage.getArtifactContent(), normalized));
-        if (!doc.containsKey("version")) {
-            doc.put("version", 1);
-        }
+        // Stable hash over canonical body + AC rows only (not whole prior artifact JSON).
+        doc.put("contentHash", contentHash(String.valueOf(doc.getOrDefault("prdMarkdown", "")), normalized));
         writeDoc(stage, doc);
+        // Downstream evidence cannot reuse prior SUCCESS approval for edited AC.
+        if ("SUCCESS".equals(stage.getStatus())) {
+            stage.setStatus("WAITING_APPROVAL");
+            stage.setUpdateTime(LocalDateTime.now());
+            stageRunMapper.updateById(stage);
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("pipelineId", pipelineId);
         result.put("version", ((Number) doc.get("version")).intValue());
         result.put("contentHash", doc.get("contentHash"));
+        result.put("approved", false);
         result.put("acceptanceCriteria", normalized);
         return result;
     }
@@ -69,13 +79,17 @@ public class RequirementPrdRevisionService {
         AutomationStageRun stage = requireStage(pipelineId);
         Map<String, Object> doc = readDoc(stage);
         int current = doc.containsKey("version") ? ((Number) doc.get("version")).intValue() : 1;
-        if (expectedVersion != null && expectedVersion != current) {
+        if (expectedVersion == null) {
+            throw new IllegalStateException("VALIDATION_FAILED: expectedVersion is required");
+        }
+        if (expectedVersion != current) {
             throw new IllegalStateException("VERSION_CONFLICT: expected " + expectedVersion + " but was " + current);
         }
         List<?> acs = doc.get("acceptanceCriteria") instanceof List<?> list ? list : List.of();
         if (approved && acs.isEmpty()) {
             throw new IllegalStateException("VALIDATION_FAILED: acceptance criteria required before confirm");
         }
+        // Re-apply version in doc before write so hash/stage stay coherent (F06).
         if (approved) {
             stage.setStatus("SUCCESS");
             stage.setErrorMessage(null);

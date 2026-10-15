@@ -87,7 +87,7 @@ public class AutomationBuildTestExecutionService {
                     "No build command configured; build stage blocked (fail-closed, empty command cannot succeed)");
         } else {
             try {
-                Path workDir = resolveWorkDir(pipeline, profile);
+                Path workDir = resolveWorkDir(pipeline, profile, generatedCodeBatchId);
                 run.setWorkDir(workDir.toString());
                 result = runCommandInWorkspace(command, workDir, timeoutSeconds);
             } catch (Exception e) {
@@ -127,7 +127,7 @@ public class AutomationBuildTestExecutionService {
                     "No test command configured; test stage blocked (fail-closed, empty command cannot succeed)");
         } else {
             try {
-                Path workDir = resolveWorkDir(pipeline, profile);
+                Path workDir = resolveWorkDir(pipeline, profile, generatedCodeBatchId);
                 run.setWorkDir(workDir.toString());
                 result = runTestCommandInWorkspace(command, workDir, timeoutSeconds);
             } catch (Exception e) {
@@ -257,7 +257,7 @@ public class AutomationBuildTestExecutionService {
             Workspace workspace = workspaceFactory.open(workDir);
             try {
                 com.aipal.agent.runtime.workspace.CommandResult wsResult =
-                        workspace.exec(shellCommand(command),
+                        workspace.exec(shellCommandForWorkspace(command),
                                 Duration.ofSeconds(Math.max(10, timeoutSeconds == null ? 600 : timeoutSeconds)));
                 String log = "$ " + command + "\n" + wsResult.stdout()
                         + (wsResult.stderr().isBlank() ? "" : "\n" + wsResult.stderr());
@@ -331,25 +331,52 @@ public class AutomationBuildTestExecutionService {
         return null;
     }
 
-    private Path resolveWorkDir(AutomationPipeline pipeline, AutomationDeployProfileResponse profile) {
+    private Path resolveWorkDir(AutomationPipeline pipeline, AutomationDeployProfileResponse profile,
+                                Long generatedCodeBatchId) {
+        Path batchRoot = codeRootForBatch(generatedCodeBatchId);
         try {
             if (profile != null) {
                 JsonNode dockerConfig = readJson(profile.getDockerConfig());
                 String configured = dockerConfig.path("buildContext").asText("");
                 if (!isBlank(configured)) {
-                    return resolveInsideWorkspaceOrGenerated(configured, projectRoot());
+                    Path base = batchRoot != null ? batchRoot : projectRoot();
+                    Path resolved = resolveInsideWorkspaceOrGenerated(configured, base);
+                    if (batchRoot != null && !resolved.startsWith(batchRoot)
+                            && !resolved.startsWith(Paths.get("marketDoc", "generated-code").toAbsolutePath().normalize())) {
+                        throw new IllegalStateException(
+                                "buildContext must stay inside the selected code batch artifact directory (fail-closed)");
+                    }
+                    return resolved;
                 }
             }
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Failed to resolve configured buildContext/work directory: " + e.getMessage(), e);
         }
-        Path codeRoot = latestCodeArtifactRoot(pipeline.getId());
-        if (codeRoot == null) {
+        if (batchRoot == null) {
             throw new IllegalStateException(
-                    "Generated code artifact directory is missing; refusing to fall back to platform project root (fail-closed)");
+                    "Generated code artifact directory is missing for batch; refusing mtime/platform-root fallback (fail-closed)");
         }
-        return codeRoot;
+        return batchRoot;
+    }
+
+    /** F03: bind work dir to the exact generated code batch, never directory mtime. */
+    private Path codeRootForBatch(Long generatedCodeBatchId) {
+        if (generatedCodeBatchId == null) {
+            return null;
+        }
+        AutomationGeneratedCodeBatch batch = generatedCodeBatchMapper.selectById(generatedCodeBatchId);
+        if (batch == null || isBlank(batch.getArtifactPath())) {
+            return null;
+        }
+        Path root = Paths.get(batch.getArtifactPath()).toAbsolutePath().normalize();
+        Path generated = Paths.get("marketDoc", "generated-code").toAbsolutePath().normalize();
+        if (!root.startsWith(generated)) {
+            throw new IllegalStateException("Batch artifact path is outside generated-code root (fail-closed)");
+        }
+        return Files.isDirectory(root) ? root : null;
     }
 
     private Long latestCodeBatchId(Long pipelineId) {
@@ -402,6 +429,11 @@ public class AutomationBuildTestExecutionService {
     private List<String> shellCommand(String command) {
         boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
         return windows ? List.of("cmd.exe", "/c", command) : List.of("sh", "-c", command);
+    }
+
+    /** F02: Linux containers must never receive Windows host shells. */
+    List<String> shellCommandForWorkspace(String command) {
+        return List.of("sh", "-c", command);
     }
 
     private String readProcessOutput(Process process) {

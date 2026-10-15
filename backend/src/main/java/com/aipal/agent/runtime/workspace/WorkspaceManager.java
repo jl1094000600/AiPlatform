@@ -8,8 +8,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Run-scoped workspace access for coding tools. One workspace per (tenant, run) so
- * fs.read / fs.write / shell.exec share the same sandbox during a run.
+ * Run-scoped workspace access for coding tools. One workspace per (tenant, project/run/batch)
+ * so tools and build/test share an isolated sandbox. F01: identity is mandatory; F04: release
+ * on terminal/cancel.
  */
 @Component
 @RequiredArgsConstructor
@@ -19,16 +20,29 @@ public class WorkspaceManager {
     private final Map<String, Workspace> active = new ConcurrentHashMap<>();
 
     public Workspace acquire(ToolInvocationContext context) {
-        return acquire(key(context.tenantId(), context.runId()));
+        if (context == null || context.tenantId() == null || context.tenantId() <= 0
+                || context.runId() == null || context.runId() <= 0) {
+            throw new IllegalArgumentException("tenantId and runId are required for tool workspace isolation");
+        }
+        return acquire(new WorkspaceFactory.WorkspaceIdentity(
+                context.tenantId(), null, context.runId(), null, null));
     }
 
-    public Workspace acquire(String key) {
-        return active.computeIfAbsent(key, k -> workspaceFactory.openToolWorkspace());
+    public Workspace acquire(WorkspaceFactory.WorkspaceIdentity identity) {
+        String k = key(identity);
+        return active.computeIfAbsent(k, ignored -> workspaceFactory.openToolWorkspace(identity));
     }
 
     /** Register a pre-built workspace (tests, pipeline stages). */
-    public Workspace bind(String key, Workspace workspace) {
-        return active.put(key, workspace);
+    public Workspace bind(WorkspaceFactory.WorkspaceIdentity identity, Workspace workspace) {
+        return active.put(key(identity), workspace);
+    }
+
+    public void release(WorkspaceFactory.WorkspaceIdentity identity) {
+        if (identity == null) {
+            return;
+        }
+        release(key(identity));
     }
 
     public void release(String key) {
@@ -43,25 +57,30 @@ public class WorkspaceManager {
     }
 
     public void release(Long tenantId, Long runId) {
-        release(key(tenantId, runId));
+        if (tenantId == null || tenantId <= 0 || runId == null || runId <= 0) {
+            return;
+        }
+        release(key(new WorkspaceFactory.WorkspaceIdentity(tenantId, null, runId, null, null)));
+    }
+
+    public String key(WorkspaceFactory.WorkspaceIdentity identity) {
+        return identity.tenantId() + ":" + identity.projectId() + ":" + identity.runId() + ":" + identity.batchId();
     }
 
     public String key(Long tenantId, Long runId) {
-        return (tenantId == null ? "0" : tenantId) + ":" + (runId == null ? "0" : runId);
+        return key(new WorkspaceFactory.WorkspaceIdentity(tenantId, null, runId, null, null));
     }
 
     /** Non-creating lookup for queries. Returns null when no workspace is bound. */
-    public Workspace find(String key) {
-        return active.get(key);
+    public Workspace find(WorkspaceFactory.WorkspaceIdentity identity) {
+        return identity == null ? null : active.get(key(identity));
     }
 
     public Workspace find(Long tenantId, Long runId) {
-        return find(key(tenantId, runId));
+        return find(new WorkspaceFactory.WorkspaceIdentity(tenantId, null, runId, null, null));
     }
 
-    /** True when a live workspace is currently bound to this key. */
-    public boolean isActive(String key) {
-        return active.containsKey(key);
+    public boolean isActive(WorkspaceFactory.WorkspaceIdentity identity) {
+        return identity != null && active.containsKey(key(identity));
     }
 }
-

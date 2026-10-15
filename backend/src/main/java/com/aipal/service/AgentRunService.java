@@ -1,6 +1,8 @@
 package com.aipal.service;
 
 import com.aipal.agent.runtime.AgentRunStatus;
+import com.aipal.agent.runtime.workspace.WorkspaceFactory;
+import com.aipal.agent.runtime.workspace.WorkspaceManager;
 import com.aipal.agent.runtime.AgentStepType;
 import com.aipal.agent.runtime.AgentTaskStatus;
 import com.aipal.common.BizException;
@@ -71,6 +73,9 @@ public class AgentRunService {
     private final AgentToolSnapshotService toolSnapshotService;
     private final AgentToolResponseService toolResponseService;
     private final MemoryProjectService memoryProjectService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private WorkspaceManager workspaceManager;
     private final MemoryOrchestrator memoryOrchestrator;
     private final ObjectMapper objectMapper;
 
@@ -267,6 +272,7 @@ public class AgentRunService {
         if (changed != 1) return get(runId);
         toolResponseService.abortPendingForRun(runId, run.getErrorMessage());
         agentTaskService.cancelTasksForRun(runId, run.getErrorMessage());
+        releaseWorkspaceSafely(run);
         eventService.record(run, fromStatus, AgentRunStatus.CANCELLED.name(), run.getErrorMessage());
         return run;
     }
@@ -451,6 +457,19 @@ public class AgentRunService {
         if (TenantContext.userId().equals(run.getOwnerUserId())) return;
         try (var ignored = memoryProjectService.openAccessibleProject(run.getProjectKey())) {
             // Project membership is verified by the trusted context service.
+        }
+    }
+
+    /** F04: terminal cancel releases the run workspace idempotently. */
+    private void releaseWorkspaceSafely(AgentRun run) {
+        if (workspaceManager == null || run == null || run.getTenantId() == null) {
+            return;
+        }
+        try {
+            workspaceManager.release(new WorkspaceFactory.WorkspaceIdentity(
+                    run.getTenantId(), null, run.getId(), null, null));
+        } catch (Exception ignored) {
+            // best-effort reclaim
         }
     }
 

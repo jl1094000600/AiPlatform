@@ -52,10 +52,13 @@ class RequirementPrdRevisionServiceTest {
                 new RequirementPrdRevisionService.AcceptanceCriterionInput(
                         "AC-001", "P0", "user logged in", "create order", "order created", "rejects empty cart", true)));
         assertTrue(String.valueOf(saved.get("contentHash")).length() == 64);
+        // F06: saving AC bumps version and invalidates approval
+        assertEquals(false, saved.get("approved"));
+        assertEquals(2, saved.get("version"));
 
-        var confirmed = service.confirmPrd(1L, 1, true, null);
+        var confirmed = service.confirmPrd(1L, 2, true, null);
         assertEquals(true, confirmed.get("approved"));
-        assertEquals(2, confirmed.get("version"));
+        assertEquals(3, confirmed.get("version"));
         assertEquals("SUCCESS", confirmed.get("status"));
     }
 
@@ -71,8 +74,24 @@ class RequirementPrdRevisionServiceTest {
         when(stageMapper.selectOne(any())).thenReturn(stage);
         when(stageMapper.updateById(any())).thenReturn(1);
         when(pipelineMapper.selectById(1L)).thenReturn(new AutomationPipeline());
-        var result = service.confirmPrd(1L, null, false, "needs rewrite");
+        var result = service.confirmPrd(1L, 1, false, "needs rewrite");
         assertEquals("REJECTED", result.get("status"));
         assertEquals("needs rewrite", stage.getErrorMessage());
+    }
+
+    @Test
+    void editingAcInvalidatesPriorApproval() {
+        AutomationStageRun stage = stage("# draft");
+        when(stageMapper.selectOne(any())).thenReturn(stage);
+        when(stageMapper.updateById(any())).thenReturn(1);
+        when(pipelineMapper.selectById(1L)).thenReturn(new AutomationPipeline());
+        service.saveAcceptanceCriteria(1L, List.of(new RequirementPrdRevisionService.AcceptanceCriterionInput(
+                "AC-1", "P0", "", "in", "ok", "", true)));
+        service.confirmPrd(1L, 2, true, null);
+        assertEquals("SUCCESS", stage.getStatus());
+        var afterEdit = service.saveAcceptanceCriteria(1L, List.of(new RequirementPrdRevisionService.AcceptanceCriterionInput(
+                "AC-1", "P0", "", "in", "changed", "", true)));
+        assertEquals(false, afterEdit.get("approved"));
+        assertEquals("WAITING_APPROVAL", stage.getStatus());
     }
 }

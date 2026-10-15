@@ -14,9 +14,9 @@ import java.util.Locale;
 /**
  * Chooses a {@link Workspace} implementation from configuration.
  *
- * <p>SC01: production and delivery profiles refuse host fallback. Local workspaces are
- * only available via explicit trusted configuration ({@code aipal.workspace.mode=local});
- * HTTP/API requests must not switch execution profile at runtime.
+ * <p>SC01/F01: workspaces are rooted per (tenant, project/run, batch) identity so tenants
+ * never share a host directory. F05: production/delivery/docker refuse host fallback;
+ * local is explicit trusted dev only. API requests must not switch execution profile.
  */
 @Component
 @Slf4j
@@ -25,7 +25,6 @@ public class WorkspaceFactory {
     public static final String MODE_AUTO = "auto";
     public static final String MODE_LOCAL = "local";
     public static final String MODE_DOCKER = "docker";
-    /** Production/delivery: mandatory container execution, fail-closed. */
     public static final String MODE_PRODUCTION = "production";
     public static final String MODE_DELIVERY = "delivery";
 
@@ -48,12 +47,8 @@ public class WorkspaceFactory {
         if (MODE_LOCAL.equals(mode)) {
             return LocalWorkspace.wrap(workRoot);
         }
-        if (isFailClosedMode()) {
+        if (isFailClosedMode() || MODE_DOCKER.equals(mode)) {
             return openDockerOrThrow(workRoot, "mode=" + mode + " requires container isolation");
-        }
-        // auto / docker (dev-oriented): prefer docker, allow local only for non-trusted dev
-        if (MODE_DOCKER.equals(mode)) {
-            return openDockerOrThrow(workRoot, "mode=docker requires container isolation");
         }
         if (isDockerAvailable()) {
             try {
@@ -70,25 +65,31 @@ public class WorkspaceFactory {
     }
 
     /**
-     * Ephemeral workspace for tools. In fail-closed modes this is always container-backed.
+     * Tool workspace bound to server-side identity (F01). Identity parts are required;
+     * {@code 0} placeholders are rejected so tenants cannot share default roots.
      */
-    public Workspace openToolWorkspace() {
-        if (isFailClosedMode() || MODE_DOCKER.equals(mode)) {
-            return open(null);
+    public Workspace openToolWorkspace(WorkspaceIdentity identity) {
+        if (identity == null || !identity.isolated()) {
+            throw new IllegalArgumentException(
+                    "Workspace identity (tenantId/runId or projectId+batch) is required; refusing anonymous shared root");
         }
+        Path workRoot = identity.resolveRoot();
         if (MODE_LOCAL.equals(mode)) {
-            return openLocalTemp();
+            return LocalWorkspace.wrap(workRoot);
+        }
+        if (isFailClosedMode() || MODE_DOCKER.equals(mode)) {
+            return openDockerOrThrow(workRoot, "mode=" + mode + " tool workspace");
         }
         try {
-            return LocalWorkspace.createTemp();
+            return LocalWorkspace.createTemp(workRoot);
         } catch (IOException e) {
             throw new IllegalStateException("failed to create local workspace: " + e.getMessage(), e);
         }
     }
 
-    /** Ephemeral temp-dir workspace (explicit local/dev only). */
+    /** Legacy entry used only by explicit local dev; never anonymous in fail-closed modes. */
     public Workspace openLocalTemp() {
-        if (isFailClosedMode()) {
+        if (isFailClosedMode() || MODE_DOCKER.equals(mode)) {
             throw new IllegalStateException(
                     "LocalWorkspace is not allowed in mode=" + mode + " (fail-closed execution profile)");
         }
@@ -99,11 +100,11 @@ public class WorkspaceFactory {
         }
     }
 
-    /** Wrap an existing directory without Docker. Blocked in fail-closed modes. */
+    /** Wrap an existing directory without Docker. Rejected in any container-enforcing mode. */
     public Workspace openLocal(Path root) {
-        if (isFailClosedMode()) {
+        if (isFailClosedMode() || MODE_DOCKER.equals(mode)) {
             throw new IllegalStateException(
-                    "openLocal is not allowed in mode=" + mode + " (fail-closed execution profile)");
+                    "openLocal is not allowed in mode=" + mode + " (container-enforcing profile)");
         }
         return LocalWorkspace.wrap(root);
     }
@@ -127,6 +128,10 @@ public class WorkspaceFactory {
         return MODE_PRODUCTION.equals(mode) || MODE_DELIVERY.equals(mode);
     }
 
+    public boolean isContainerEnforcingMode() {
+        return isFailClosedMode() || MODE_DOCKER.equals(mode);
+    }
+
     public boolean isDockerAvailable() {
         try {
             CommandResult result = DockerWorkspace.runHostCommand(
@@ -144,6 +149,37 @@ public class WorkspaceFactory {
 
     private Path defaultRoot() {
         return Paths.get(System.getProperty("java.io.tmpdir"), "aipal-workspace").toAbsolutePath().normalize();
+    }
+
+    /**
+     * Server-side workspace identity. All parts that separate tenants/runs/batches must be real.
+     */
+    public record WorkspaceIdentity(Long tenantId, Long projectId, Long runId, Long batchId, Path explicitRoot) {
+
+        public boolean isolated() {
+            if (explicitRoot != null) {
+                return true;
+            }
+            if (tenantId == null || tenantId <= 0) {
+                return false;
+            }
+            boolean hasRun = runId != null && runId > 0;
+            boolean hasBatch = batchId != null && batchId > 0;
+            return hasRun || hasBatch;
+        }
+
+        public Path resolveRoot() {
+            if (explicitRoot != null) {
+                return explicitRoot.toAbsolutePath().normalize();
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("t").append(tenantId);
+            sb.append("_p").append(projectId == null ? 0 : projectId);
+            sb.append("_r").append(runId == null ? 0 : runId);
+            sb.append("_b").append(batchId == null ? 0 : batchId);
+            return Paths.get(System.getProperty("java.io.tmpdir"), "aipal-workspaces", sb.toString())
+                    .toAbsolutePath().normalize();
+        }
     }
 
     /** Fail-closed execution profile cannot obtain a workspace. */
