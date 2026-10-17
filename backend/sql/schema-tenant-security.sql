@@ -285,4 +285,12 @@ CALL migrate_tenant_data_if_exists('prompt_engineering_version');
 CALL migrate_tenant_data_if_exists('rag_ingestion_record');
 CALL migrate_tenant_data_if_exists('sys_audit_log');
 
+CALL migrate_tenant_data_if_exists('project_discussion_message');
+CALL migrate_tenant_data_if_exists('project_task_draft');
+CALL migrate_tenant_data_if_exists('project_assignment');
+CALL migrate_tenant_data_if_exists('project_assignment_event');
+
 DROP PROCEDURE migrate_tenant_data_if_exists;
+
+-- Project workspace permissions are seeded by migrate-project-workspace-permissions.sql
+-- (standalone upgrade) and TenantSecuritySchemaInitializer (runtime).

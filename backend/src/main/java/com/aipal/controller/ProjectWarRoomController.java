@@ -22,19 +22,19 @@ public class ProjectWarRoomController {
     private final ProjectWarRoomService projectWarRoomService;
 
     @GetMapping
-    @RequirePermission("automation:list")
+    @RequirePermission("project-workspace:view")
     public Result<List<ProjectWarRoomDtos.ProjectWorkspaceView>> listWorkspaces() {
         return Result.success(projectWarRoomService.listWorkspaces());
     }
 
     @GetMapping("/{projectKey}/war-room")
-    @RequirePermission("automation:list")
+    @RequirePermission("project-workspace:view")
     public Result<ProjectWarRoomDtos.WarRoomResponse> getWarRoom(@PathVariable String projectKey) {
         return Result.success(projectWarRoomService.getWarRoom(projectKey));
     }
 
     @PostMapping("/{projectKey}/team-agent-runs")
-    @RequirePermission("agent:invoke")
+    @RequirePermission("project-workspace:execute")
     public Result<ProjectWarRoomDtos.TeamAgentQueueRunView> createTeamAgentRun(
             @PathVariable String projectKey,
             @RequestBody ProjectWarRoomDtos.TeamAgentRunRequest request) {
@@ -42,7 +42,7 @@ public class ProjectWarRoomController {
     }
 
     @GetMapping("/{projectKey}/mentionable-users")
-    @RequirePermission("automation:list")
+    @RequirePermission("project-workspace:view")
     public Result<List<ProjectWarRoomDtos.MentionableUserView>> listMentionableUsers(@PathVariable String projectKey) {
         return Result.success(projectWarRoomService.listMentionableUsers(projectKey));
     }

@@ -6,7 +6,7 @@
         <p>{{ currentProjectTitle }}</p>
       </div>
       <div class="head-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="refreshCurrent">刷新</el-button>
+        <el-button :icon="Refresh" :loading="loading || loadingWorkspaces" @click="refreshCurrent">刷新</el-button>
         <el-button :icon="Promotion" type="primary" @click="goAutomation">流水线看板</el-button>
       </div>
     </header>
@@ -22,8 +22,24 @@
         <strong>{{ project.projectName }}</strong>
         <span>{{ workspaceSubtitle(project) }}</span>
       </button>
-      <el-empty v-if="!loading && workspaces.length === 0" description="暂无可访问项目工作区" :image-size="76" />
+      <el-empty v-if="!loading && !loadingWorkspaces && workspaces.length === 0" description="暂无可访问项目工作区" :image-size="76" />
     </section>
+
+    <el-alert v-if="workspaceError" :title="workspaceError" type="error" :closable="false" show-icon class="workspace-error" />
+    <ProjectAssignmentPanel
+      :project-key="warRoom?.project?.projectKey || ''"
+      :assignments="assignments"
+      :my-assignments="myAssignments"
+      :workspaces="workspaces"
+      :loading="loading || loadingAssignments"
+      :busy="assignmentBusy"
+      :assignments-error="assignmentsError"
+      :my-assignments-error="myAssignmentsError"
+      @refresh="refreshAssignments"
+      @action="performAssignmentAction"
+      @reassign="openReassignment"
+      @open-project="openProject"
+    />
 
     <template v-if="warRoom">
       <section class="summary-band">
@@ -48,7 +64,7 @@
             <el-timeline-item
               v-for="event in timelineItems"
               :key="event.sourceType + '-' + event.sourceId + '-' + event.eventTime"
-              :timestamp="formatTime(event.eventTime)"
+              :timestamp="formatProjectTime(event.eventTime)"
               :type="timelineType(event.status)"
             >
               <div class="timeline-item">
@@ -91,7 +107,7 @@
 
             <div class="pipeline-meta">
               <span>进度 {{ pipeline.passedStages || 0 }} / {{ pipeline.totalStages || pipeline.stages.length }}</span>
-              <span>更新时间 {{ formatTime(pipeline.updateTime) }}</span>
+              <span>更新时间 {{ formatProjectTime(pipeline.updateTime) }}</span>
               <span>待审 {{ pendingApprovalCount(pipeline) }} 项</span>
             </div>
           </div>
@@ -103,7 +119,8 @@
             <span>Team Agent 协作</span>
             <el-button text type="primary" @click="goAgentRuns">运行控制台</el-button>
           </div>
-          <div class="action-picker">
+          <el-alert v-if="!canExecute" title="当前可查看项目；发起协作需要项目执行权限。" type="info" :closable="false" />
+          <div v-if="canExecute" class="action-picker">
             <button
               v-for="action in businessActions"
               :key="action.value"
@@ -116,10 +133,10 @@
               <span>{{ action.description }}</span>
             </button>
           </div>
-          <el-form class="agent-form" label-position="top">
+          <el-form v-if="canExecute" class="agent-form" label-position="top">
             <div class="form-grid">
               <el-form-item label="协作 Agent">
-                <el-select v-model="runForm.agentId" filterable placeholder="选择可用 Agent">
+                <el-select v-model="runForm.agentId" filterable :disabled="agents.length === 0" placeholder="选择可用 Agent">
                   <el-option
                     v-for="agent in agents"
                     :key="agent.id"
@@ -134,8 +151,9 @@
                 </el-select>
               </el-form-item>
             </div>
-            <el-form-item label="指定处理人">
-              <el-select v-model="runForm.assigneeUserId" clearable placeholder="选择项目成员">
+            <el-alert v-if="agentsError" :title="agentsError" type="warning" :closable="false" show-icon />
+            <el-form-item v-if="canManageAssignments" label="指定处理人（可选）">
+              <el-select v-model="runForm.assigneeUserId" filterable clearable :disabled="!membersAvailable" :loading="loading" placeholder="选择有效项目成员">
                 <el-option
                   v-for="member in mentionableUsers"
                   :key="member.userId"
@@ -144,13 +162,16 @@
                 />
               </el-select>
             </el-form-item>
+            <el-form-item v-if="canManageAssignments && runForm.assigneeUserId" label="指派说明（可选）">
+              <el-input v-model="runForm.assignmentReason" maxlength="500" placeholder="说明指派原因" />
+            </el-form-item>
             <el-form-item label="关联对象">
               <el-input v-model="runForm.businessId" placeholder="可选，例如需求、审批或发布批次" />
             </el-form-item>
             <el-form-item label="处理说明">
               <el-input v-model="runForm.inputText" type="textarea" :rows="4" resize="none" placeholder="说明目标、上下文和交付口径" />
             </el-form-item>
-            <el-button :icon="VideoPlay" type="primary" :loading="submittingRun" @click="submitRun">发起协作</el-button>
+            <el-button :icon="VideoPlay" type="primary" :loading="submittingRun" :disabled="!runForm.agentId || agents.length === 0 || loading" @click="submitRun">发起协作</el-button>
           </el-form>
 
           <div class="queue-list">
@@ -158,10 +179,12 @@
               <div>
                 <strong>#{{ run.id }} {{ businessTypeText(run.businessType) }}</strong>
                 <span>{{ run.businessId || '未绑定业务对象' }} · {{ agentDisplayName(run.agentId) }}</span>
+                <span v-if="assignmentFor('AGENT_RUN', run.id)">{{ assignmentSummary('AGENT_RUN', run.id) }}</span>
               </div>
               <div class="queue-actions">
                 <el-tag :type="statusType(run.status)">{{ statusText(run.status) }}</el-tag>
                 <el-button size="small" plain @click="openRunConsole(run)">运行观测</el-button>
+                <el-button v-if="canAssignTarget('AGENT_RUN', run.id)" size="small" :disabled="assignmentBusy" @click="openAssignment('AGENT_RUN', run.id)">{{ assignmentFor('AGENT_RUN', run.id) ? '改派' : '指派' }}</el-button>
                 <el-button v-if="run.canApprove" size="small" type="success" plain @click="approveRun(run)">确认</el-button>
                 <el-button v-if="run.canApprove" size="small" type="warning" plain @click="rejectRun(run)">驳回</el-button>
                 <el-button v-if="run.canCancel" size="small" type="danger" plain @click="cancelRun(run)">取消</el-button>
@@ -180,7 +203,7 @@
             <div class="pm-actions">
               <el-button size="small" :icon="Refresh" @click="refreshCurrent">刷新状态</el-button>
               <el-button size="small" type="primary" plain @click="goAutomation">查看全部审批</el-button>
-              <el-button size="small" type="warning" plain @click="startBlockerFollowUp">阻塞处理</el-button>
+              <el-button v-if="canExecute" size="small" type="warning" plain @click="startBlockerFollowUp">阻塞处理</el-button>
             </div>
           </section>
 
@@ -208,24 +231,18 @@
                 </div>
                 <div>
                   <dt>提交时间</dt>
-                  <dd>{{ formatTime(approval.createTime) }}</dd>
+                  <dd>{{ formatProjectTime(approval.createTime) }}</dd>
                 </div>
               </dl>
               <p v-if="approval.comment">{{ approval.comment }}</p>
-              <el-select v-model="approvalAssignees[approval.id]" clearable size="small" placeholder="指定处理人">
-                <el-option
-                  v-for="member in mentionableUsers"
-                  :key="member.userId"
-                  :label="memberName(member)"
-                  :value="member.userId"
-                />
-              </el-select>
+              <p v-if="assignmentFor('AUTOMATION_APPROVAL', approval.id)">{{ assignmentSummary('AUTOMATION_APPROVAL', approval.id) }}</p>
               <div class="approval-actions">
+                <el-button v-if="canAssignTarget('AUTOMATION_APPROVAL', approval.id)" size="small" :disabled="assignmentBusy" @click="openAssignment('AUTOMATION_APPROVAL', approval.id)">{{ assignmentFor('AUTOMATION_APPROVAL', approval.id) ? '改派' : '指派' }}</el-button>
                 <el-button size="small" type="primary" plain @click="goApproval(approval)">去审批</el-button>
                 <el-button size="small" plain @click="viewApprovalDetail(approval)">查看详情</el-button>
-                <el-button size="small" type="warning" plain @click="handleBlocker(approval)">阻塞处理</el-button>
-                <el-button size="small" type="success" plain @click="approveApproval(approval, 'SUCCESS')">通过</el-button>
-                <el-button size="small" type="warning" plain @click="approveApproval(approval, 'REJECTED')">驳回</el-button>
+                <el-button v-if="canExecute" size="small" type="warning" plain @click="handleBlocker(approval)">阻塞处理</el-button>
+                <el-button v-if="canApproveAutomation" size="small" type="success" plain @click="approveApproval(approval, 'SUCCESS')">通过</el-button>
+                <el-button v-if="canApproveAutomation" size="small" type="warning" plain @click="approveApproval(approval, 'REJECTED')">驳回</el-button>
               </div>
             </div>
             <el-empty v-if="pendingApprovals.length === 0" description="当前无待审批事项" :image-size="68" />
@@ -282,31 +299,74 @@
       </main>
     </template>
 
-    <el-empty v-else-if="!loading" description="请选择一个项目工作区" :image-size="96" />
+    <el-empty v-else-if="!loading && !loadingWorkspaces && !workspaceError" description="请选择一个项目工作区" :image-size="96" />
+
+    <el-dialog v-model="assignmentDialog.visible" :title="assignmentDialog.assignmentId ? '改派事项' : '指派事项'" width="460px" :close-on-click-modal="false" :close-on-press-escape="!assignmentBusy" :show-close="!assignmentBusy">
+      <p>{{ assignmentDialog.targetLabel }}</p>
+      <p v-if="assignmentDialog.assignmentId">当前处理人：{{ assignmentDialog.fromName }}</p>
+      <el-form label-position="top">
+        <el-form-item label="新处理人">
+          <el-select v-model="assignmentDialog.assigneeUserId" filterable :disabled="assignmentBusy || !membersAvailable" placeholder="选择有效项目成员" style="width:100%">
+            <el-option v-for="member in mentionableUsers" :key="member.userId" :value="member.userId" :label="memberName(member)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="指派说明（可选）"><el-input v-model="assignmentDialog.reason" type="textarea" maxlength="500" :rows="3" :disabled="assignmentBusy" /></el-form-item>
+      </el-form>
+      <el-alert v-if="assignmentDialog.error" :title="assignmentDialog.error" type="warning" :closable="false" show-icon />
+      <template #footer>
+        <el-button :disabled="assignmentBusy" @click="assignmentDialog.visible = false">返回</el-button>
+        <el-button type="primary" :loading="assignmentBusy" :disabled="!assignmentDialog.assigneeUserId || !membersAvailable" @click="saveAssignment">{{ assignmentDialog.assignmentId ? '确认改派' : '确认指派' }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, Promotion, Refresh, User, VideoPlay, Warning } from '@element-plus/icons-vue'
 import api from '../api'
+import ProjectAssignmentPanel from '../components/ProjectAssignmentPanel.vue'
+import { hasPermission } from '../utils/permissions'
+import { assigneeLabel, assignmentStatusText, assignmentTargetText, buildTeamRunPayload, createLatestRequestGuard, formatProjectTime, isConfirmationCancelled, projectErrorStatus, projectErrorText, projectResponseData, retainTeamRunBusinessId } from '../utils/projectAssignments'
 
 const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
+const loadingWorkspaces = ref(false)
 const submittingRun = ref(false)
 const workspaces = ref([])
 const warRoom = ref(null)
 const mentionableUsers = ref([])
 const agents = ref([])
-const approvalAssignees = reactive({})
+const agentsError = ref('')
+const assignments = ref([])
+const myAssignments = ref([])
+const membersAvailable = ref(false)
+const assignmentsAvailable = ref(false)
+const loadingAssignments = ref(false)
+const assignmentBusy = ref(false)
+const workspaceError = ref('')
+const assignmentsError = ref('')
+const myAssignmentsError = ref('')
+const projectGuard = createLatestRequestGuard()
+const listGuard = createLatestRequestGuard()
+const assignmentsGuard = createLatestRequestGuard()
+const mineGuard = createLatestRequestGuard()
+const refreshGuard = createLatestRequestGuard()
+const agentsGuard = createLatestRequestGuard()
+let contextRevision = 0
+const assignmentDialog = reactive({ visible: false, assignmentId: null, projectKey: '', targetType: '', targetId: null, targetLabel: '', fromName: '', assigneeUserId: null, expectedVersion: null, reason: '', error: '' })
+const canExecute = computed(() => hasPermission('project-workspace:execute'))
+const canApproveAutomation = computed(() => hasPermission('automation:approve'))
+const canManageAssignments = computed(() => warRoom.value?.canManageAssignments === true || warRoom.value?.project?.canManageAssignments === true)
 const runForm = reactive({
   agentId: null,
   businessType: 'DELIVERY_REQUEST',
   assigneeUserId: null,
+  assignmentReason: '',
   businessId: '',
   inputText: ''
 })
@@ -318,7 +378,7 @@ const businessActions = [
   { label: '阻塞跟进', value: 'FOLLOW_UP_TASK', description: '指派责任人处理卡点' }
 ]
 
-const activeProjectKey = computed(() => route.params.projectKey || warRoom.value?.project?.projectKey || '')
+const activeProjectKey = computed(() => String(route.params.projectKey || ''))
 const currentProjectTitle = computed(() => {
   if (!warRoom.value?.project) return '请选择项目，查看交付状态、待办审批和 Agent 协作'
   return `${warRoom.value.project.projectName} · ${projectTypeText(warRoom.value.project.projectType)}`
@@ -352,50 +412,144 @@ const pendingApprovals = computed(() => {
 })
 const timelineItems = computed(() => (warRoom.value?.timeline || []).slice(0, 12))
 
-const loadWorkspaces = async () => {
-  const response = await api.getProjectWorkspaces()
-  workspaces.value = response.data.data || []
+const loadAgents = async () => {
+  const request = agentsGuard.begin()
+  try {
+    const data = projectResponseData(await api.getAgents({ pageNum: 1, pageSize: 100 }))
+    if (!agentsGuard.isCurrent(request)) return
+    agents.value = data?.records || []
+    agentsError.value = agents.value.length ? '' : '暂无可用协作 Agent，请先启用 Agent 后刷新'
+    if (!agents.value.some(agent => agent.id === runForm.agentId)) runForm.agentId = agents.value[0]?.id || null
+  } catch (error) {
+    if (!agentsGuard.isCurrent(request)) return
+    agents.value = []
+    runForm.agentId = null
+    agentsError.value = projectErrorStatus(error) === 403 ? '当前缺少 Agent 查看权限，请联系管理员' : 'Agent 列表加载失败，请刷新后重试'
+  }
 }
 
-const loadAgents = async () => {
+const resetProjectContext = () => {
+  contextRevision += 1
+  projectGuard.invalidate()
+  assignmentsGuard.invalidate()
+  refreshGuard.invalidate()
+  warRoom.value = null
+  mentionableUsers.value = []
+  assignments.value = []
+  membersAvailable.value = false
+  assignmentsAvailable.value = false
+  assignmentsError.value = ''
+  workspaceError.value = ''
+  assignmentDialog.visible = false
+  runForm.assigneeUserId = null
+  runForm.assignmentReason = ''
+  runForm.businessId = ''
+  runForm.inputText = ''
+  loading.value = false
+  loadingAssignments.value = false
+}
+
+const isCurrentContext = (projectKey, revision) => revision === contextRevision && projectKey === activeProjectKey.value
+
+const loadMyAssignments = async () => {
+  const request = mineGuard.begin()
   try {
-    const response = await api.getAgents({ pageNum: 1, pageSize: 100 })
-    agents.value = response.data.data?.records || []
-    if (!runForm.agentId && agents.value.length) runForm.agentId = agents.value[0].id
-  } catch {
-    agents.value = []
+    const data = projectResponseData(await api.getMyProjectAssignments())
+    if (!mineGuard.isCurrent(request)) return
+    myAssignments.value = data || []
+    myAssignmentsError.value = ''
+  } catch (error) {
+    if (!mineGuard.isCurrent(request)) return
+    myAssignments.value = []
+    myAssignmentsError.value = projectErrorText(error, '我的待办加载失败，请刷新重试')
+  }
+}
+
+const loadProjectAssignments = async (projectKey) => {
+  const request = assignmentsGuard.begin()
+  const revision = contextRevision
+  if (!projectKey) return
+  try {
+    const data = projectResponseData(await api.getProjectAssignments(projectKey))
+    if (!assignmentsGuard.isCurrent(request) || !isCurrentContext(projectKey, revision)) return
+    assignments.value = data || []
+    assignmentsError.value = ''
+    assignmentsAvailable.value = true
+  } catch (error) {
+    if (!assignmentsGuard.isCurrent(request) || !isCurrentContext(projectKey, revision)) return
+    assignments.value = []
+    assignmentsAvailable.value = false
+    assignmentsError.value = projectErrorText(error, '项目指派加载失败，请刷新重试')
   }
 }
 
 const loadWarRoom = async (projectKey) => {
-  if (!projectKey) {
-    warRoom.value = null
-    mentionableUsers.value = []
+  const request = projectGuard.begin()
+  const revision = contextRevision
+  if (!projectKey) return
+  loading.value = true
+  const results = await Promise.allSettled([
+    api.getProjectWarRoom(projectKey).then(projectResponseData),
+    api.getProjectMentionableUsers(projectKey).then(projectResponseData),
+    loadProjectAssignments(projectKey)
+  ])
+  if (!projectGuard.isCurrent(request) || !isCurrentContext(projectKey, revision)) return
+  loading.value = false
+  const [room, users] = results
+  if (room.status === 'rejected') {
+    resetProjectContext()
+    workspaceError.value = projectErrorText(room.reason, '项目作战室加载失败，请刷新重试')
+    if ([403, 404].includes(projectErrorStatus(room.reason))) {
+      myAssignments.value = myAssignments.value.filter(item => item.projectKey !== projectKey)
+      workspaces.value = workspaces.value.filter(item => item.projectKey !== projectKey)
+      await loadMyAssignments()
+    }
     return
   }
-  const [roomResponse, usersResponse] = await Promise.all([
-    api.getProjectWarRoom(projectKey),
-    api.getProjectMentionableUsers(projectKey)
-  ])
-  warRoom.value = roomResponse.data.data
-  mentionableUsers.value = usersResponse.data.data || []
+  warRoom.value = room.value
+  if (users.status === 'fulfilled') {
+    mentionableUsers.value = users.value || []
+    membersAvailable.value = true
+    workspaceError.value = ''
+    if (!findMember(runForm.assigneeUserId)) runForm.assigneeUserId = null
+    if (assignmentDialog.visible && !findMember(assignmentDialog.assigneeUserId)) assignmentDialog.assigneeUserId = null
+  } else {
+    mentionableUsers.value = []
+    membersAvailable.value = false
+    runForm.assigneeUserId = null
+    workspaceError.value = projectErrorText(users.reason, '项目成员加载失败，暂不可指派，请刷新重试')
+  }
+  if (!canManageAssignments.value) runForm.assigneeUserId = null
 }
 
 const loadAll = async () => {
-  loading.value = true
+  const request = listGuard.begin()
+  loadingWorkspaces.value = true
   try {
-    await Promise.all([loadWorkspaces(), loadAgents()])
-    const routeProjectKey = route.params.projectKey
+    const [response] = await Promise.all([api.getProjectWorkspaces(), loadAgents(), loadMyAssignments()])
+    if (!listGuard.isCurrent(request)) return
+    workspaces.value = projectResponseData(response) || []
+    const routeProjectKey = activeProjectKey.value
     if (!routeProjectKey && workspaces.value.length > 0) {
-      router.replace(`/project-workspaces/${encodeURIComponent(workspaces.value[0].projectKey)}`)
+      await router.replace(`/project-workspaces/${encodeURIComponent(workspaces.value[0].projectKey)}`)
       return
     }
     await loadWarRoom(routeProjectKey)
   } catch (error) {
-    ElMessage.error(loadErrorText(error))
+    if (!listGuard.isCurrent(request)) return
+    workspaces.value = []
+    resetProjectContext()
+    workspaceError.value = projectErrorText(error, '项目工作区列表加载失败，请刷新重试')
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(request)) loadingWorkspaces.value = false
   }
+}
+
+const refreshAssignments = async () => {
+  const request = refreshGuard.begin()
+  loadingAssignments.value = true
+  await Promise.all([loadProjectAssignments(activeProjectKey.value), loadMyAssignments()])
+  if (refreshGuard.isCurrent(request)) loadingAssignments.value = false
 }
 
 const refreshCurrent = async () => {
@@ -420,32 +574,169 @@ const selectBusinessAction = (action) => {
   }
 }
 
+const assignmentFor = (targetType, targetId) => assignments.value.find(item => item.targetType === targetType && String(item.targetId) === String(targetId))
+const assignmentSummary = (type, id) => {
+  const assignment = assignmentFor(type, id)
+  return `${assigneeLabel(assignment?.assigneeName, assignment?.assigneeUserId)} · ${assignmentStatusText(assignment?.status)}`
+}
+const canAssignTarget = (type, id) => {
+  if (!canManageAssignments.value || !membersAvailable.value || !assignmentsAvailable.value) return false
+  const assignment = assignmentFor(type, id)
+  return !assignment || assignment.canReassign === true
+}
+
+const openAssignment = (targetType, targetId) => {
+  if (!canAssignTarget(targetType, targetId)) return
+  const existing = assignmentFor(targetType, targetId)
+  if (existing) return openReassignment(existing)
+  Object.assign(assignmentDialog, {
+    visible: true, assignmentId: null, projectKey: activeProjectKey.value, targetType, targetId,
+    targetLabel: `${assignmentTargetText(targetType)} #${targetId}`, fromName: '', assigneeUserId: null,
+    expectedVersion: null, reason: '', error: ''
+  })
+}
+
+const openReassignment = (assignment) => {
+  if (!assignment.canReassign || assignment.projectKey !== activeProjectKey.value || !membersAvailable.value) return
+  Object.assign(assignmentDialog, {
+    visible: true, assignmentId: assignment.id, projectKey: assignment.projectKey, targetType: assignment.targetType,
+    targetId: assignment.targetId, targetLabel: `${assignmentTargetText(assignment.targetType)} #${assignment.targetId}`,
+    fromName: assigneeLabel(assignment.assigneeName, assignment.assigneeUserId), assigneeUserId: null,
+    expectedVersion: assignment.version, reason: '', error: ''
+  })
+}
+
+const refreshAfterAssignmentError = async (error, projectKey, revision) => {
+  if (!isCurrentContext(projectKey, revision)) return
+  if ([403, 404].includes(projectErrorStatus(error))) {
+    resetProjectContext()
+    await Promise.all([loadWarRoom(projectKey), loadMyAssignments()])
+  } else if (projectErrorStatus(error) === 409) {
+    await refreshAssignments()
+  }
+}
+
+const saveAssignment = async () => {
+  if (assignmentBusy.value || !assignmentDialog.visible) return
+  const projectKey = assignmentDialog.projectKey
+  const revision = contextRevision
+  const member = findMember(assignmentDialog.assigneeUserId)
+  if (!isCurrentContext(projectKey, revision) || !canManageAssignments.value || !member) {
+    assignmentDialog.error = '请选择当前项目的有效成员，或刷新项目权限'
+    return
+  }
+  const snapshot = { ...assignmentDialog }
+  const existing = snapshot.assignmentId ? assignments.value.find(item => item.id === snapshot.assignmentId) : null
+  if (existing && String(existing.assigneeUserId) === String(snapshot.assigneeUserId)) {
+    assignmentDialog.error = '请选择与当前处理人不同的成员'
+    return
+  }
+  assignmentBusy.value = true
+  try {
+    const message = snapshot.assignmentId
+      ? `将「${snapshot.targetLabel}」从 ${snapshot.fromName} 改派给 ${memberName(member)}。确认后会记录改派事件。`
+      : `将「${snapshot.targetLabel}」指派给 ${memberName(member)}。确认后会进入处理人的待办。`
+    await ElMessageBox.confirm(message, snapshot.assignmentId ? '确认改派' : '确认指派', { type: 'warning', confirmButtonText: '确认', cancelButtonText: '返回' })
+    if (!isCurrentContext(projectKey, revision) || !assignmentDialog.visible) return
+    const request = snapshot.assignmentId
+      ? api.reassignProjectAssignment(projectKey, snapshot.assignmentId, { assigneeUserId: snapshot.assigneeUserId, expectedVersion: snapshot.expectedVersion, reason: snapshot.reason.trim() })
+      : api.createProjectAssignment(projectKey, { targetType: snapshot.targetType, targetId: snapshot.targetId, assigneeUserId: snapshot.assigneeUserId, reason: snapshot.reason.trim() })
+    projectResponseData(await request)
+    if (!isCurrentContext(projectKey, revision)) return
+    assignmentDialog.visible = false
+    ElMessage.success(snapshot.assignmentId ? '已改派' : '已指派')
+    await refreshAssignments()
+  } catch (error) {
+    if (isConfirmationCancelled(error) || !isCurrentContext(projectKey, revision)) return
+    if ([403, 404].includes(projectErrorStatus(error))) ElMessage.error(projectErrorText(error))
+    await refreshAfterAssignmentError(error, projectKey, revision)
+    if (!isCurrentContext(projectKey, revision)) return
+    assignmentDialog.error = projectErrorText(error, '指派失败，请稍后重试')
+    if (projectErrorStatus(error) === 409) {
+      const latest = assignmentFor(snapshot.targetType, snapshot.targetId)
+      if (!assignmentsAvailable.value) {
+        assignmentDialog.visible = false
+        ElMessage.error('最新指派状态加载失败，请刷新后重试')
+      } else if (latest?.canReassign) {
+        // Keep the chosen new assignee and reason, but require confirmation against the latest version.
+        assignmentDialog.assignmentId = latest.id
+        assignmentDialog.expectedVersion = latest.version
+        assignmentDialog.fromName = assigneeLabel(latest.assigneeName, latest.assigneeUserId)
+      } else {
+        assignmentDialog.visible = false
+        ElMessage.warning('该指派当前已无法改派，请查看最新状态')
+      }
+    }
+  } finally {
+    assignmentBusy.value = false
+  }
+}
+
+const performAssignmentAction = async (action, assignment) => {
+  if (assignmentBusy.value || !['accept', 'complete'].includes(action)) return
+  if (!(action === 'accept' ? assignment.canAccept : assignment.canComplete)) return
+  const displayedProjectKey = activeProjectKey.value
+  const revision = contextRevision
+  const actionText = action === 'accept' ? '接受' : '完成'
+  assignmentBusy.value = true
+  try {
+    await ElMessageBox.confirm(
+      `确认${actionText}「${assignmentTargetText(assignment.targetType)} #${assignment.targetId}」的指派？${action === 'complete' ? '此操作只更新指派状态，审批及 Agent 执行仍需按各自流程处理。' : ''}`,
+      `${actionText}指派`, { type: 'warning', confirmButtonText: actionText, cancelButtonText: '返回' }
+    )
+    if (!isCurrentContext(displayedProjectKey, revision)) return
+    const data = { expectedVersion: assignment.version, reason: `项目待办${actionText}` }
+    const response = action === 'accept'
+      ? await api.acceptProjectAssignment(assignment.projectKey, assignment.id, data)
+      : await api.completeProjectAssignment(assignment.projectKey, assignment.id, data)
+    projectResponseData(response)
+    if (!isCurrentContext(displayedProjectKey, revision)) return
+    ElMessage.success(`已${actionText}指派`)
+    await refreshAssignments()
+  } catch (error) {
+    if (isConfirmationCancelled(error) || !isCurrentContext(displayedProjectKey, revision)) return
+    ElMessage.error(projectErrorText(error, `${actionText}指派失败，请重试`))
+    if ([403, 404].includes(projectErrorStatus(error))) {
+      myAssignments.value = myAssignments.value.filter(item => item.projectKey !== assignment.projectKey)
+    }
+    await refreshAfterAssignmentError(error, displayedProjectKey, revision)
+  } finally {
+    assignmentBusy.value = false
+  }
+}
+
 const submitRun = async () => {
-  if (!activeProjectKey.value) return
+  if (!activeProjectKey.value || !canExecute.value || submittingRun.value) return
   if (!runForm.agentId) {
     ElMessage.warning('请选择一个可用的协作 Agent')
     return
   }
   const businessId = normalizedBusinessId()
+  const projectKey = activeProjectKey.value
+  const revision = contextRevision
+  const payload = buildTeamRunPayload(runForm, businessId, canManageAssignments.value)
+  if (payload.assigneeUserId && !findMember(payload.assigneeUserId)) {
+    ElMessage.warning('处理人已不在当前项目成员列表，请重新选择')
+    return
+  }
+  submittingRun.value = true
   try {
-    await ElMessageBox.confirm('将创建或复用一条可审计的 Team Agent 任务，并进入当前项目队列。', '发起协作', {
+    await ElMessageBox.confirm(`将创建或复用一条可审计的 Team Agent 任务，并进入当前项目队列。${payload.assigneeUserId ? `同时指派给 ${memberName(findMember(payload.assigneeUserId))}。` : ''}`, '发起协作', {
       type: 'warning',
       confirmButtonText: '发起',
       cancelButtonText: '返回'
     })
-    submittingRun.value = true
-    await api.createProjectTeamAgentRun(activeProjectKey.value, {
-      agentId: runForm.agentId,
-      businessType: runForm.businessType,
-      businessId,
-      input: buildRunInput()
-    })
+    if (!isCurrentContext(projectKey, revision)) return
+    projectResponseData(await api.createProjectTeamAgentRun(projectKey, payload))
+    if (!isCurrentContext(projectKey, revision)) return
     ElMessage.success('协作任务已进入队列')
     runForm.businessId = ''
     runForm.inputText = ''
-    await loadWarRoom(activeProjectKey.value)
+    runForm.assigneeUserId = null
+    runForm.assignmentReason = ''
+    await Promise.all([loadWarRoom(projectKey), loadMyAssignments()])
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error('协作任务发起失败')
+    if (!isConfirmationCancelled(error) && isCurrentContext(projectKey, revision)) ElMessage.error(projectErrorText(error, '协作任务发起失败，请重试'))
   } finally {
     submittingRun.value = false
   }
@@ -464,54 +755,67 @@ const cancelRun = async (run) => {
 }
 
 const approveApproval = async (approval, status) => {
-  const assignee = findMember(approvalAssignees[approval.id])
+  if (!canApproveAutomation.value) return
   const actionText = status === 'SUCCESS' ? '通过' : '驳回'
+  const projectKey = activeProjectKey.value
+  const revision = contextRevision
   try {
     await ElMessageBox.confirm(`确认${actionText}「${approval.pipelineTitle}」的${stageText(approval.approvalType)}审批？`, `${actionText}审批`, {
       type: status === 'SUCCESS' ? 'success' : 'warning',
       confirmButtonText: actionText,
       cancelButtonText: '返回'
     })
-    await api.approveAutomation(approval.id, {
+    if (!isCurrentContext(projectKey, revision)) return
+    projectResponseData(await api.approveAutomation(approval.id, {
       status,
-      comment: assignee ? `指定 ${memberName(assignee)} 处理后${actionText}` : `作战室${actionText}`
-    })
+      comment: `作战室${actionText}`
+    }))
+    if (!isCurrentContext(projectKey, revision)) return
     ElMessage.success(`已${actionText}，流程将继续更新`)
-    await loadWarRoom(activeProjectKey.value)
+    await loadWarRoom(projectKey)
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error('审批操作失败，请确认权限或稍后重试')
+    if (!isConfirmationCancelled(error) && isCurrentContext(projectKey, revision)) ElMessage.error(projectErrorText(error, '审批操作失败，请稍后重试'))
   }
 }
 
 const createFollowUp = async (approval) => {
+  if (!canExecute.value || submittingRun.value) return
   const agentId = runForm.agentId || agents.value[0]?.id
   if (!agentId) {
-    ElMessage.warning('暂无可用协作 Agent，请先到 Agent 管理启用')
+    ElMessage.warning(agentsError.value || '暂无可用协作 Agent，请先到 Agent 管理启用')
     return
   }
-  const assignee = findMember(approvalAssignees[approval.id])
+  const projectKey = activeProjectKey.value
+  const revision = contextRevision
+  const assignee = canManageAssignments.value ? findMember(runForm.assigneeUserId) : null
+  submittingRun.value = true
   try {
-    await ElMessageBox.confirm('将为该审批创建一条 Team Agent 跟进任务，处理人会写入任务上下文。', '指派跟进', {
+    await ElMessageBox.confirm(`将为该审批创建一条 Team Agent 跟进任务。${assignee ? `同时指派给 ${memberName(assignee)}。` : '暂不指定处理人，可在队列中另行指派。'}`, '创建跟进', {
       type: 'warning',
       confirmButtonText: '创建跟进',
       cancelButtonText: '返回'
     })
-    await api.createProjectTeamAgentRun(activeProjectKey.value, {
+    if (!isCurrentContext(projectKey, revision)) return
+    projectResponseData(await api.createProjectTeamAgentRun(projectKey, {
       agentId,
       businessType: 'FOLLOW_UP_TASK',
       businessId: `APPROVAL-${approval.id}`,
+      assigneeUserId: assignee?.userId || null,
+      assignmentReason: assignee ? runForm.assignmentReason.trim() : null,
       input: {
         approvalId: approval.id,
         pipelineId: approval.pipelineId,
         stage: approval.approvalType,
-        assignee: assignee ? { userId: assignee.userId, name: memberName(assignee) } : null,
         instruction: `跟进「${approval.pipelineTitle}」的${stageText(approval.approvalType)}审批`
       }
-    })
+    }))
+    if (!isCurrentContext(projectKey, revision)) return
     ElMessage.success('已创建跟进任务')
-    await loadWarRoom(activeProjectKey.value)
+    await Promise.all([loadWarRoom(projectKey), loadMyAssignments()])
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error('创建跟进任务失败')
+    if (!isConfirmationCancelled(error) && isCurrentContext(projectKey, revision)) ElMessage.error(projectErrorText(error, '创建跟进任务失败，请重试'))
+  } finally {
+    submittingRun.value = false
   }
 }
 
@@ -530,7 +834,7 @@ const showApprovalDetail = (approval, extraLines = []) => ElMessageBox.alert(
     `阶段：${approvalStageLabel(approval)}`,
     `角色：${approval.reviewerRole || '项目负责人'}`,
     `状态：${approvalStatusText(approval.status)}`,
-    `提交时间：${formatTime(approval.createTime)}`,
+    `提交时间：${formatProjectTime(approval.createTime)}`,
     approval.comment ? `说明：${approval.comment}` : '',
     ...extraLines
   ].filter(Boolean).join('\n'),
@@ -539,7 +843,6 @@ const showApprovalDetail = (approval, extraLines = []) => ElMessageBox.alert(
 )
 
 const handleBlocker = async (approval) => {
-  approvalAssignees[approval.id] = approvalAssignees[approval.id] || mentionableUsers.value[0]?.userId
   await createFollowUp(approval)
 }
 
@@ -554,39 +857,25 @@ const startBlockerFollowUp = async () => {
 }
 
 const confirmRunAction = async (message, action) => {
+  const projectKey = activeProjectKey.value
+  const revision = contextRevision
   try {
     await ElMessageBox.confirm(message, '确认操作', {
       type: 'warning',
       confirmButtonText: '确认',
       cancelButtonText: '返回'
     })
-    await action()
+    if (!isCurrentContext(projectKey, revision)) return
+    projectResponseData(await action())
+    if (!isCurrentContext(projectKey, revision)) return
     ElMessage.success('操作已完成')
-    await loadWarRoom(activeProjectKey.value)
+    await loadWarRoom(projectKey)
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error('操作失败')
+    if (!isConfirmationCancelled(error) && isCurrentContext(projectKey, revision)) ElMessage.error(projectErrorText(error, '操作失败，请重试'))
   }
 }
 
-const buildRunInput = () => {
-  const rawInput = parseRunInput(runForm.inputText)
-  const assignee = findMember(runForm.assigneeUserId)
-  return {
-    ...rawInput,
-    assignee: assignee ? { userId: assignee.userId, name: memberName(assignee), role: assignee.memberRole } : null
-  }
-}
-
-const parseRunInput = (value) => {
-  if (!value.trim()) return {}
-  try {
-    return JSON.parse(value)
-  } catch {
-    return { instruction: value.trim() }
-  }
-}
-
-const normalizedBusinessId = () => runForm.businessId.trim() || defaultBusinessId()
+const normalizedBusinessId = () => retainTeamRunBusinessId(runForm, defaultBusinessId)
 const defaultBusinessId = () => {
   const prefix = {
     DELIVERY_REQUEST: 'DELIVERY',
@@ -596,7 +885,7 @@ const defaultBusinessId = () => {
   }[runForm.businessType] || 'TASK'
   return `${prefix}-${Date.now()}`
 }
-const findMember = (userId) => mentionableUsers.value.find(member => member.userId === userId)
+const findMember = (userId) => userId ? mentionableUsers.value.find(member => String(member.userId) === String(userId)) : undefined
 const memberName = (member) => member?.realName || member?.username || `用户 ${member?.userId || '-'}`
 const agentLabel = (agent) => [agent.agentName, agent.agentCode].filter(Boolean).join(' / ') || `Agent ${agent.id}`
 const agentDisplayName = (agentId) => {
@@ -687,31 +976,27 @@ const timelineType = (status) => {
 const pendingApprovalCount = (pipeline) => (pipeline.approvals || [])
   .filter(approval => ['PENDING', 'WAITING_APPROVAL'].includes(String(approval.status || '').toUpperCase()))
   .length
-const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 const formatShortDate = (value) => value ? new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '-'
-const loadErrorText = (error) => {
-  const status = error?.response?.status
-  if (status === 403) return '没有访问该项目作战室的权限'
-  if (status === 404) return '项目工作区不存在，请先重新创建或等待历史数据迁移'
-  return '项目作战室加载失败'
-}
-
 watch(() => route.params.projectKey, async (projectKey) => {
-  loading.value = true
-  try {
-    await loadWarRoom(projectKey)
-  } catch (error) {
-    ElMessage.error(loadErrorText(error))
-  } finally {
-    loading.value = false
-  }
+  resetProjectContext()
+  await Promise.all([loadWarRoom(String(projectKey || '')), loadMyAssignments()])
 })
 
 onMounted(loadAll)
+onUnmounted(() => {
+  contextRevision += 1
+  projectGuard.invalidate()
+  listGuard.invalidate()
+  assignmentsGuard.invalidate()
+  mineGuard.invalidate()
+  refreshGuard.invalidate()
+  agentsGuard.invalidate()
+})
 </script>
 
 <style scoped>
 .war-room { color: var(--text-primary); }
+.workspace-error { margin-bottom: 14px; }
 .page-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 16px; }
 .page-head h2 { margin: 0 0 6px; font-size: 24px; }
 .page-head p { margin: 0; color: var(--text-muted); }

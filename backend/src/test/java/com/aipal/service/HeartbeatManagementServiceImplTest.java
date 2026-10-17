@@ -57,6 +57,11 @@ class HeartbeatManagementServiceImplTest {
     void setTenantContext() {
         TenantContext.set(new TenantContext.Context(
                 1L, "tester", 9L, "tenant-9", false, java.util.Set.of(), java.util.Set.of()));
+        // Mockito constructor injection does not inject this separate Spring @Autowired field.
+        org.springframework.test.util.ReflectionTestUtils.setField(heartbeatManagementService, "tenantTaskRunner", tenantTaskRunner);
+    }
+
+    private void runDetectionForCurrentTenant() {
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             java.util.function.Consumer<com.aipal.entity.SysTenant> task = invocation.getArgument(1);
@@ -103,6 +108,7 @@ class HeartbeatManagementServiceImplTest {
 
     @Test
     void detectOfflineAgentsMarksStaleDatabaseHeartbeatOfflineWhenRedisKeyIsMissing() {
+        runDetectionForCurrentTenant();
         AgentHeartbeat heartbeat = new AgentHeartbeat();
         heartbeat.setId(10L);
         heartbeat.setAgentId(2L);

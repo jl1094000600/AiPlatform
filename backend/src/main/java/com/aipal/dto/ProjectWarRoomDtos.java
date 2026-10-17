@@ -8,14 +8,26 @@ public final class ProjectWarRoomDtos {
     }
 
     public record ProjectWorkspaceView(Long id, String projectKey, String projectName, String projectType,
-                                       Long ownerUserId, String status, LocalDateTime updateTime) {
+                                       Long ownerUserId, String status, LocalDateTime updateTime,
+                                       boolean canManageAssignments) {
+        public ProjectWorkspaceView(Long id, String projectKey, String projectName, String projectType,
+                                    Long ownerUserId, String status, LocalDateTime updateTime) {
+            this(id, projectKey, projectName, projectType, ownerUserId, status, updateTime, false);
+        }
     }
 
     public record WarRoomResponse(ProjectWorkspaceView project, List<WarRoomPipelineView> pipelines,
                                   List<TeamAgentQueueRunView> queue, List<TimelineEventView> timeline,
                                   List<PendingArtifactView> pendingArtifacts,
                                   List<MemoryReferenceView> memoryReferences,
-                                  List<RiskCardView> risks, WarRoomSummary summary) {
+                                  List<RiskCardView> risks, WarRoomSummary summary, boolean canManageAssignments) {
+        public WarRoomResponse(ProjectWorkspaceView project, List<WarRoomPipelineView> pipelines,
+                               List<TeamAgentQueueRunView> queue, List<TimelineEventView> timeline,
+                               List<PendingArtifactView> pendingArtifacts, List<MemoryReferenceView> memoryReferences,
+                               List<RiskCardView> risks, WarRoomSummary summary) {
+            this(project, pipelines, queue, timeline, pendingArtifacts, memoryReferences, risks, summary,
+                    project != null && project.canManageAssignments());
+        }
     }
 
     public record WarRoomSummary(int pipelineCount, int activeRunCount, int pendingApprovalCount,
@@ -36,7 +48,11 @@ public final class ProjectWarRoomDtos {
                                        String status, String comment, LocalDateTime createTime) {
     }
 
-    public record TeamAgentRunRequest(Long agentId, String businessType, String businessId, Object input) {
+    public record TeamAgentRunRequest(Long agentId, String businessType, String businessId, Object input,
+                                      Long assigneeUserId, String assignmentReason) {
+        public TeamAgentRunRequest(Long agentId, String businessType, String businessId, Object input) {
+            this(agentId, businessType, businessId, input, null, null);
+        }
     }
 
     public record TeamAgentQueueRunView(Long id, String projectKey, String businessType, String businessId,

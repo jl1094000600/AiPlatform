@@ -71,4 +71,27 @@ class RagHybridChunkerTest {
 
         assertEquals("CODE", chunker.chunk(code, "AUTO", 300, 20, null).contentType());
     }
+
+    @Test
+    void preservesRealProseAndRepeatsMetadataOnlyForTableChunks() {
+        StringBuilder content = new StringBuilder("""
+                # Q1 销售复盘
+
+                本文总结一季度销售情况，正文必须完整保留。
+
+                表1 区域销售明细
+                | 区域 | 销售额 | 负责人 |
+                | --- | --- | --- |
+                """);
+        for (int i = 0; i < 12; i++) content.append("| 区域").append(i).append(" | 100万 | owner").append(i).append(" |\n");
+        List<String> chunks = chunker.chunk(content.toString(), "DOCUMENT", 180, 20, null).chunks();
+        assertTrue(String.join("\n", chunks).contains("本文总结一季度销售情况，正文必须完整保留。"));
+        List<String> tableChunks = chunks.stream().filter(item -> item.contains("| 区域 | 销售额 | 负责人 |")).toList();
+        assertTrue(tableChunks.size() > 1);
+        for (String item : tableChunks) {
+            assertTrue(item.contains("文章标题：Q1 销售复盘"));
+            assertTrue(item.contains("表格标题：表1 区域销售明细"));
+        }
+        for (int i = 0; i < 12; i++) assertTrue(String.join("\n", tableChunks).contains("| 区域" + i + " | 100万 | owner" + i + " |"));
+    }
 }

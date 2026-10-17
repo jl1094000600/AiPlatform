@@ -14,6 +14,8 @@ import com.aipal.mapper.AutomationStageRunMapper;
 import com.aipal.security.TenantContext;
 import com.aipal.service.memory.MemoryProjectService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
@@ -30,6 +32,12 @@ import static org.mockito.Mockito.when;
 
 class ProjectWarRoomServiceTest {
 
+    @BeforeEach void workspaceContext() {
+        TenantContext.set(new TenantContext.Context(1L, "pm", 1L, "tenant", false, Set.of(), Set.of("project-workspace:view", "project-workspace:execute")));
+    }
+
+    @AfterEach void clearContext() { TenantContext.clear(); }
+
     @Test
     void createsTeamAgentRunUsingPathProjectKey() {
         MemoryProjectService memoryProjectService = mock(MemoryProjectService.class);
@@ -42,11 +50,12 @@ class ProjectWarRoomServiceTest {
                 agentRunService,
                 mock(AgentRunEventMapper.class),
                 mock(AgentArtifactMapper.class),
-                mock(AgentMemorySnapshotMapper.class)
+                mock(AgentMemorySnapshotMapper.class),
+                mock(ProjectAssignmentService.class)
         );
         AiMemoryProject project = new AiMemoryProject();
         project.setProjectKey("trusted-project");
-        when(memoryProjectService.requireAccessibleProject("trusted-project")).thenReturn(project);
+        when(memoryProjectService.requireAccessibleWorkspaceProject("trusted-project")).thenReturn(project);
         AgentRun run = new AgentRun();
         run.setId(9L);
         when(agentRunService.createOrReuse(any())).thenReturn(run);
@@ -80,14 +89,15 @@ class ProjectWarRoomServiceTest {
                 agentRunService,
                 mock(AgentRunEventMapper.class),
                 mock(AgentArtifactMapper.class),
-                mock(AgentMemorySnapshotMapper.class)
+                mock(AgentMemorySnapshotMapper.class),
+                mock(ProjectAssignmentService.class)
         );
         AiMemoryProject project = new AiMemoryProject();
         project.setId(7L);
         project.setProjectKey("trusted-project");
         project.setProjectName("Trusted Project");
         project.setStatus("ACTIVE");
-        when(memoryProjectService.requireAccessibleProject("trusted-project")).thenReturn(project);
+        when(memoryProjectService.requireAccessibleWorkspaceProject("trusted-project")).thenReturn(project);
         AutomationPipeline pipeline = new AutomationPipeline();
         pipeline.setId(11L);
         pipeline.setProjectKey("trusted-project");
@@ -106,7 +116,7 @@ class ProjectWarRoomServiceTest {
         when(approvalMapper.selectList(any())).thenReturn(List.of());
         when(agentRunService.listByProjectKey("trusted-project", 20)).thenReturn(List.of());
 
-        TenantContext.set(new TenantContext.Context(1L, "pm", 1L, "tenant", false, Set.of(), Set.of("automation:list")));
+        TenantContext.set(new TenantContext.Context(1L, "pm", 1L, "tenant", false, Set.of(), Set.of("project-workspace:view", "project-workspace:execute")));
         try {
             ProjectWarRoomDtos.WarRoomResponse response = service.getWarRoom("trusted-project");
 

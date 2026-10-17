@@ -27,3 +27,5 @@ SOURCE /opt/aiplatform/sql/schema-skill.sql;
 SOURCE /opt/aiplatform/sql/schema-user-memory.sql;
 SOURCE /opt/aiplatform/sql/schema-tenant-security.sql;
 SOURCE /opt/aiplatform/sql/schema-v5-multimodal.sql;
+SOURCE /opt/aiplatform/sql/schema-project-collaboration.sql;
+SOURCE /opt/aiplatform/sql/migrate-project-workspace-permissions.sql;

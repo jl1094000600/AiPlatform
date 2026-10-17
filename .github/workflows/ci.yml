@@ -103,6 +103,9 @@ jobs:
       - name: Install shared frontend dependencies
         working-directory: front
         run: npm ci
+      - name: Test consumer frontend API contracts
+        working-directory: consumer-front
+        run: npm test
       - name: Build consumer frontend
         working-directory: consumer-front
         run: npm run build

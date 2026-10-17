@@ -1,5 +1,25 @@
 # v6 项目协作闭环实施计划
 
+## 当前里程碑摘要（2026-10-09，Asia/Shanghai）
+
+本段是当前主工作区的实际进度与已决协议，优先于下方历史计划中的冲突示例。原任务步骤保留为实施参考，未逐项补证前不批量勾选。用户明确要求本轮不使用其他 skill，本轮按该要求执行，不适用下方历史 skill 要求。本轮尚未 Git 提交或发布。
+
+| 里程碑 | 状态 | 剩余证据 |
+| --- | --- | --- |
+| M1：表、实体、专属权限 | 当前主工作区已实现，本地 Schema / 权限 / 成员边界自动化通过 | 真实 MySQL 初始化与权限 / 菜单迁移验证 |
+| M2：统一指派、事件、个人待办 | 当前主工作区已实现，前后端自动化与构建通过 | 真实 MySQL 并发 / CAS / 回滚、真实 Runtime、浏览器 / UAT |
+| M3-A / M3-B / M3-C | 未实现模型安全上下文、讨论、Coordinator、Private Ask 与草稿确认服务闭环 | 后续实施；已有实体和表不计作服务完成 |
+| M4：完整协作工作台 | M2 指派面板已接入，完整四区待实现 | 依赖 M3 后完成 UI 与契约验收 |
+| M5：回链、隔离、全量验收 | 待真实多服务联调 | 真实 MySQL / 依赖服务、Memory Center 回链与登录冒烟 |
+
+本轮统一协议：目标类型为 `AGENT_RUN` / `AUTOMATION_APPROVAL` / `TASK_DRAFT`；创建事件为 `ASSIGNED`；改派为 `POST /assignments/{id}/reassign`；唯一索引为 `(tenant_id, target_type, target_id)`，不含 `project_key`；事件包含 `project_key`。工作区所有访问均要求有效租户用户和 ACTIVE、未删除项目成员，管理员 / global manage 不绕过成员条件。指派管理为项目 OWNER / MANAGER 或 global `project-workspace:manage`，controller 使用 view 门禁，service 校验管理资格；接受 / 完成为 execute + 当前 assignee。成功业务审计与指派 / 事件同事务，HTTP 访问审计为 best effort。改派不同处理人回到 `ASSIGNED`，409 通过安全读取接口刷新，不自动重试。
+
+最终证据：管理端新增指派 helper 18 / 18、既有 BusinessOperations / ModelCapabilities、Consumer Front 5 / 5、双前端最新构建与 Compose 渲染配置校验通过。Java 21 / Maven 已可用；完整后端回归 290 项，失败 0、错误 0、跳过 0，含新增协作 60 项 H2 + 真实 MyBatis / CAS / 并发 / Spring 事务测试。Team Run 外层事务测试以同事务数据库插入替代 Runtime 依赖，不代表真实 Runtime 闭环通过。`mvn -o verify` 测试全部通过后因离线插件缓存不足中止打包；补齐依赖后 `mvn -B -DskipTests verify` 构建成功，生成约 85 MB 可执行 JAR，第二步不重复测试。
+
+本轮已修复旧测试权限适配、Spring Boot 测试专用加密配置、RAG 标题重复分块与正文保留，以及 Team Run 失败重试生成新业务 ID 的产品缺陷。M1 / M2 本地代码与自动化通过，生产放行仍为 Yellow：真实 MySQL、真实 Runtime、浏览器 / UAT 与多服务验证待补。`.worktrees/v6-project-collaboration` 为独立未集成资产，只读保留，不计入本轮主工作区交付；若曾部署该分支旧协作 Schema，还需独立完整迁移，本轮新建 DDL 不代表旧分支升级已完成。详细记录见 `docs/V6-COLLABORATION-STATUS.md` 与 `docs/V6-COLLABORATION-ACCEPTANCE.md`。
+
+---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **目标：** 在现有 Project War Room 上完成共享讨论、讨论协调员、私密问答、任务草稿和结构化指派闭环，同时落实专属权限、租户隔离、隐私边界与可追溯审计。

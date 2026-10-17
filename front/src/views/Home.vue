@@ -218,7 +218,7 @@ const iconMap = {
 const navGroups = computed(() => {
   const menus = currentUser.value.menus || []
   if (!menus.length) return filterNavByPermissions(fallbackNavGroups.value, currentUser.value)
-  return menus.map(toNavNode).filter(item => item.path || item.children.length)
+  return filterNavByPermissions(menus.map(toNavNode).filter(item => item.path || item.children.length), currentUser.value)
 })
 
 const currentPageTitle = computed(() => {
@@ -238,7 +238,7 @@ function navItem(path, label, icon) {
   const routePermissions = {
     '/dashboard': 'dashboard:view',
     '/platform-analytics': 'dashboard:view',
-    '/project-workspaces': 'automation:list',
+    '/project-workspaces': 'project-workspace:view',
     '/automation': 'automation:list',
     '/badcases': 'automation:list',
     '/workflows': 'workflow:manage',
@@ -276,7 +276,7 @@ function toNavNode(menu) {
     path: menu.path,
     label: menu.menuName,
     icon: iconMap[menu.icon] || MagicStick,
-    permissionCode: menu.permissionCode,
+    permissionCode: menu.path === '/project-workspaces' ? 'project-workspace:view' : menu.permissionCode,
     children: (menu.children || []).map(toNavNode).filter(item => item.path || item.children.length)
   }
 }

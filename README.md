@@ -29,7 +29,7 @@
 
 AI Platform 是一个面向团队的 **AI 应用工程与治理平台**。它把分散的 Agent、RAG、Prompt、评测、质量门禁、部署和权限能力组织进同一套工作流，帮助开发者观察 AI 应用如何注册、协作、评测、交付和持续运营。
 
-项目当前处于 **核心能力已形成可运行实现，正在完成 P0/P1 收口与环境联调** 的阶段，适合用于：
+项目当前处于 **核心能力持续迭代，v6 项目协作 M1 / M2 本地自动化与构建通过、真实环境验收待完成** 的阶段，适合用于：
 
 - 研究和实践 AI Platform、AgentOps、PromptOps 与 AI DevOps。
 - 构建企业内部 AI 能力底座或管理控制台。
@@ -233,20 +233,28 @@ npm run dev
 
 | 状态 | 范围 |
 | --- | --- |
-| **代码已收口** | P0/P1 安全与租户隔离、工作流 11 个接口及执行链路、数据集导入与模拟生成、批量测评与真实导出、Compose/CI 发布门禁 |
-| **持续完善** | RAG 混合切分、治理策略与审批闭环、真实扫描工具接入、按钮级权限和产品体验 |
-| **待环境验证** | 后端完整 Maven 测试、Redis/Chroma 真实联调、Docker/Jenkins 端到端部署、BGE-M3 GPU 训练 |
+| **v6 M1 / M2 本地代码与自动化通过** | 协作表与专属权限、有效租户用户及项目成员访问边界、结构化指派 / 改派 / 接受 / 完成、个人待办、事件与同事务业务审计、Team Run 指派 |
+| **v6 M3 / M4 待实现** | 安全模型上下文、共享讨论、Coordinator、Private Ask、草稿确认闭环与完整四区工作台；已有表结构不等于上述功能可用 |
+| **v6 M5 待联调** | 真实 MySQL 初始化 / 升级、并发与事务回滚、登录冒烟、Memory Center 回链及多服务闭环验收 |
+| **生产放行：Yellow** | 本地自动化和产物构建已通过，真实 MySQL、Runtime、浏览器 / UAT 与目标环境运行证据待补 |
+| **已有平台能力持续验证** | P0/P1 修复、工作流、数据集评测、RAG、治理、Docker/Jenkins 部署及 BGE-M3 训练 |
 
-截至 2026-06-14，当前已记录的验证结果：
+截至 2026-10-09，当前主工作区已记录的验证结果：
 
-- 管理端业务测试、管理端生产构建、Consumer Front 生产构建通过。
-- Compose 拓扑与挂载静态校验通过，CI 已配置后端 `mvn clean verify`、双前端构建和镜像门禁。
-- P0/P1 修复代码、测试用例和产品静态验收记录见 [修复验收追踪表](docs/P0-P1-REMEDIATION-TRACKER.md)。
-- 当前机器未安装 JDK/Maven，后端自动化测试须由 CI 或具备 Java 21/Maven 3.9+ 的环境执行。
+- 管理端新增指派 helper 测试 18 / 18、既有 BusinessOperations / ModelCapabilities 测试、Consumer Front 测试 5 / 5 与双前端最新生产构建通过；Team Run 失败重试保持业务 ID 的缺陷已关闭。
+- Compose 渲染配置校验通过；真实容器与依赖服务运行验收仍待执行。
+- Java 21 / Maven 当前可用。完整后端回归 290 项，失败 0、错误 0、跳过 0；其中新增协作 60 项覆盖 H2、真实 MyBatis、CAS / 并发与 Spring 事务。
+- 测试与打包分两步完成：`mvn -o verify` 测试全部通过后遇离线插件缺失；补齐依赖后 `mvn -B -DskipTests verify` 构建成功，生成约 85 MB 的后端可执行 JAR。第二步未重复执行测试。
+- Team Run 外层事务测试中的 Runtime 依赖由同事务数据库插入替代，真实 Runtime、多服务与浏览器 / UAT 仍待验收。
+- 本轮改动尚未提交或发布。独立 `.worktrees/v6-project-collaboration` 分支资产尚未集成，不计为当前主工作区交付。
+- 当前里程碑、证据和剩余门禁见 [项目进度](PROJECT_PROGRESS.md)、[v6 协作台账](docs/V6-COLLABORATION-STATUS.md) 与 [v6 验收矩阵](docs/V6-COLLABORATION-ACCEPTANCE.md)。
 
 ## 路线图
 
 - [ ] 在 CI 完成后端测试与核心链路回归。
+- [ ] 完成 v6 M1 / M2 数据库与权限验收。
+- [ ] 实现 v6 M3 讨论 / Coordinator / Private Ask / 草稿确认与 M4 完整工作台。
+- [ ] 完成 v6 M5 真实多服务联调和登录冒烟。
 - [ ] 收口 RAG 混合切分主流程和评测验证。
 - [ ] 完成 Docker / Jenkins / Redis / Chroma 环境联调。
 - [ ] 加强治理策略、人工审批和质量证据链。

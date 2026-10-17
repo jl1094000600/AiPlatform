@@ -4,9 +4,11 @@ import com.aipal.common.BizException;
 import com.aipal.entity.AiMemoryProject;
 import com.aipal.entity.AiMemoryProjectMember;
 import com.aipal.entity.SysUser;
+import com.aipal.entity.SysUserTenant;
 import com.aipal.mapper.AiMemoryProjectMapper;
 import com.aipal.mapper.AiMemoryProjectMemberMapper;
 import com.aipal.mapper.SysUserMapper;
+import com.aipal.mapper.SysUserTenantMapper;
 import com.aipal.security.TenantContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +27,7 @@ public class MemoryProjectService {
     private final AiMemoryProjectMemberMapper memberMapper;
     private final SysUserMapper userMapper;
     private final MemoryTrustedProjectContext trustedProjectContext;
+    private final SysUserTenantMapper userTenantMapper;
 
     @Transactional
     public AiMemoryProject create(String projectKey, String projectName, String projectType) {
@@ -52,18 +56,25 @@ public class MemoryProjectService {
     }
 
     public List<AiMemoryProject> listAccessible() {
-        Long userId = TenantContext.userId();
         if (TenantContext.hasPermission("memory:policy")) {
             return projectMapper.selectList(activeProjectQuery());
         }
+        return listMemberProjects(TenantContext.userId());
+    }
+
+    private List<AiMemoryProject> listMemberProjects(Long userId) {
         if (userId == null) return List.of();
-        List<Long> projectIds = memberMapper.selectList(new LambdaQueryWrapper<AiMemoryProjectMember>()
+        List<Long> projectIds = activeMemberProjectIds(userId);
+        if (projectIds.isEmpty()) return List.of();
+        return projectMapper.selectList(activeProjectQuery().in(AiMemoryProject::getId, projectIds));
+    }
+
+    private List<Long> activeMemberProjectIds(Long userId) {
+        return memberMapper.selectList(new LambdaQueryWrapper<AiMemoryProjectMember>()
                         .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
                         .eq(AiMemoryProjectMember::getUserId, userId)
                         .eq(AiMemoryProjectMember::getStatus, "ACTIVE"))
                 .stream().map(AiMemoryProjectMember::getProjectId).toList();
-        if (projectIds.isEmpty()) return List.of();
-        return projectMapper.selectList(activeProjectQuery().in(AiMemoryProject::getId, projectIds));
     }
 
     @Transactional
@@ -106,13 +117,56 @@ public class MemoryProjectService {
     }
 
     public List<ProjectMemberView> listMentionableUsers(String projectKey) {
-        AiMemoryProject project = requireAccessibleProject(projectKey);
+        return toMemberViews(requireAccessibleProject(projectKey), false);
+    }
+
+    /** Workspace authorization is independent from memory administration. */
+    public List<AiMemoryProject> listAccessibleWorkspaces() {
+        requireWorkspacePermission("project-workspace:view");
+        if (!isActiveTenantUser(TenantContext.userId())) return List.of();
+        return listMemberProjects(TenantContext.userId());
+    }
+
+    public AiMemoryProject requireAccessibleWorkspaceProject(String projectKey) {
+        requireWorkspacePermission("project-workspace:view");
+        AiMemoryProject project = requireActiveProject(projectKey);
+        if (!isActiveTenantUser(TenantContext.userId()) || activeMember(project, TenantContext.userId()) == null) {
+            throw new BizException(403, "不是该项目的有效成员");
+        }
+        return project;
+    }
+
+    public boolean canManageWorkspaceProject(String projectKey) {
+        AiMemoryProject project = requireAccessibleWorkspaceProject(projectKey);
+        if (TenantContext.platformAdmin() || TenantContext.hasPermission("project-workspace:manage")) return true;
+        AiMemoryProjectMember member = activeMember(project, TenantContext.userId());
+        // A project owner ID grants management only after current active membership is verified.
+        return member != null && (Objects.equals(TenantContext.userId(), project.getOwnerUserId())
+                || isOwnerOrManager(member));
+    }
+
+    public ProjectMemberView requireActiveMember(String projectKey, Long userId) {
+        AiMemoryProject project = requireAccessibleWorkspaceProject(projectKey);
+        AiMemoryProjectMember member = activeMember(project, userId);
+        if (member == null || !isActiveTenantUser(userId)) {
+            throw new BizException(400, "被指派人不是当前项目的有效成员");
+        }
+        SysUser user = userMapper.selectById(userId);
+        return new ProjectMemberView(userId, user.getUsername(), user.getRealName(), member.getMemberRole());
+    }
+
+    public List<ProjectMemberView> listWorkspaceMentionableUsers(String projectKey) {
+        return toMemberViews(requireAccessibleWorkspaceProject(projectKey), true);
+    }
+
+    private List<ProjectMemberView> toMemberViews(AiMemoryProject project, boolean activeTenantUsersOnly) {
         return memberMapper.selectList(new LambdaQueryWrapper<AiMemoryProjectMember>()
                         .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
                         .eq(AiMemoryProjectMember::getProjectId, project.getId())
                         .eq(AiMemoryProjectMember::getStatus, "ACTIVE")
                         .orderByAsc(AiMemoryProjectMember::getId))
                 .stream()
+                .filter(member -> !activeTenantUsersOnly || isActiveTenantUser(member.getUserId()))
                 .map(member -> {
                     SysUser user = userMapper.selectById(member.getUserId());
                     return new ProjectMemberView(member.getUserId(),
@@ -123,14 +177,47 @@ public class MemoryProjectService {
                 .toList();
     }
 
+    /** Used by personal work lists: administrative access cannot revive a removed assignee. */
+    public boolean isActiveWorkspaceMember(String projectKey, Long userId) {
+        AiMemoryProject project = projectMapper.selectOne(activeProjectQuery()
+                .eq(AiMemoryProject::getProjectKey, projectKey).last("LIMIT 1"));
+        return project != null && isActiveTenantUser(userId) && activeMember(project, userId) != null;
+    }
+
+    private AiMemoryProjectMember activeMember(AiMemoryProject project, Long userId) {
+        if (userId == null) return null;
+        return memberMapper.selectOne(new LambdaQueryWrapper<AiMemoryProjectMember>()
+                .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
+                .eq(AiMemoryProjectMember::getProjectId, project.getId())
+                .eq(AiMemoryProjectMember::getUserId, userId)
+                .eq(AiMemoryProjectMember::getStatus, "ACTIVE").last("LIMIT 1"));
+    }
+
+    private boolean isActiveTenantUser(Long userId) {
+        if (userId == null) return false;
+        SysUser user = userMapper.selectById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus())
+                || Integer.valueOf(1).equals(user.getIsDeleted())) return false;
+        Long count = userTenantMapper.selectCount(new LambdaQueryWrapper<SysUserTenant>()
+                .eq(SysUserTenant::getTenantId, TenantContext.tenantId())
+                .eq(SysUserTenant::getUserId, userId).eq(SysUserTenant::getStatus, 1));
+        return count != null && count > 0;
+    }
+
+    public void requireWorkspacePermission(String permission) {
+        if (TenantContext.userId() == null || !TenantContext.hasPermission(permission)) {
+            throw new BizException(403, "无权限访问：" + permission);
+        }
+    }
+
     /** Project owner/manager check for operations that change shared project execution state. */
     public boolean canManageProject(String projectKey) {
         AiMemoryProject project = requireAccessibleProject(projectKey);
         if (TenantContext.hasPermission("memory:policy") || TenantContext.userId().equals(project.getOwnerUserId())) return true;
-        AiMemoryProjectMember member = memberMapper.selectOne(new LambdaQueryWrapper<AiMemoryProjectMember>()
-                .eq(AiMemoryProjectMember::getProjectId, project.getId())
-                .eq(AiMemoryProjectMember::getUserId, TenantContext.userId())
-                .eq(AiMemoryProjectMember::getStatus, "ACTIVE").last("LIMIT 1"));
+        return isOwnerOrManager(activeMember(project, TenantContext.userId()));
+    }
+
+    private boolean isOwnerOrManager(AiMemoryProjectMember member) {
         return member != null && ("OWNER".equals(member.getMemberRole()) || "MANAGER".equals(member.getMemberRole()));
     }
 
@@ -159,6 +246,7 @@ public class MemoryProjectService {
 
     private AiMemoryProjectMember upsertMember(AiMemoryProject project, Long userId, String role) {
         AiMemoryProjectMember member = memberMapper.selectOne(new LambdaQueryWrapper<AiMemoryProjectMember>()
+                .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
                 .eq(AiMemoryProjectMember::getProjectId, project.getId())
                 .eq(AiMemoryProjectMember::getUserId, userId).last("LIMIT 1"));
         if (member == null) {

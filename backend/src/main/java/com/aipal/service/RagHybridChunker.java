@@ -81,9 +81,14 @@ public class RagHybridChunker {
                 currentHeading = cleanHeading(trimmed);
             }
             if (isTableStart(lines, i)) {
-                flushDocumentSegment(segments, current, articleTitle, currentHeading);
                 TableBlock table = readTable(lines, i);
                 String tableTitle = detectTableTitle(lastStandaloneLine, currentHeading);
+                // A standalone caption belongs to the table's context, not to its own text chunk.
+                if (cleanHeading(current.toString().trim()).equals(tableTitle)) {
+                    current.setLength(0);
+                } else {
+                    flushDocumentSegment(segments, current, articleTitle, currentHeading);
+                }
                 segments.add(withContext(articleTitle, currentHeading, tableTitle, table.text()));
                 i = table.endIndex();
                 lastStandaloneLine = null;
@@ -104,7 +109,8 @@ public class RagHybridChunker {
 
     private void flushDocumentSegment(List<String> segments, StringBuilder current, String articleTitle, String currentHeading) {
         String value = current.toString().trim();
-        if (!value.isBlank()) {
+        String title = cleanHeading(value);
+        if (!value.isBlank() && !title.equals(articleTitle) && !title.equals(currentHeading)) {
             segments.add(withContext(articleTitle, currentHeading, null, value));
         }
         current.setLength(0);

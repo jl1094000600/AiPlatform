@@ -42,7 +42,7 @@ class SecurityConfigurationTest {
         String intentAgent = Files.readString(Path.of("../intent-agent/src/main/resources/application.yml"));
         String marketingAgent = Files.readString(Path.of("../marketing-agent/src/main/resources/application.yml"));
         String loginPage = Files.readString(Path.of("../front/src/views/Login.vue"));
-        String deploymentGuide = Files.readString(Path.of("../docs/deployment-ubuntu.md"));
+        String deploymentGuide = Files.readString(Path.of("../deploy/README.md"));
 
         assertTrue(application.contains("${DB_PASSWORD}"));
         assertTrue(application.contains("optional:file:.env[.properties]"));

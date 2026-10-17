@@ -7,11 +7,6 @@ import com.aipal.service.CallRecordService;
 import com.aipal.service.MonitorService;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -19,7 +14,6 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
@@ -30,41 +24,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 2. GET /api/v1/monitor/execution-chain - 执行链路
  * 3. GET /api/v1/monitor/graph/export - 图谱导出
  */
-@WebMvcTest(MonitorController.class)
-class MonitorControllerNewApiTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private CallRecordService callRecordService;
-
-    @MockBean
-    private MonitorService monitorService;
+class MonitorControllerNewApiTest extends MonitorControllerTestSupport {
 
     // ========== 调用记录测试 ==========
 
     @Test
-    @WithMockUser
     void testListCallRecords_Success() throws Exception {
         Page<MonCallRecord> mockPage = new Page<>(1, 20);
         when(callRecordService.listCallRecords(anyInt(), anyInt(), any(), any(), any()))
                 .thenReturn(mockPage);
 
-        mockMvc.perform(get("/api/v1/monitor/call-records")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/call-records")
                         .param("pageNum", "1")
                         .param("pageSize", "20"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @WithMockUser
     void testListCallRecords_WithAgentIdFilter() throws Exception {
         Page<MonCallRecord> mockPage = new Page<>(1, 20);
         when(callRecordService.listCallRecords(eq(1), eq(20), eq(1L), any(), any()))
                 .thenReturn(mockPage);
 
-        mockMvc.perform(get("/api/v1/monitor/call-records")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/call-records")
                         .param("pageNum", "1")
                         .param("pageSize", "20")
                         .param("agentId", "1"))
@@ -72,16 +54,15 @@ class MonitorControllerNewApiTest {
     }
 
     @Test
-    @WithMockUser
     void testListCallRecords_WithTimeRange() throws Exception {
         Page<MonCallRecord> mockPage = new Page<>(1, 20);
-        LocalDateTime startTime = LocalDateTime.now().minusHours(1);
-        LocalDateTime endTime = LocalDateTime.now();
+        LocalDateTime startTime = LocalDateTime.of(2024, 1, 1, 0, 0);
+        LocalDateTime endTime = LocalDateTime.of(2024, 1, 2, 0, 0);
 
         when(callRecordService.listCallRecords(anyInt(), anyInt(), any(), eq(startTime), eq(endTime)))
                 .thenReturn(mockPage);
 
-        mockMvc.perform(get("/api/v1/monitor/call-records")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/call-records")
                         .param("pageNum", "1")
                         .param("pageSize", "20")
                         .param("startTime", "2024-01-01 00:00:00")
@@ -90,13 +71,12 @@ class MonitorControllerNewApiTest {
     }
 
     @Test
-    @WithMockUser
     void testListCallRecords_Pagination() throws Exception {
         Page<MonCallRecord> mockPage = new Page<>(2, 10);
         when(callRecordService.listCallRecords(eq(2), eq(10), any(), any(), any()))
                 .thenReturn(mockPage);
 
-        mockMvc.perform(get("/api/v1/monitor/call-records")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/call-records")
                         .param("pageNum", "2")
                         .param("pageSize", "10"))
                 .andExpect(status().isOk());
@@ -105,31 +85,28 @@ class MonitorControllerNewApiTest {
     // ========== 执行链路测试 ==========
 
     @Test
-    @WithMockUser
     void testGetExecutionChain_ByTaskId() throws Exception {
         ExecutionChainResponse mockResponse = createMockExecutionChain();
         when(monitorService.getExecutionChain(eq("task-123"), any()))
                 .thenReturn(mockResponse);
 
-        mockMvc.perform(get("/api/v1/monitor/execution-chain")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/execution-chain")
                         .param("taskId", "task-123"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @WithMockUser
     void testGetExecutionChain_BySessionId() throws Exception {
         ExecutionChainResponse mockResponse = createMockExecutionChain();
         when(monitorService.getExecutionChain(any(), eq("session-456")))
                 .thenReturn(mockResponse);
 
-        mockMvc.perform(get("/api/v1/monitor/execution-chain")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/execution-chain")
                         .param("sessionId", "session-456"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @WithMockUser
     void testGetExecutionChain_EmptyChain() throws Exception {
         ExecutionChainResponse emptyResponse = new ExecutionChainResponse();
         emptyResponse.setSessionId("session-empty");
@@ -138,7 +115,7 @@ class MonitorControllerNewApiTest {
         when(monitorService.getExecutionChain(any(), any()))
                 .thenReturn(emptyResponse);
 
-        mockMvc.perform(get("/api/v1/monitor/execution-chain")
+        mockMvc.perform(authorizedGet("/api/v1/monitor/execution-chain")
                         .param("sessionId", "session-empty"))
                 .andExpect(status().isOk());
     }
@@ -146,16 +123,14 @@ class MonitorControllerNewApiTest {
     // ========== 图谱导出测试 ==========
 
     @Test
-    @WithMockUser
     void testExportGraph_Success() throws Exception {
         when(monitorService.getAgentGraph()).thenReturn(new com.aipal.dto.AgentGraphResponse());
 
-        mockMvc.perform(get("/api/v1/monitor/graph/export"))
+        mockMvc.perform(authorizedGet("/api/v1/monitor/graph/export"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    @WithMockUser
     void testExportGraph_ReturnsCorrectFormat() throws Exception {
         com.aipal.dto.AgentGraphResponse mockGraph = new com.aipal.dto.AgentGraphResponse();
         mockGraph.setNodes(new ArrayList<>());
@@ -163,7 +138,7 @@ class MonitorControllerNewApiTest {
 
         when(monitorService.getAgentGraph()).thenReturn(mockGraph);
 
-        mockMvc.perform(get("/api/v1/monitor/graph/export"))
+        mockMvc.perform(authorizedGet("/api/v1/monitor/graph/export"))
                 .andExpect(status().isOk());
     }
 

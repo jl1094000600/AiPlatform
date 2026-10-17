@@ -180,7 +180,8 @@ public class TenantSecuritySchemaInitializer {
                 "mon_api_metrics", "mon_call_record", "prompt_engineering_eval_result",
                 "prompt_engineering_eval_run", "prompt_engineering_optimize_run",
                 "prompt_engineering_prompt", "prompt_engineering_test_case",
-                "prompt_engineering_version", "rag_ingestion_record", "sys_audit_log"
+                "prompt_engineering_version", "rag_ingestion_record", "sys_audit_log",
+                "project_discussion_message", "project_task_draft", "project_assignment", "project_assignment_event"
         );
     }
 
@@ -250,6 +251,7 @@ public class TenantSecuritySchemaInitializer {
                 {"rag:list", "RAG 查看"}, {"rag:create", "RAG 新建"}, {"rag:update", "RAG 编辑"}, {"rag:delete", "RAG 删除"},
                 {"model:list", "模型查看"}, {"model:create", "模型新建"}, {"model:update", "模型编辑"}, {"model:delete", "模型删除"},
                 {"automation:list", "流水线查看"}, {"automation:create", "流水线新建"}, {"automation:run", "流水线运行"}, {"automation:approve", "流水线审批"}, {"automation:delete", "流水线删除"},
+                {"project-workspace:view", "项目工作台查看"}, {"project-workspace:execute", "项目工作台执行"}, {"project-workspace:manage", "项目指派管理"},
                 {"code-quality:list", "代码质量查看"}, {"code-quality:manage", "代码质量管理"},
                 {"governance:list", "AI 治理查看"}, {"governance:manage", "AI 治理管理"},
                 {"prompt:list", "提示词查看"}, {"prompt:create", "提示词新建"}, {"prompt:update", "提示词编辑"}, {"prompt:evaluate", "提示词评测"}, {"prompt:publish", "提示词发布"},
@@ -280,6 +282,7 @@ public class TenantSecuritySchemaInitializer {
         Object[][] menus = {
                 {"dashboard", "首页概况", "/dashboard", "DataAnalysis", "dashboard:view", 10, "group-workbench"},
                 {"automation", "自动化流水线", "/automation", "Promotion", "automation:list", 10, "group-automation"},
+                {"project-workspaces", "项目工作台", "/project-workspaces", "OfficeBuilding", "project-workspace:view", 15, "group-automation"},
                 {"code-quality", "代码质量标准", "/code-quality", "Finished", "code-quality:list", 20, "group-automation"},
                 {"ai-output-governance", "AI产出治理", "/ai-output-governance", "Connection", "governance:list", 30, "group-automation"},
                 {"prompt-engineering", "提示词工程", "/prompt-engineering", "MagicStick", "prompt:list", 40, "group-automation"},
@@ -311,6 +314,7 @@ public class TenantSecuritySchemaInitializer {
                     + "' SET child.parent_id = parent.id, child.sort_order = " + menu[5]
                     + " WHERE child.menu_code = '" + menu[0] + "'");
         }
+        statement.executeUpdate("UPDATE sys_menu SET permission_code = 'project-workspace:view' WHERE menu_code = 'project-workspaces'");
     }
 
     private void seedRoles(Statement statement) throws SQLException {
@@ -347,6 +351,17 @@ public class TenantSecuritySchemaInitializer {
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'readonly'
                   AND p.permission_code IN ('dashboard:view','agent:list','skill:list','memory:list','memory:read','rag:list','model:list','automation:list','code-quality:list','governance:list','prompt:list','billing:view','audit:view','benchmark:view')
+                """);
+        // Existing tenants already have their own role IDs; migrate each tenant explicitly.
+        statement.executeUpdate("""
+                INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
+                SELECT r.tenant_id, r.id, p.id FROM sys_role r JOIN sys_permission p
+                WHERE r.is_deleted = 0 AND (
+                    (r.role_code IN ('platform_admin', 'tenant_admin')
+                        AND p.permission_code IN ('project-workspace:view', 'project-workspace:execute', 'project-workspace:manage'))
+                    OR (r.role_code = 'developer'
+                        AND p.permission_code IN ('project-workspace:view', 'project-workspace:execute'))
+                    OR (r.role_code IN ('reviewer', 'readonly') AND p.permission_code = 'project-workspace:view'))
                 """);
     }
 

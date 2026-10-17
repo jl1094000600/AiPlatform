@@ -236,6 +236,24 @@ export default {
   getProjectMentionableUsers(projectKey) {
     return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/mentionable-users')
   },
+  getProjectAssignments(projectKey) {
+    return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/assignments')
+  },
+  createProjectAssignment(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/assignments', data)
+  },
+  reassignProjectAssignment(projectKey, assignmentId, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/assignments/' + assignmentId + '/reassign', data)
+  },
+  acceptProjectAssignment(projectKey, assignmentId, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/assignments/' + assignmentId + '/accept', data)
+  },
+  completeProjectAssignment(projectKey, assignmentId, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/assignments/' + assignmentId + '/complete', data)
+  },
+  getMyProjectAssignments() {
+    return api.get('/project-workspaces/my-assignments')
+  },
   getAgentQualitySummary() {
     return api.get('/agent-quality/summary')
   },

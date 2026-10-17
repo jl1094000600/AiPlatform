@@ -3,6 +3,7 @@ package com.aipal.service;
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.common.BizException;
 import com.aipal.dto.ProjectWarRoomDtos;
+import com.aipal.dto.ProjectCollaborationDtos;
 import com.aipal.entity.AgentArtifact;
 import com.aipal.entity.AgentMemorySnapshot;
 import com.aipal.entity.AgentRun;
@@ -49,21 +50,23 @@ public class ProjectWarRoomService {
     private final AgentRunEventMapper eventMapper;
     private final AgentArtifactMapper artifactMapper;
     private final AgentMemorySnapshotMapper snapshotMapper;
+    private final ProjectAssignmentService projectAssignmentService;
 
     public List<ProjectWarRoomDtos.ProjectWorkspaceView> listWorkspaces() {
-        return memoryProjectService.listAccessible().stream()
+        return memoryProjectService.listAccessibleWorkspaces().stream()
                 .map(this::toProjectView)
                 .toList();
     }
 
     public ProjectWarRoomDtos.WarRoomResponse getWarRoom(String projectKey) {
-        AiMemoryProject project = memoryProjectService.requireAccessibleProject(projectKey);
+        AiMemoryProject project = memoryProjectService.requireAccessibleWorkspaceProject(projectKey);
         Long tenantId = TenantContext.tenantId();
         String normalizedProjectKey = project.getProjectKey();
 
         List<AutomationPipeline> pipelines = pipelineMapper.selectList(new LambdaQueryWrapper<AutomationPipeline>()
                 .eq(AutomationPipeline::getTenantId, tenantId)
                 .eq(AutomationPipeline::getProjectKey, normalizedProjectKey)
+                .eq(AutomationPipeline::getIsDeleted, 0)
                 .orderByDesc(AutomationPipeline::getCreateTime)
                 .last("LIMIT " + PIPELINE_LIMIT));
         List<ProjectWarRoomDtos.WarRoomPipelineView> pipelineViews = pipelines.stream()
@@ -84,7 +87,8 @@ public class ProjectWarRoomService {
         ProjectWarRoomDtos.WarRoomSummary summary = buildSummary(pipelineViews, queue, pendingArtifacts, risks);
 
         return new ProjectWarRoomDtos.WarRoomResponse(toProjectView(project), pipelineViews, queue, timeline,
-                pendingArtifacts, memoryReferences, risks, summary);
+                pendingArtifacts, memoryReferences, risks, summary,
+                memoryProjectService.canManageWorkspaceProject(normalizedProjectKey));
     }
 
     @Transactional
@@ -93,14 +97,23 @@ public class ProjectWarRoomService {
         if (request == null || request.agentId() == null || blank(request.businessType()) || blank(request.businessId())) {
             throw new BizException(400, "agentId, businessType and businessId are required");
         }
-        AiMemoryProject project = memoryProjectService.requireAccessibleProject(projectKey);
+        memoryProjectService.requireWorkspacePermission("project-workspace:execute");
+        AiMemoryProject project = memoryProjectService.requireAccessibleWorkspaceProject(projectKey);
+        if (request.assigneeUserId() != null) {
+            projectAssignmentService.checkedReason(request.assignmentReason());
+            projectAssignmentService.validateAssignableMember(project.getProjectKey(), request.assigneeUserId());
+        }
         AgentRun run = agentRunService.createOrReuse(new AgentRunService.CreateRunCommand(
                 request.agentId(), project.getProjectKey(), request.businessType(), request.businessId(), request.input()));
+        if (request.assigneeUserId() != null) {
+            projectAssignmentService.assign(project.getProjectKey(), new ProjectCollaborationDtos.AssignRequest(
+                    "AGENT_RUN", run.getId(), request.assigneeUserId(), request.assignmentReason()));
+        }
         return toRunView(agentRunService.businessView(run));
     }
 
     public List<ProjectWarRoomDtos.MentionableUserView> listMentionableUsers(String projectKey) {
-        return memoryProjectService.listMentionableUsers(projectKey).stream()
+        return memoryProjectService.listWorkspaceMentionableUsers(projectKey).stream()
                 .map(member -> new ProjectWarRoomDtos.MentionableUserView(
                         member.userId(), member.username(), member.realName(), member.memberRole()))
                 .toList();
@@ -109,11 +122,12 @@ public class ProjectWarRoomService {
     private ProjectWarRoomDtos.ProjectWorkspaceView toProjectView(AiMemoryProject project) {
         return new ProjectWarRoomDtos.ProjectWorkspaceView(project.getId(), project.getProjectKey(),
                 project.getProjectName(), project.getProjectType(), project.getOwnerUserId(),
-                project.getStatus(), project.getUpdateTime());
+                project.getStatus(), project.getUpdateTime(), memoryProjectService.canManageWorkspaceProject(project.getProjectKey()));
     }
 
     private ProjectWarRoomDtos.WarRoomPipelineView toPipelineView(AutomationPipeline pipeline) {
         List<ProjectWarRoomDtos.PipelineStageView> stages = stageRunMapper.selectList(new LambdaQueryWrapper<AutomationStageRun>()
+                        .eq(AutomationStageRun::getTenantId, TenantContext.tenantId())
                         .eq(AutomationStageRun::getPipelineId, pipeline.getId())
                         .orderByAsc(AutomationStageRun::getStageOrder)
                         .orderByAsc(AutomationStageRun::getId))
@@ -123,6 +137,7 @@ public class ProjectWarRoomService {
                         stage.getStartTime(), stage.getEndTime()))
                 .toList();
         List<ProjectWarRoomDtos.PipelineApprovalView> approvals = approvalMapper.selectList(new LambdaQueryWrapper<AutomationApproval>()
+                        .eq(AutomationApproval::getTenantId, TenantContext.tenantId())
                         .eq(AutomationApproval::getPipelineId, pipeline.getId())
                         .orderByDesc(AutomationApproval::getCreateTime)
                         .orderByDesc(AutomationApproval::getId))
