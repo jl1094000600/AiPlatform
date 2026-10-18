@@ -11,7 +11,9 @@ public final class ProjectPrivateAskDtos {
 
     public record PrivateAskRequest(String question, List<ProjectModelGatewayDtos.PrivateAskTurn> history) {
         public PrivateAskRequest {
-            history = history == null ? List.of() : List.copyOf(history);
+            // Keep null turns so the service can reject them with a 400 instead of the DTO
+            // constructor throwing an NPE during Jackson deserialization.
+            history = history == null ? List.of() : new java.util.ArrayList<>(history);
         }
     }
 

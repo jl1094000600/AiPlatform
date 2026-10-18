@@ -67,12 +67,16 @@ public class ProjectWorkspaceContextService {
      */
     private static final Pattern SENSITIVE_TEXT = Pattern.compile(
             "(?i)(?:"
-                    + "/users/|/home/|/var/|/opt/|/tmp/|/etc/|/root/|/private/|/mnt/|/srv/"
-                    + "|[a-z]:[\\\\/]"
-                    + "|input\\s*json|result\\s*json|definition\\s*snapshot"
-                    + "|api[_-]?key|payload|prompt"
-                    + "|stack\\s*trace"
-                    + "|\\bat\\s+[a-z_$][\\w.$]*\\s*\\("
+                    + "/users/\\S*|/home/\\S*|/var/\\S*|/opt/\\S*|/tmp/\\S*|/etc/\\S*|/root/\\S*|/private/\\S*|/mnt/\\S*|/srv/\\S*"
+                    + "|[a-z]:[\\\\/][^\\s\"']*"
+                    + "|input\\s*json(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|result\\s*json(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|definition\\s*snapshot(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|(?:api[_-]?key|access[_-]?token|token|secret|password)(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|payload(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|prompt(?:\\s*[:=]\\s*[^\\s,;]+)?"
+                    + "|stack\\s*trace(?:\\s*[:=]\\s*[^\\n]+)?"
+                    + "|\\bat\\s+[a-z_$][\\w.$]*\\s*\\([^\\n]*\\)"
                     + "|bearer\\s+[a-z0-9._-]{8,}"
                     + "|sk-[a-z0-9_-]{8,}"
                     + ")");

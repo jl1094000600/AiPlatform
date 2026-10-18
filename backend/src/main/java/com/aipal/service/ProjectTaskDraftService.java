@@ -137,6 +137,9 @@ public class ProjectTaskDraftService {
         }
         if (request == null || request.agentId() == null) throw ErrorCode.TASK_DRAFT_AGENT_REQUIRED.ex();
         if (!STATUS_DRAFT.equals(draft.getStatus())) throw ErrorCode.TASK_DRAFT_STATUS_CHANGED.ex();
+        // The confirm key is a client retry token. Authoritative replay comes from the
+        // DRAFT->CONFIRMED CAS plus confirmedRunId; validate the key for contract consistency.
+        checkedIdempotencyKey(request.idempotencyKey());
         int currentVersion = currentVersion(draft);
         int expectedVersion = checkedVersion(request.expectedVersion(), currentVersion);
         if (request.assigneeUserId() != null) {

@@ -65,7 +65,8 @@ class ProjectWorkspaceContextServiceTest {
     @Test
     void toStringAndJsonDoNotLeakExecutionInternalsOrPaths() throws Exception {
         LocalDateTime now = LocalDateTime.of(2026, 7, 28, 10, 0);
-        project.setProjectName("/Users/alice/workspace/AiPlatform prompt");
+        project.setProjectName("/Users/alice/workspace/AiPlatform prompt "
+                + "apiKey=super-secret-123 password=hunter2");
 
         ProjectWarRoomDtos.WarRoomPipelineView pipeline = new ProjectWarRoomDtos.WarRoomPipelineView(
                 11L, "AUTO_1", "proj-1", "inputJson={\"prompt\":\"secret\"} /Users/alice/repo",
@@ -112,6 +113,8 @@ class ProjectWorkspaceContextServiceTest {
             assertFalse(combined.toLowerCase(Locale.ROOT).contains(marker.toLowerCase(Locale.ROOT)),
                     () -> "safe context leaked marker " + marker + ": " + combined);
         }
+        assertFalse(combined.contains("super-secret-123"), () -> "credential value leaked: " + combined);
+        assertFalse(combined.contains("hunter2"), () -> "password value leaked: " + combined);
         assertEquals("proj-1", context.projectKey());
         assertEquals(1, context.pipelines().size());
         assertEquals(1, context.runs().size());
