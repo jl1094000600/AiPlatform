@@ -186,7 +186,7 @@ class AutomationBuildTestExecutionServiceTest {
     @Test
     void pathOutsideWorkspaceIsBlockedNotPlatformRoot() {
         Harness harness = Harness.withResults(success("$ mvn -v\nApache Maven"), null);
-        harness.profile.setDockerConfig("{\"buildContext\":\"C:\\\\Windows\\\\System32\"}");
+        harness.profile.setDockerConfig(outsideWorkspaceDockerConfig());
 
         AutomationStageRun stage = harness.executeBuild();
 
@@ -209,7 +209,7 @@ class AutomationBuildTestExecutionServiceTest {
     @Test
     void parseFailureOnTestPathIsBlocked() {
         Harness harness = Harness.withResults(null, success("$ npm test\nTests run: 1"));
-        harness.profile.setDockerConfig("{\"buildContext\":\"C:\\\\Windows\\\\System32\"}");
+        harness.profile.setDockerConfig(outsideWorkspaceDockerConfig());
 
         AutomationStageRun stage = harness.executeTest();
 
@@ -371,6 +371,19 @@ class AutomationBuildTestExecutionServiceTest {
 
     private static AutomationBuildTestExecutionService.CommandResult failure(int exitCode, String log, String error) {
         return AutomationBuildTestExecutionService.CommandResult.failure(exitCode, log, error);
+    }
+
+    /**
+     * Build a buildContext that is genuinely outside the project root on every OS.
+     * A Windows drive path is a relative path on Unix and would be accepted by the
+     * workspace guard, so it cannot exercise the out-of-workspace branch there.
+     */
+    private static String outsideWorkspaceDockerConfig() {
+        Path projectRoot = Paths.get("").toAbsolutePath().normalize();
+        Path parent = projectRoot.getParent() == null ? projectRoot.resolve("..") : projectRoot.getParent();
+        Path outside = parent.resolve("aiplatform-outside-workspace").normalize();
+        String escaped = outside.toString().replace("\\", "\\\\").replace("\"", "\\\"");
+        return "{\"buildContext\":\"" + escaped + "\"}";
     }
 
     /**

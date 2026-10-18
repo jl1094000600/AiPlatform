@@ -5,6 +5,9 @@ import com.aipal.agent.runtime.AgentRunStreamEventType;
 import com.aipal.agent.runtime.AgentToolPermissionDecision;
 import com.aipal.agent.runtime.tool.AgentTool;
 import com.aipal.agent.runtime.tool.ToolResult;
+import com.aipal.agent.runtime.trace.RunTracer;
+import com.aipal.agent.runtime.trace.Span;
+import com.aipal.agent.runtime.trace.SpanType;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentStep;
 import com.aipal.entity.AgentToolCall;
@@ -15,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -113,8 +117,12 @@ class AgentToolExecutorTest {
         AgentToolCallMapper toolCallMapper = mock(AgentToolCallMapper.class);
         AgentStepMapper stepMapper = mock(AgentStepMapper.class);
         AgentRunStreamEventService streamEventService = mock(AgentRunStreamEventService.class);
+        RunTracer runTracer = mock(RunTracer.class);
         AgentRun run = run();
         AgentToolDefinition definition = definition();
+        when(runTracer.start(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new Span(1L, 1L, 7L, "span-1", SpanType.TOOL_CALL, "memory.search",
+                        88L, 99L, "call-2", "trace-a", LocalDateTime.now()));
         when(registryService.requireEnabled("memory.search")).thenReturn(definition);
         when(evaluator.evaluate(run, definition)).thenReturn(new AgentToolPermissionEvaluator.ToolPermissionResult(
                 decision, "READ_ONLY", false, decision == AgentToolPermissionDecision.ALLOW ? 9L : null));
@@ -138,7 +146,7 @@ class AgentToolExecutorTest {
             }
         };
         AgentToolExecutor executor = new AgentToolExecutor(registryService, evaluator, toolCallMapper, stepMapper,
-                streamEventService, mock(com.aipal.agent.runtime.trace.RunTracer.class), new ObjectMapper(),
+                streamEventService, runTracer, new ObjectMapper(),
                 includeTool ? List.of(tool) : List.of());
         return new Fixtures(executor, run, evaluator, stepMapper, toolCallMapper, streamEventService, toolExecuted);
     }
