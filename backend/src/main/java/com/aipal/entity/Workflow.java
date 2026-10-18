@@ -26,6 +26,12 @@ public class Workflow {
     /** 编排描述 */
     private String description;
 
+    /** Optional project binding used by AgentRun-backed AGENT nodes. */
+    private String projectKey;
+
+    /** Draft canvas layout JSON (positions/viewport). Kept separate from workflowDefinition. */
+    private String layoutJson;
+
     /** 触发类型: MANUAL / SCHEDULE / EVENT */
     private String triggerType;
 

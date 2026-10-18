@@ -1,5 +1,6 @@
 package com.aipal.service;
 
+import com.aipal.dto.WorkflowTryRunDtos;
 import com.aipal.entity.WorkflowExecution;
 
 import java.util.List;
@@ -56,4 +57,14 @@ public interface WorkflowExecutionService {
     String triggerWorkflow(Long workflowId, String triggerType, Map<String, Object> params);
 
     List<WorkflowExecution> listExecutions(Long workflowId);
+
+    /**
+     * T20 dry-run: execute START/AGENT/CONDITION/END against a published snapshot
+     * or an in-memory draft definition and return per-node results.
+     * Records are persisted with status DRY_* so production views stay clean.
+     */
+    WorkflowTryRunDtos.TryRunResult tryRun(Long workflowId, WorkflowTryRunDtos.TryRunRequest request);
+
+    /** T21 node-level traces for one execution. */
+    List<WorkflowTryRunDtos.NodeRunView> listNodeRuns(String executionId);
 }

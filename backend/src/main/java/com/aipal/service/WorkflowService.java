@@ -17,6 +17,7 @@ import java.util.List;
 public class WorkflowService {
     private final WorkflowMapper workflowMapper;
     private final WorkflowDefinitionService definitionService;
+    private final WorkflowVersionService versionService;
 
     public List<Workflow> list(String triggerType, Integer status) {
         LambdaQueryWrapper<Workflow> query = new LambdaQueryWrapper<Workflow>()
@@ -73,10 +74,15 @@ public class WorkflowService {
         return workflowMapper.deleteById(id) > 0;
     }
 
+    /**
+     * Deploy freezes the current draft into an immutable {@code ai_workflow_version} snapshot
+     * and enables the workflow. Later draft edits never change already-published snapshots.
+     */
     @Transactional
     public Workflow deploy(Long id) {
         Workflow workflow = get(id);
         definitionService.parseAndValidate(workflow.getWorkflowDefinition());
+        versionService.publish(id, workflow.getWorkflowDefinition(), null);
         workflow.setStatus(1);
         workflow.setUpdateTime(LocalDateTime.now());
         if (workflowMapper.updateById(workflow) == 0) {
@@ -89,6 +95,8 @@ public class WorkflowService {
         workflow.setWorkflowCode(request.getWorkflowCode());
         workflow.setWorkflowName(request.getWorkflowName());
         workflow.setDescription(request.getDescription());
+        workflow.setProjectKey(request.getProjectKey());
+        workflow.setLayoutJson(request.getLayoutJson());
         workflow.setTriggerType(request.getTriggerType().trim().toUpperCase());
         workflow.setTriggerConfig(request.getTriggerConfig());
         workflow.setWorkflowDefinition(request.getWorkflowDefinition());

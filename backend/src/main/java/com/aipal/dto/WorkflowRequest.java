@@ -17,6 +17,12 @@ public class WorkflowRequest {
 
     private String description;
 
+    /** Optional project key for AgentRun-backed AGENT nodes. */
+    private String projectKey;
+
+    /** Draft canvas layout JSON (positions/viewport). */
+    private String layoutJson;
+
     @NotBlank(message = "triggerType 不能为空")
     @Pattern(regexp = "(?i)MANUAL|SCHEDULE|EVENT", message = "triggerType must be MANUAL, SCHEDULE or EVENT")
     private String triggerType; // MANUAL / SCHEDULE / EVENT

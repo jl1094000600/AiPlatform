@@ -160,6 +160,43 @@
                 <el-input-number v-model="selectedNode.retryCount" :min="0" :max="5" size="small" />
               </div>
             </div>
+            <div class="property-item">
+              <label>输入绑定</label>
+              <div class="binding-list">
+                <div v-for="(binding, index) in selectedNode.inputBindings" :key="index" class="binding-row">
+                  <el-input v-model="binding.key" placeholder="key" size="small" class="binding-key" />
+                  <el-input
+                    v-model="binding.value"
+                    type="textarea"
+                    :rows="2"
+                    size="small"
+                    class="binding-value"
+                    placeholder="字面量或 {{variables.x}} / {{nodes.n.outputs.y}} / {{inputs.z}}"
+                  />
+                  <div class="binding-row-actions">
+                    <el-dropdown trigger="click" @command="(cmd) => insertRefIntoBinding(binding, cmd)">
+                      <el-button size="small" text type="primary">插入引用</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item
+                            v-for="item in referenceSuggestions"
+                            :key="item.reference"
+                            :command="item.reference"
+                          >
+                            {{ item.label }}
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                    <el-button size="small" text type="danger" @click="removeBinding(index)">移除</el-button>
+                  </div>
+                </div>
+              </div>
+              <el-button size="small" @click="addBinding">添加输入</el-button>
+              <div v-if="selectedNodeBindingErrors.length" class="binding-errors">
+                <div v-for="(err, i) in selectedNodeBindingErrors" :key="i" class="binding-error">{{ err }}</div>
+              </div>
+            </div>
             <div class="node-actions">
               <el-button size="small" @click="beginConnection(selectedNode)">
                 {{ connectionSourceId === selectedNode.id ? '已选为起点' : '设为连线起点' }}
@@ -182,6 +219,10 @@
                 placeholder="请输入编排名称"
                 class="workflow-name-input"
               />
+              <el-tag v-if="viewingVersion" type="warning" size="small" class="version-tag">
+                正在查看版本 #{{ viewingVersion.versionNo }}
+                <template v-if="editorLocked"> · 只读</template>
+              </el-tag>
             </div>
             <div class="canvas-actions">
               <el-select v-model="currentWorkflow.triggerType" size="small" style="width: 120px;">
@@ -189,8 +230,44 @@
                 <el-option label="定时触发" value="SCHEDULE" />
                 <el-option label="事件触发" value="EVENT" />
               </el-select>
-              <el-button size="small" :disabled="!canManageWorkflow" @click="clearCanvas">清空画布</el-button>
-              <el-button size="small" type="primary" :disabled="!canManageWorkflow || !!workflowSupportMessage" @click="saveWorkflow">保存</el-button>
+              <el-button v-if="viewingVersion && editorLocked" size="small" type="primary" @click="unlockEditing">编辑</el-button>
+              <el-button v-if="viewingVersion" size="small" @click="returnToDraft">返回草稿</el-button>
+              <el-dropdown trigger="click" @command="onVersionCommand">
+                <el-button size="small" :disabled="!currentWorkflow.id">
+                  版本
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="workflowVersions.length === 0" disabled>暂无已发布版本</el-dropdown-item>
+                    <el-dropdown-item
+                      v-for="version in workflowVersions"
+                      :key="version.id"
+                      :command="{ action: 'detail', version }"
+                    >
+                      #{{ version.versionNo }} · {{ version.status }} · {{ formatTime(version.publishTime) }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button
+                size="small"
+                type="warning"
+                :disabled="!canManageWorkflow || !currentWorkflow.id || !!workflowSupportMessage"
+                @click="publishVersion"
+              >
+                发布版本
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                :disabled="!canManageWorkflow || !currentWorkflow.id"
+                @click="deployCurrentDraft"
+              >
+                冻结当前草稿为新版本
+              </el-button>
+              <el-button size="small" :disabled="!canvasEditable" @click="clearCanvas">清空画布</el-button>
+              <el-button size="small" type="primary" :disabled="!canvasEditable" @click="saveWorkflow">保存</el-button>
             </div>
           </div>
 
@@ -203,6 +280,7 @@
               @select-node="selectNode"
               @select-edge="selectEdge"
               @clear-selection="clearSelection"
+              @viewport-change="onViewportChange"
             />
             <el-button v-if="selectedEdge" class="delete-edge-btn" size="small" type="danger" @click="deleteSelectedEdge">删除连线</el-button>
           </div>
@@ -235,6 +313,27 @@
             </div>
           </div>
 
+          <h4 class="panel-title" style="margin-top: 20px;">工作流变量</h4>
+          <div class="variables-panel">
+            <div v-if="workflowVariables.length === 0" class="no-data">暂无变量声明</div>
+            <div v-for="(variable, index) in workflowVariables" :key="index" class="variable-row">
+              <el-input v-model="variable.name" placeholder="name" size="small" />
+              <div class="variable-row-inline">
+                <el-select v-model="variable.type" size="small" class="variable-type">
+                  <el-option v-for="type in variableTypes" :key="type" :label="type" :value="type" />
+                </el-select>
+                <el-checkbox v-model="variable.required">必填</el-checkbox>
+              </div>
+              <el-input v-model="variable.defaultValueText" placeholder="defaultValue（可空）" size="small" />
+              <el-input v-model="variable.description" placeholder="描述（可空）" size="small" />
+              <el-button size="small" text type="danger" @click="removeVariable(index)">删除变量</el-button>
+            </div>
+            <el-button size="small" @click="addVariable">添加变量</el-button>
+            <div v-if="variableErrors.length" class="binding-errors">
+              <div v-for="(err, i) in variableErrors" :key="i" class="binding-error">{{ err }}</div>
+            </div>
+          </div>
+
           <h4 class="panel-title" style="margin-top: 20px;">执行历史</h4>
           <div class="execution-list">
             <div v-if="executions.length === 0" class="no-data">暂无执行记录</div>
@@ -251,17 +350,69 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- Version Detail Dialog -->
+    <el-dialog
+      v-model="showVersionDetail"
+      :title="activeVersion ? `版本详情 #${activeVersion.versionNo}` : '版本详情'"
+      width="60%"
+      class="version-detail-dialog"
+      :close-on-click-modal="false"
+    >
+      <div v-if="activeVersion" class="version-detail">
+        <div class="version-meta">
+          <span class="mono">版本ID: {{ activeVersion.id }}</span>
+          <span class="mono">状态: {{ activeVersion.status }}</span>
+          <span class="mono">发布于: {{ formatTime(activeVersion.publishTime) }}</span>
+          <span v-if="activeVersion.definitionHash" class="mono version-hash">Hash: {{ activeVersion.definitionHash }}</span>
+        </div>
+        <el-tabs v-model="versionDetailTab">
+          <el-tab-pane label="Definition" name="definition">
+            <pre class="json-block">{{ formatJson(activeVersion.definitionJson) }}</pre>
+          </el-tab-pane>
+          <el-tab-pane label="Layout" name="layout">
+            <pre class="json-block">{{ formatJson(activeVersion.layoutJson) }}</pre>
+          </el-tab-pane>
+        </el-tabs>
+        <div class="version-detail-actions">
+          <el-button
+            type="primary"
+            :disabled="!canManageWorkflow"
+            @click="switchToVersion(activeVersion)"
+          >
+            切换查看（回填画布）
+          </el-button>
+          <el-button @click="showVersionDetail = false">关闭</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, ref, onMounted, nextTick } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { hasPermission } from '../utils/permissions'
 import WorkflowCanvas from '../components/WorkflowCanvas.vue'
-import { WORKFLOW_NODE_TYPES, workflowSupportError } from '../utils/workflowCanvas.js'
+import {
+  WORKFLOW_NODE_TYPES,
+  VARIABLE_TYPES,
+  workflowSupportError,
+  buildWorkflowDefinition,
+  buildWorkflowLayout,
+  applyWorkflowLayout,
+  extractLayoutFromNodes,
+  parseWorkflowDefinition,
+  inputsToBindings,
+  bindingsToInputs,
+  normalizeVariables,
+  variablesToEditable,
+  validateTemplateReferences,
+  insertTemplateReference,
+  buildReferenceSuggestions
+} from '../utils/workflowCanvas.js'
 
 const canvasRef = ref(null)
 
@@ -273,13 +424,54 @@ const isEditing = ref(false)
 const currentWorkflow = ref({})
 const workflowNodes = ref([])
 const workflowEdges = ref([])
+const workflowVariables = ref([])
+const workflowLayout = ref({ nodes: [] })
+const canvasViewport = ref({ x: 0, y: 0, zoom: 1 })
 const selectedNode = ref(null)
 const selectedEdge = ref(null)
 const connectionSourceId = ref(null)
 const agents = ref([])
 const executions = ref([])
+const workflowVersions = ref([])
+const viewingVersion = ref(null)
+const editorLocked = ref(false)
+const canvasEditable = computed(() => !editorLocked.value && canManageWorkflow.value && !workflowSupportMessage.value)
+const showVersionDetail = ref(false)
+const activeVersion = ref(null)
+const versionDetailTab = ref('definition')
 const canManageWorkflow = computed(() => hasPermission('workflow:manage'))
 const workflowSupportMessage = computed(() => workflowSupportError({ nodes: workflowNodes.value }))
+const variableTypes = VARIABLE_TYPES
+
+const variableErrors = computed(() => {
+  const errors = []
+  const seen = new Set()
+  workflowVariables.value.forEach((variable, index) => {
+    const name = (variable.name || '').trim()
+    if (!name) {
+      errors.push(`第 ${index + 1} 个变量缺少名称`)
+      return
+    }
+    if (seen.has(name)) errors.push(`变量名「${name}」重复`)
+    seen.add(name)
+  })
+  return errors
+})
+
+const selectedNodeBindingErrors = computed(() => {
+  if (!selectedNode.value) return []
+  return validateTemplateReferences(bindingsToInputs(selectedNode.value.inputBindings), {
+    variableNames: workflowVariables.value.map(item => item.name).filter(Boolean),
+    nodeIds: workflowNodes.value.map(item => item.id)
+  })
+})
+
+const referenceSuggestions = computed(() => buildReferenceSuggestions({
+  variables: workflowVariables.value.map(item => item.name).filter(Boolean),
+  nodes: workflowNodes.value,
+  currentNodeId: selectedNode.value?.id,
+  edges: workflowEdges.value
+}))
 
 // Node type definitions
 const nodeTypes = WORKFLOW_NODE_TYPES
@@ -363,8 +555,44 @@ const createNewWorkflow = () => {
   }
   workflowNodes.value = []
   workflowEdges.value = []
+  workflowVariables.value = []
+  workflowLayout.value = { nodes: [] }
+  canvasViewport.value = { x: 0, y: 0, zoom: 1 }
+  viewingVersion.value = null
+  workflowVersions.value = []
   nodeIdCounter = 1
   showEditor.value = true
+}
+
+const layoutStorageKey = (workflow) => {
+  if (workflow?.id) return `ai-platform:workflow-layout:${workflow.id}`
+  return `ai-platform:workflow-layout:draft:${workflow?.workflowCode || 'new'}`
+}
+
+const readStoredLayout = (workflow) => {
+  if (workflow?.layoutJson) {
+    try {
+      return typeof workflow.layoutJson === 'string' ? JSON.parse(workflow.layoutJson) : workflow.layoutJson
+    } catch (_) {
+      /* fall through to localStorage */
+    }
+  }
+  try {
+    if (typeof localStorage === 'undefined') return null
+    const raw = localStorage.getItem(layoutStorageKey(workflow))
+    return raw ? JSON.parse(raw) : null
+  } catch (_) {
+    return null
+  }
+}
+
+const writeStoredLayout = (workflow, layout) => {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(layoutStorageKey(workflow), JSON.stringify(layout))
+  } catch (_) {
+    /* storage unavailable — layout still ships with published versions */
+  }
 }
 
 const editWorkflow = async (row) => {
@@ -373,6 +601,7 @@ const editWorkflow = async (row) => {
     return
   }
   isEditing.value = true
+  viewingVersion.value = null
   try {
     const res = await api.getWorkflow(row.id)
     if (res.data.code === 200) {
@@ -385,21 +614,13 @@ const editWorkflow = async (row) => {
         currentWorkflow.value.cron = ''
         currentWorkflow.value.eventType = ''
       }
-      const definition = JSON.parse(currentWorkflow.value.workflowDefinition || '{}')
-      workflowNodes.value = definition.nodes || []
-      workflowEdges.value = definition.edges || []
-      workflowNodes.value.forEach(node => {
-        node.paramsText = JSON.stringify(node.params || {}, null, 2)
-        if (node.condition && typeof node.condition === 'object') {
-          node.conditionField = node.condition.field
-          node.operator = node.condition.operator
-          node.conditionValue = node.condition.value
-        }
-      })
+      const storedLayout = readStoredLayout(currentWorkflow.value)
+      hydrateCanvasFromDefinition(currentWorkflow.value.workflowDefinition, storedLayout)
       if (workflowNodes.value.length > 0) {
         const maxId = Math.max(...workflowNodes.value.map(n => parseInt(n.id) || 0))
         nodeIdCounter = maxId + 1
       }
+      loadWorkflowVersions(row.id)
       await loadExecutions(row.id)
       showEditor.value = true
     }
@@ -467,6 +688,7 @@ const onCanvasNodesUpdate = (nodes) => {
   workflowNodes.value = nodes.map(node => ({
     ...node,
     paramsText: node.paramsText ?? JSON.stringify(node.params || {}, null, 2),
+    inputBindings: node.inputBindings ?? inputsToBindings(node.inputs),
     conditionField: node.conditionField ?? node.condition?.field ?? '',
     operator: node.operator || node.condition?.operator || 'EQ',
     conditionValue: node.conditionValue ?? node.condition?.value ?? ''
@@ -545,6 +767,40 @@ const clearCanvas = () => {
   connectionSourceId.value = null
 }
 
+const collectReferenceErrors = () => {
+  const variableNames = workflowVariables.value.map(item => (item.name || '').trim()).filter(Boolean)
+  const nodeIds = workflowNodes.value.map(item => String(item.id))
+  const errors = [...variableErrors.value]
+  for (const node of workflowNodes.value) {
+    const refErrors = validateTemplateReferences(bindingsToInputs(node.inputBindings), { variableNames, nodeIds })
+    for (const err of refErrors) errors.push(`节点 ${node.id}: ${err}`)
+  }
+  return errors
+}
+
+const normalizeNodesForDefinition = () => {
+  return workflowNodes.value.map(node => {
+    const normalized = {
+      ...node,
+      id: String(node.id),
+      inputs: bindingsToInputs(node.inputBindings)
+    }
+    delete normalized.paramsText
+    delete normalized.inputBindings
+    delete normalized.x
+    delete normalized.y
+    if (node.type === 'AGENT') normalized.params = JSON.parse(node.paramsText || '{}')
+    if (node.type === 'CONDITION') {
+      normalized.condition = {
+        field: node.conditionField,
+        operator: node.operator,
+        value: node.conditionValue
+      }
+    }
+    return normalized
+  })
+}
+
 const saveWorkflow = async () => {
   if (!canManageWorkflow.value) {
     ElMessage.warning('当前账号无工作流管理权限')
@@ -562,37 +818,28 @@ const saveWorkflow = async () => {
     ElMessage.warning('请输入编排编码')
     return
   }
+  const refErrors = collectReferenceErrors()
+  if (refErrors.length) {
+    ElMessage.warning(refErrors[0])
+    return
+  }
 
   let normalizedNodes
   try {
-    normalizedNodes = workflowNodes.value.map(node => {
-      const normalized = { ...node }
-      delete normalized.paramsText
-      if (node.type === 'AGENT') normalized.params = JSON.parse(node.paramsText || '{}')
-      if (node.type === 'CONDITION') {
-        normalized.condition = {
-          field: node.conditionField,
-          operator: node.operator,
-          value: node.conditionValue
-        }
-      }
-      return normalized
-    })
+    normalizedNodes = normalizeNodesForDefinition()
   } catch (error) {
     ElMessage.error('Agent调用参数必须是合法JSON')
     return
   }
 
-  const definition = {
-    timeoutSeconds: 1800,
+  const definition = buildWorkflowDefinition({
     nodes: normalizedNodes,
-    edges: workflowEdges.value.map(edge => ({ source: edge.source, target: edge.target, condition: edge.condition }))
-  }
-  normalizedNodes.filter(node => node.type === 'CONDITION').forEach(node => {
-    const outgoing = definition.edges.filter(edge => edge.source === node.id)
-    if (outgoing[0] && !outgoing[0].condition) outgoing[0].condition = 'true'
-    if (outgoing[1] && !outgoing[1].condition) outgoing[1].condition = 'false'
+    edges: workflowEdges.value.map(edge => ({ source: edge.source, target: edge.target, condition: edge.condition })),
+    variables: workflowVariables.value
   })
+
+  const layout = buildWorkflowLayout(workflowNodes.value, canvasViewport.value)
+  workflowLayout.value = layout
 
   const triggerConfig = currentWorkflow.value.triggerType === 'SCHEDULE'
     ? JSON.stringify({ cron: currentWorkflow.value.cron })
@@ -603,15 +850,63 @@ const saveWorkflow = async () => {
   const data = {
     ...currentWorkflow.value,
     triggerConfig,
-    workflowDefinition: JSON.stringify(definition)
+    workflowDefinition: JSON.stringify(definition),
+    layoutJson: JSON.stringify(layout)
+  }
+
+  // Viewing a version and unlocked for editing: ask overwrite vs new version.
+  if (viewingVersion.value && viewingVersion.value.id) {
+    try {
+      const choice = await ElMessageBox.confirm(
+        `当前在编辑版本 #${viewingVersion.value.versionNo}。保存时选择策略：`,
+        '保存策略',
+        {
+          distinguishCancelAndClose: true,
+          confirmButtonText: '另存新版本',
+          cancelButtonText: '覆盖原版本',
+          type: 'warning'
+        }
+      ).then(() => 'new').catch((action) => {
+        if (action === 'cancel') return 'overwrite'
+        return null
+      })
+      if (!choice) return
+      const versionPayload = {
+        definitionJson: JSON.stringify(definition),
+        layoutJson: JSON.stringify(layout)
+      }
+      if (choice === 'overwrite') {
+        await api.overwriteWorkflowVersion(currentWorkflow.value.id, viewingVersion.value.id, versionPayload)
+        ElMessage.success(`已覆盖版本 #${viewingVersion.value.versionNo}`)
+      } else {
+        await api.publishWorkflowVersion(currentWorkflow.value.id, versionPayload)
+        ElMessage.success('已另存为新版本')
+      }
+      // Draft also keeps the latest content + layout so restarts recover it.
+      await api.updateWorkflow(currentWorkflow.value.id, data)
+      writeStoredLayout(currentWorkflow.value, layout)
+      await loadWorkflowVersions(currentWorkflow.value.id)
+      editorLocked.value = true
+      return
+    } catch (e) {
+      if (e !== 'cancel' && e !== 'close') {
+        console.error('保存版本失败', e)
+        ElMessage.error('保存失败')
+      }
+      return
+    }
   }
 
   try {
     if (isEditing.value) {
       await api.updateWorkflow(currentWorkflow.value.id, data)
     } else {
-      await api.createWorkflow(data)
+      const created = await api.createWorkflow(data)
+      const payload = created?.data?.data
+      const newId = payload && typeof payload === 'object' ? payload.id : payload
+      if (newId !== undefined && newId !== null) currentWorkflow.value.id = newId
     }
+    writeStoredLayout(currentWorkflow.value, layout)
     ElMessage.success('保存成功')
     showEditor.value = false
     loadWorkflows()
@@ -619,6 +914,241 @@ const saveWorkflow = async () => {
     console.error('保存编排失败', e)
     ElMessage.error('保存失败')
   }
+}
+
+const addVariable = () => {
+  workflowVariables.value.push({ name: '', type: 'string', required: false, defaultValueText: '', description: '' })
+}
+
+const removeVariable = (index) => {
+  workflowVariables.value.splice(index, 1)
+}
+
+const addBinding = () => {
+  if (!selectedNode.value) return
+  if (!Array.isArray(selectedNode.value.inputBindings)) selectedNode.value.inputBindings = []
+  selectedNode.value.inputBindings.push({ key: '', value: '' })
+}
+
+const removeBinding = (index) => {
+  if (!selectedNode.value?.inputBindings) return
+  selectedNode.value.inputBindings.splice(index, 1)
+}
+
+const insertRefIntoBinding = (binding, reference) => {
+  if (!binding || !reference) return
+  binding.value = insertTemplateReference(binding.value, reference)
+}
+
+const onViewportChange = (viewport) => {
+  if (viewport && Number.isFinite(viewport.x) && Number.isFinite(viewport.y) && Number.isFinite(viewport.zoom)) {
+    canvasViewport.value = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+  }
+}
+
+const formatJson = (value) => {
+  if (value === null || value === undefined || value === '') return '(空)'
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    return JSON.stringify(parsed, null, 2)
+  } catch (_) {
+    return String(value)
+  }
+}
+
+const loadWorkflowVersions = async (workflowId) => {
+  if (!workflowId) return
+  try {
+    const res = await api.getWorkflowVersions(workflowId)
+    if (res.data.code === 200) {
+      workflowVersions.value = res.data.data || []
+    }
+  } catch (e) {
+    console.error('加载版本列表失败', e)
+  }
+}
+
+const publishVersion = async () => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
+  if (!currentWorkflow.value.id) {
+    ElMessage.warning('请先保存编排再发布版本')
+    return
+  }
+  if (workflowSupportMessage.value) {
+    ElMessage.warning(workflowSupportMessage.value)
+    return
+  }
+  const refErrors = collectReferenceErrors()
+  if (refErrors.length) {
+    ElMessage.warning(refErrors[0])
+    return
+  }
+  let normalizedNodes
+  try {
+    normalizedNodes = normalizeNodesForDefinition()
+  } catch (error) {
+    ElMessage.error('Agent调用参数必须是合法JSON')
+    return
+  }
+  const definition = buildWorkflowDefinition({
+    nodes: normalizedNodes,
+    edges: workflowEdges.value.map(edge => ({ source: edge.source, target: edge.target, condition: edge.condition })),
+    variables: workflowVariables.value
+  })
+  const layout = buildWorkflowLayout(workflowNodes.value, canvasViewport.value)
+  workflowLayout.value = layout
+  try {
+    const res = await api.publishWorkflowVersion(currentWorkflow.value.id, {
+      definitionJson: JSON.stringify(definition),
+      layoutJson: JSON.stringify(layout)
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('版本发布成功')
+      await loadWorkflowVersions(currentWorkflow.value.id)
+    }
+  } catch (e) {
+    console.error('发布版本失败', e)
+    ElMessage.error('发布版本失败')
+  }
+}
+
+const deployCurrentDraft = async () => {
+  if (!canManageWorkflow.value) {
+    ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
+  if (!currentWorkflow.value.id) {
+    ElMessage.warning('请先保存编排')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('将当前草稿冻结为新版本并部署，确定继续？', '冻结确认', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+  try {
+    const res = await api.deployWorkflow(currentWorkflow.value.id)
+    if (res.data.code === 200) {
+      ElMessage.success('已冻结当前草稿为新版本')
+      await loadWorkflowVersions(currentWorkflow.value.id)
+    }
+  } catch (e) {
+    console.error('部署失败', e)
+    ElMessage.error('部署失败')
+  }
+}
+
+const onVersionCommand = async (command) => {
+  if (!command?.version) return
+  if (command.action === 'detail') {
+    try {
+      const res = await api.getWorkflowVersion(currentWorkflow.value.id, command.version.id)
+      if (res.data.code === 200) {
+        activeVersion.value = res.data.data || command.version
+        versionDetailTab.value = 'definition'
+        showVersionDetail.value = true
+      }
+    } catch (e) {
+      console.error('加载版本详情失败', e)
+      ElMessage.error('加载版本详情失败')
+    }
+    return
+  }
+  if (command.action === 'switch') {
+    await switchToVersion(command.version)
+  }
+}
+
+const hydrateCanvasFromDefinition = (definitionJson, layout) => {
+  const parsed = parseWorkflowDefinition(definitionJson)
+  workflowVariables.value = variablesToEditable(parsed.variables)
+  workflowEdges.value = (parsed.edges || []).map(edge => ({ ...edge }))
+  let nodes = parsed.nodes.map(node => ({
+    ...node,
+    paramsText: JSON.stringify(node.params || {}, null, 2),
+    inputBindings: inputsToBindings(node.inputs),
+    conditionField: node.condition && typeof node.condition === 'object' ? node.condition.field : (node.conditionField ?? ''),
+    operator: node.condition && typeof node.condition === 'object' ? node.condition.operator : (node.condition?.operator || node.operator || 'EQ'),
+    conditionValue: node.condition && typeof node.condition === 'object' ? node.condition.value : (node.condition?.value ?? node.conditionValue ?? '')
+  }))
+  const resolvedLayout = layout || extractLayoutFromNodes(nodes)
+  nodes = applyWorkflowLayout(nodes, resolvedLayout)
+  workflowNodes.value = nodes
+  workflowLayout.value = resolvedLayout
+  if (resolvedLayout?.viewport) canvasViewport.value = { ...resolvedLayout.viewport }
+  return resolvedLayout
+}
+
+const switchToVersion = async (version) => {
+  if (!version) return
+  let detail = version
+  if (!detail.definitionJson) {
+    try {
+      const res = await api.getWorkflowVersion(currentWorkflow.value.id, version.id)
+      if (res.data.code === 200) detail = res.data.data || version
+    } catch (e) {
+      console.error('加载版本详情失败', e)
+      ElMessage.error('加载版本详情失败')
+      return
+    }
+  }
+  try {
+    await ElMessageBox.confirm(
+      '切换版本会用该版本的 definition + layout 覆盖当前画布内容（本地草稿布局会同步替换）。未保存的草稿修改将丢失，确定继续？',
+      '切换版本',
+      { confirmButtonText: '确定覆盖草稿', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (e) {
+    return
+  }
+  let layout = null
+  if (detail.layoutJson) {
+    try {
+      layout = typeof detail.layoutJson === 'string' ? JSON.parse(detail.layoutJson) : detail.layoutJson
+    } catch (_) {
+      layout = null
+    }
+  }
+  hydrateCanvasFromDefinition(detail.definitionJson, layout)
+  viewingVersion.value = detail
+  editorLocked.value = true
+  showVersionDetail.value = false
+  ElMessage.success(`已切换查看版本 #${detail.versionNo ?? detail.id}（只读，点“编辑”解锁）`)
+}
+
+const unlockEditing = () => {
+  editorLocked.value = false
+  ElMessage.success('已进入编辑模式')
+}
+
+const returnToDraft = async () => {
+  const workflow = currentWorkflow.value
+  if (workflow?.id) {
+    try {
+      const res = await api.getWorkflow(workflow.id)
+      if (res.data.code === 200 && res.data.data) {
+        currentWorkflow.value = { ...workflow, ...res.data.data }
+        if (res.data.data.workflowDefinition) {
+          const storedLayout = readStoredLayout(currentWorkflow.value)
+          hydrateCanvasFromDefinition(res.data.data.workflowDefinition, storedLayout)
+        }
+      }
+    } catch (e) {
+      console.error('恢复草稿失败', e)
+      ElMessage.error('恢复草稿失败')
+      return
+    }
+  }
+  viewingVersion.value = null
+  editorLocked.value = false
+  ElMessage.success('已返回草稿')
 }
 
 onMounted(() => {
@@ -1045,5 +1575,129 @@ onMounted(() => {
 .execution-time {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Input bindings */
+.binding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.binding-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(26, 31, 78, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.binding-key {
+  width: 100%;
+}
+
+.binding-value :deep(textarea) {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.binding-row-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.binding-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.binding-error {
+  font-size: 11px;
+  color: var(--accent-red, #f87171);
+  line-height: 1.4;
+}
+
+/* Variables panel */
+.variables-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.variable-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(26, 31, 78, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.variable-row-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.variable-type {
+  flex: 1;
+}
+
+/* Version detail */
+.version-tag {
+  margin-left: 8px;
+}
+
+.canvas-title {
+  display: flex;
+  align-items: center;
+}
+
+.version-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.version-hash {
+  word-break: break-all;
+}
+
+.json-block {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  background: rgba(10, 16, 40, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.version-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.canvas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 </style>

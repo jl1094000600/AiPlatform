@@ -23,11 +23,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.aipal.dto.WorkflowVersionDtos;
 
 class WorkflowServiceTest {
     private final WorkflowMapper mapper = mock(WorkflowMapper.class);
+    private final WorkflowVersionService versionService = mock(WorkflowVersionService.class);
     private final WorkflowService service = new WorkflowService(mapper,
-            new WorkflowDefinitionService(new ObjectMapper()));
+            new WorkflowDefinitionService(new ObjectMapper()), versionService);
 
     @BeforeEach
     void setTenantContext() {

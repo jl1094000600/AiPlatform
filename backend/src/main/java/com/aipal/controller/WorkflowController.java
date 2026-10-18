@@ -1,12 +1,16 @@
 package com.aipal.controller;
 
+import com.aipal.common.ErrorCode;
 import com.aipal.common.Result;
 import com.aipal.dto.WorkflowRequest;
+import com.aipal.dto.WorkflowTryRunDtos;
+import com.aipal.dto.WorkflowVersionDtos;
 import com.aipal.entity.Workflow;
 import com.aipal.entity.WorkflowExecution;
 import com.aipal.security.RequirePermission;
 import com.aipal.service.WorkflowExecutionService;
 import com.aipal.service.WorkflowService;
+import com.aipal.service.WorkflowVersionService;
 import com.aipal.service.WorkflowTriggerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +32,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class WorkflowController {
     private final WorkflowService workflowService;
+    private final WorkflowVersionService versionService;
     private final WorkflowExecutionService executionService;
     private final WorkflowTriggerService triggerService;
 
@@ -70,6 +75,44 @@ public class WorkflowController {
         return Result.success(workflowService.deploy(workflowId));
     }
 
+    @PostMapping("/{workflowId}/versions")
+    @RequirePermission("workflow:publish")
+    public Result<WorkflowVersionDtos.VersionView> publishVersion(
+            @PathVariable Long workflowId,
+            @RequestBody WorkflowVersionDtos.PublishRequest request) {
+        return Result.success(versionService.publish(workflowId,
+                request.definitionJson(), request.layoutJson()));
+    }
+
+    @GetMapping("/{workflowId}/versions")
+    @RequirePermission("workflow:manage")
+    public Result<List<WorkflowVersionDtos.VersionView>> listVersions(@PathVariable Long workflowId) {
+        return Result.success(versionService.list(workflowId));
+    }
+
+    @GetMapping("/{workflowId}/versions/{versionId}")
+    @RequirePermission("workflow:manage")
+    public Result<WorkflowVersionDtos.VersionDetail> getVersion(
+            @PathVariable Long workflowId, @PathVariable Long versionId) {
+        return Result.success(versionService.detail(workflowId, versionId));
+    }
+
+    @PutMapping("/{workflowId}/versions/{versionId}")
+    @RequirePermission("workflow:publish")
+    public Result<WorkflowVersionDtos.VersionView> overwriteVersion(
+            @PathVariable Long workflowId, @PathVariable Long versionId,
+            @RequestBody WorkflowVersionDtos.PublishRequest request) {
+        return Result.success(versionService.overwrite(workflowId, versionId,
+                request.definitionJson(), request.layoutJson()));
+    }
+
+    @PostMapping("/{workflowId}/versions/{versionId}/deprecate")
+    @RequirePermission("workflow:publish")
+    public Result<WorkflowVersionDtos.VersionView> deprecateVersion(
+            @PathVariable Long workflowId, @PathVariable Long versionId) {
+        return Result.success(versionService.deprecate(workflowId, versionId));
+    }
+
     @PostMapping("/{workflowId}/trigger")
     @RequirePermission("workflow:manage")
     public Result<String> triggerWorkflow(
@@ -77,6 +120,15 @@ public class WorkflowController {
             @RequestParam(defaultValue = "MANUAL") String triggerType,
             @RequestBody(required = false) Map<String, Object> params) {
         return Result.success(executionService.triggerWorkflow(workflowId, triggerType, params));
+    }
+
+    /** T20 dry-run against a published snapshot or an in-memory draft definition. */
+    @PostMapping("/{workflowId}/try-run")
+    @RequirePermission("workflow:manage")
+    public Result<WorkflowTryRunDtos.TryRunResult> tryRun(
+            @PathVariable Long workflowId,
+            @RequestBody(required = false) WorkflowTryRunDtos.TryRunRequest request) {
+        return Result.success(executionService.tryRun(workflowId, request));
     }
 
     @GetMapping("/{workflowId}/executions")
@@ -97,9 +149,16 @@ public class WorkflowController {
     public Result<WorkflowExecution> getExecution(@PathVariable String executionId) {
         WorkflowExecution execution = executionService.getExecution(executionId);
         if (execution == null) {
-            throw new IllegalArgumentException("Workflow execution not found: " + executionId);
+            throw ErrorCode.WORKFLOW_EXECUTION_NOT_FOUND.ex();
         }
         return Result.success(execution);
+    }
+
+    /** T21 node-level traces (input/output stored as digests only). */
+    @GetMapping("/executions/{executionId}/node-runs")
+    @RequirePermission("workflow:manage")
+    public Result<List<WorkflowTryRunDtos.NodeRunView>> listNodeRuns(@PathVariable String executionId) {
+        return Result.success(executionService.listNodeRuns(executionId));
     }
 
     @PostMapping("/executions/{executionId}/cancel")

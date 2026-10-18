@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayDeque;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,6 +23,7 @@ public class WorkflowDefinitionService {
             "START", "AGENT", "CONDITION", "END"
     );
     private static final Set<String> DEFERRED_TYPES = Set.of("PARALLEL", "JOIN");
+    private static final Pattern REFERENCE_PATTERN = Pattern.compile("\\{\\{\\s*([\\w.]+)\\s*}}");
 
     private final ObjectMapper objectMapper;
 
@@ -52,6 +55,24 @@ public class WorkflowDefinitionService {
         if (definition.getTimeoutSeconds() < 1 || definition.getTimeoutSeconds() > 86400) {
             throw new IllegalArgumentException("timeoutSeconds must be between 1 and 86400");
         }
+        if (definition.getSchemaVersion() == null) {
+            definition.setSchemaVersion(1);
+        }
+        if (definition.getSchemaVersion() != 1) {
+            throw new IllegalArgumentException("Unsupported schemaVersion: " + definition.getSchemaVersion());
+        }
+        if (definition.getVariables() == null) {
+            definition.setVariables(new ArrayList<>());
+        }
+        Set<String> variableNames = new HashSet<>();
+        for (WorkflowDefinition.Variable variable : definition.getVariables()) {
+            if (variable == null || variable.getName() == null || variable.getName().isBlank()) {
+                throw new IllegalArgumentException("Every workflow variable must have a name");
+            }
+            if (!variableNames.add(variable.getName().trim())) {
+                throw new IllegalArgumentException("Duplicate workflow variable: " + variable.getName());
+            }
+        }
 
         Map<String, WorkflowDefinition.Node> nodes = new HashMap<>();
         List<String> starts = new ArrayList<>();
@@ -82,6 +103,9 @@ public class WorkflowDefinitionService {
             if ("CONDITION".equals(type)) {
                 validateCondition(node);
             }
+        }
+        for (WorkflowDefinition.Node node : definition.getNodes()) {
+            validateReferences(node, variableNames, nodes.keySet());
         }
         if (starts.size() != 1) {
             throw new IllegalArgumentException("Workflow must contain exactly one START node");
@@ -171,6 +195,56 @@ public class WorkflowDefinitionService {
             queue.addAll(outgoing.getOrDefault(current, List.of()));
         }
         return visited;
+    }
+
+    private void validateReferences(WorkflowDefinition.Node node, Set<String> variableNames, Set<String> nodeIds) {
+        if (node.getInputs() == null) return;
+        for (Map.Entry<String, Object> entry : node.getInputs().entrySet()) {
+            walkReferenceStrings(entry.getValue(), node.getId(), variableNames, nodeIds);
+        }
+    }
+
+    private void walkReferenceStrings(Object value, String nodeId, Set<String> variableNames, Set<String> nodeIds) {
+        if (value instanceof String text) {
+            Matcher matcher = REFERENCE_PATTERN.matcher(text);
+            while (matcher.find()) {
+                validateReferencePath(matcher.group(1).trim(), nodeId, variableNames, nodeIds);
+            }
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Object nested : map.values()) walkReferenceStrings(nested, nodeId, variableNames, nodeIds);
+            return;
+        }
+        if (value instanceof Iterable<?> items) {
+            for (Object nested : items) walkReferenceStrings(nested, nodeId, variableNames, nodeIds);
+        }
+    }
+
+    private void validateReferencePath(String path, String nodeId, Set<String> variableNames, Set<String> nodeIds) {
+        if (path.startsWith("variables.")) {
+            String name = path.substring("variables.".length());
+            if (!variableNames.contains(name)) {
+                throw new IllegalArgumentException("Unknown variable reference '"
+                        + path + "' in node: " + nodeId);
+            }
+            return;
+        }
+        if (path.startsWith("nodes.")) {
+            String[] parts = path.split("\\.");
+            if (parts.length < 4 || !"outputs".equals(parts[2])) {
+                throw new IllegalArgumentException("Node reference must be nodes.<nodeId>.outputs.<field> in node: " + nodeId);
+            }
+            if (!nodeIds.contains(parts[1])) {
+                throw new IllegalArgumentException("Unknown node reference '"
+                        + path + "' in node: " + nodeId);
+            }
+            return;
+        }
+        if (path.startsWith("inputs.")) {
+            return;
+        }
+        throw new IllegalArgumentException("Unsupported reference '" + path + "' in node: " + nodeId);
     }
 
     private String normalizeType(String type) {

@@ -3,6 +3,7 @@ package com.aipal.service;
 import com.aipal.dto.A2AMessage;
 import com.aipal.entity.AiAgent;
 import com.aipal.entity.Workflow;
+import com.aipal.entity.WorkflowVersion;
 import com.aipal.entity.WorkflowExecution;
 import com.aipal.mapper.WorkflowExecutionMapper;
 import com.aipal.mapper.WorkflowMapper;
@@ -145,6 +146,24 @@ class WorkflowExecutionServiceImplTest {
     }
 
     @Test
+    void startRejectsExecutionWhenSnapshotHashMismatch() {
+        WorkflowExecution pending = new WorkflowExecution();
+        pending.setExecutionId("bound-execution");
+        pending.setWorkflowId(1L);
+        pending.setVersionId(11L);
+        pending.setDefinitionHash("stale-hash");
+        pending.setStatus("PENDING");
+        AtomicReference<WorkflowExecution> stored = new AtomicReference<>(pending);
+        service = createService(workflow(simpleDefinition()), stored, mock(AgentRegistry.class));
+
+        com.aipal.common.BizException error = assertThrows(com.aipal.common.BizException.class,
+                () -> service.startExecution("bound-execution"));
+
+        assertEquals(409, error.getCode());
+        assertEquals("PENDING", stored.get().getStatus());
+    }
+
+    @Test
     void cancelStopsRunningAgentWorkflow() throws Exception {
         AtomicReference<WorkflowExecution> stored = new AtomicReference<>();
         Workflow workflow = workflow("""
@@ -198,6 +217,16 @@ class WorkflowExecutionServiceImplTest {
             return 1;
         });
         when(executionMapper.selectOne(any())).thenAnswer(invocation -> stored.get());
+        WorkflowVersionService versionService = mock(WorkflowVersionService.class);
+        WorkflowVersion snapshot = new WorkflowVersion();
+        snapshot.setId(11L);
+        snapshot.setWorkflowId(1L);
+        snapshot.setVersionNo(1);
+        snapshot.setDefinitionJson(workflow.getWorkflowDefinition());
+        snapshot.setDefinitionHash("hash-1");
+        snapshot.setStatus("ACTIVE");
+        when(versionService.latestActive(any())).thenReturn(snapshot);
+        when(versionService.requireActiveVersion(any(), any())).thenReturn(snapshot);
         return new WorkflowExecutionServiceImpl(
                 executionMapper,
                 workflowMapper,
@@ -205,8 +234,18 @@ class WorkflowExecutionServiceImplTest {
                 mock(A2AMessageService.class),
                 registry,
                 new WorkflowDefinitionService(objectMapper),
-                mock(MemoryOrchestrator.class)
+                versionService,
+                mock(WorkflowAgentRunAdapter.class),
+                mock(MemoryOrchestrator.class),
+                mock(com.aipal.mapper.WorkflowNodeRunMapper.class)
         );
+    }
+
+    private String simpleDefinition() {
+        return """
+                {"nodes":[{"id":"1","type":"START"},{"id":"2","type":"END"}],
+                 "edges":[{"source":"1","target":"2"}]}
+                """;
     }
 
     private Workflow workflow(String definition) {

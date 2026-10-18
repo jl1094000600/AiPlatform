@@ -12,6 +12,7 @@
       @connect="onConnect"
       @pane-click="onPaneClick"
       @edge-click="onEdgeClick"
+      @move="onMove"
     >
       <template #node-workflow="props">
         <div
@@ -40,7 +41,7 @@ const props = defineProps({
   nodes: { type: Array, default: () => [] },
   edges: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['update:nodes', 'update:edges', 'select-node', 'select-edge', 'clear-selection'])
+const emit = defineEmits(['update:nodes', 'update:edges', 'select-node', 'select-edge', 'clear-selection', 'viewport-change'])
 const { screenToFlowCoordinate } = useVueFlow()
 
 const flowNodes = computed({
@@ -105,6 +106,16 @@ const onEdgeClick = ({ edge }) => {
 }
 
 const onPaneClick = () => emit('clear-selection')
+
+const onMove = (params) => {
+  const viewport = params?.viewport || params
+  if (!viewport) return
+  emit('viewport-change', {
+    x: Number(viewport.x) || 0,
+    y: Number(viewport.y) || 0,
+    zoom: Number(viewport.zoom) || 1
+  })
+}
 
 const onDrop = (event) => {
   const raw = event.dataTransfer?.getData('application/workflow-node')

@@ -23,6 +23,12 @@ public class WorkflowExecution {
     /** 编排ID */
     private Long workflowId;
 
+    /** Published immutable snapshot id; draft edits never affect this run. */
+    private Long versionId;
+
+    /** SHA-256 of the bound definition; guards against snapshot replacement. */
+    private String definitionHash;
+
     /** 触发类型 */
     private String triggerType;
 

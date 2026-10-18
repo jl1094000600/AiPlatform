@@ -36,22 +36,29 @@ class WorkflowControllerContractTest {
         assertTrue(routes.contains("DELETE /{workflowId}"));
         assertTrue(routes.contains("POST /{workflowId}/deploy"));
         assertTrue(routes.contains("POST /{workflowId}/trigger"));
+        assertTrue(routes.contains("POST /{workflowId}/try-run"));
         assertTrue(routes.contains("GET /{workflowId}/executions"));
         assertTrue(routes.contains("GET /executions"));
         assertTrue(routes.contains("GET /executions/{executionId}"));
+        assertTrue(routes.contains("GET /executions/{executionId}/node-runs"));
         assertTrue(routes.contains("POST /executions/{executionId}/cancel"));
         assertTrue(routes.contains("POST /events/{eventType}"));
+        assertTrue(routes.contains("POST /{workflowId}/versions"));
+        assertTrue(routes.contains("GET /{workflowId}/versions"));
+        assertTrue(routes.contains("GET /{workflowId}/versions/{versionId}"));
+        assertTrue(routes.contains("POST /{workflowId}/versions/{versionId}/deprecate"));
     }
 
     @Test
     void controllerDependsOnWorkflowServicesInsteadOfDirectMappers() {
-        assertEquals(3, WorkflowController.class.getDeclaredFields().length);
+        assertEquals(4, WorkflowController.class.getDeclaredFields().length);
         Set<Class<?>> fieldTypes = Arrays.stream(WorkflowController.class.getDeclaredFields())
                 .map(field -> field.getType())
                 .collect(Collectors.toSet());
         assertTrue(fieldTypes.contains(WorkflowService.class));
         assertTrue(fieldTypes.contains(WorkflowExecutionService.class));
         assertTrue(fieldTypes.contains(WorkflowTriggerService.class));
+        assertTrue(fieldTypes.contains(com.aipal.service.WorkflowVersionService.class));
     }
 
     private String route(Method method) {

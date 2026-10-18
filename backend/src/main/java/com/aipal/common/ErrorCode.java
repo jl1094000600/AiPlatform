@@ -62,6 +62,11 @@ public enum ErrorCode {
     RUN_CANCEL_DENIED(403, "Only the run owner or project manager can cancel this run"),
     RUN_APPROVE_DENIED(403, "Only the run owner or project manager can approve this run"),
 
+    WORKFLOW_ID_INVALID(400, "编排编号无效"),
+    WORKFLOW_DEFINITION_REQUIRED(400, "workflowDefinition is required"),
+    WORKFLOW_TRY_RUN_NO_DEFINITION(400, "试运行需要已发布版本或传入 definitionJson"),
+    WORKFLOW_TRY_RUN_INPUTS_INVALID(400, "试运行 inputs 无效"),
+
     // ---------- 404 Not Found ----------
     MEMORY_TRACE_NOT_FOUND(404, "记忆调用记录不存在"),
     MEMORY_NOT_FOUND(404, "记忆不存在"),
@@ -71,6 +76,9 @@ public enum ErrorCode {
     TOOL_CALL_NOT_FOUND(404, "Tool call not found"),
     TASK_NOT_FOUND(404, "Task not found"),
     AGENT_TOOL_NOT_FOUND(404, "Agent tool not found or disabled"),
+    WORKFLOW_NOT_FOUND(404, "编排不存在或已停用"),
+    WORKFLOW_VERSION_NOT_FOUND(404, "工作流版本不存在"),
+    WORKFLOW_EXECUTION_NOT_FOUND(404, "编排执行不存在"),
 
     // ---------- 409 Conflict ----------
     PROJECT_KEY_EXISTS(409, "项目键已存在"),
@@ -87,6 +95,7 @@ public enum ErrorCode {
     ASK_USER_ALREADY_CANCELLED(409, "ask_user already cancelled"),
     ASK_USER_NOT_WAITING_INPUT(409, "ask_user is not waiting for user input"),
     TASK_ALREADY_CLOSED(409, "Task is already closed"),
+    WORKFLOW_VERSION_NOT_ACTIVE(409, "工作流版本已停用，请刷新后重试"),
 
     // ---------- 400/409/502/503 Collaboration M3 ----------
     DISCUSSION_CONTENT_REQUIRED(400, "讨论内容不能为空"),

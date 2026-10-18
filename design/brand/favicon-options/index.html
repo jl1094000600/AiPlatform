@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 中台 · 标签页图标方案</title>
+  <link id="preview-icon" rel="icon" type="image/svg+xml" href="a-agent-hub.svg">
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #24374b; background: #f5f8fc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 44px 28px; }
+    main { max-width: 1120px; margin: auto; }
+    .eyebrow { color: #54718a; font-size: 12px; letter-spacing: .18em; }
+    h1 { margin: 12px 0; font-size: 28px; font-weight: 600; }
+    .intro, footer { color: #60758a; font-size: 14px; line-height: 1.8; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 28px 0 20px; }
+    article { padding: 24px; background: white; border: 1px solid #e0e9f2; border-radius: 16px; }
+    h2 { font-size: 16px; margin: 0; }
+    .note { display: block; min-height: 44px; margin-top: 10px; color: #60758a; font-size: 13px; line-height: 1.7; }
+    .hero { height: 142px; display: grid; place-items: center; }
+    .hero img { width: 88px; height: 88px; }
+    .sizes { height: 58px; display: flex; align-items: end; justify-content: space-evenly; margin: 4px 0 22px; }
+    figure { margin: 0; text-align: center; font-size: 10px; color: #6a8095; }
+    figcaption { margin-top: 6px; }
+    .tab { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 12px; margin-top: 8px; background: #eef2f6; border-radius: 9px; font-size: 12px; }
+    .tab.dark { background: #152338; color: #e4edf5; }
+    .tab img { width: 16px; height: 16px; }
+    .tab .close { margin-left: auto; opacity: .5; }
+    button { width: 100%; margin-top: 18px; padding: 11px; border: 1px solid #d4e6f5; border-radius: 8px; color: #335a78; background: #eff7fe; font: inherit; font-size: 13px; cursor: pointer; }
+    button:hover { background: #e1f1fd; }
+    button:focus-visible { outline: 2px solid #547e9f; outline-offset: 3px; }
+    #status { min-height: 26px; color: #4b6b83; font-size: 13px; }
+    @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } body { padding: 28px 18px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">AI PLATFORM / FAVICON</div>
+    <h1>已选定 A · Agent 枢纽</h1>
+    <p class="intro">统一使用淡蓝色 <strong>#80C2F2</strong>，透明背景、无渐变。B/C 保留为备选；下方同时展示 16 / 24 / 32 像素和明暗标签页效果。</p>
+    <section class="grid" aria-label="图标方案">
+      <article>
+        <h2>A · Agent 枢纽（推荐）</h2>
+        <span class="note">一个中心、三个协作节点，呼应多 Agent 平台与统一调度。</span>
+        <div class="hero"><img src="a-agent-hub.svg" alt="Agent 枢纽图标"></div>
+        <div class="sizes">
+          <figure><img src="a-agent-hub.svg" width="16" height="16" alt=""><figcaption>16 px</figcaption></figure>
+          <figure><img src="a-agent-hub.svg" width="24" height="24" alt=""><figcaption>24 px</figcaption></figure>
+          <figure><img src="a-agent-hub.svg" width="32" height="32" alt=""><figcaption>32 px</figcaption></figure>
+        </div>
+        <div class="tab"><img src="a-agent-hub.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <div class="tab dark"><img src="a-agent-hub.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <button data-file="a-agent-hub.svg" data-label="A · Agent 枢纽">预览 A 的真实标签页</button>
+      </article>
+      <article>
+        <h2>B · 工作流</h2>
+        <span class="note">任务、条件和连线，直接表达流程编排与自动化。</span>
+        <div class="hero"><img src="b-workflow.svg" alt="工作流图标"></div>
+        <div class="sizes">
+          <figure><img src="b-workflow.svg" width="16" height="16" alt=""><figcaption>16 px</figcaption></figure>
+          <figure><img src="b-workflow.svg" width="24" height="24" alt=""><figcaption>24 px</figcaption></figure>
+          <figure><img src="b-workflow.svg" width="32" height="32" alt=""><figcaption>32 px</figcaption></figure>
+        </div>
+        <div class="tab"><img src="b-workflow.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <div class="tab dark"><img src="b-workflow.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <button data-file="b-workflow.svg" data-label="B · 工作流">预览 B 的真实标签页</button>
+      </article>
+      <article>
+        <h2>C · AI 星芒</h2>
+        <span class="note">圆角边框与四角星，偏通用 AI 品牌，形态最集中。</span>
+        <div class="hero"><img src="c-ai-spark.svg" alt="AI 星芒图标"></div>
+        <div class="sizes">
+          <figure><img src="c-ai-spark.svg" width="16" height="16" alt=""><figcaption>16 px</figcaption></figure>
+          <figure><img src="c-ai-spark.svg" width="24" height="24" alt=""><figcaption>24 px</figcaption></figure>
+          <figure><img src="c-ai-spark.svg" width="32" height="32" alt=""><figcaption>32 px</figcaption></figure>
+        </div>
+        <div class="tab"><img src="c-ai-spark.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <div class="tab dark"><img src="c-ai-spark.svg" alt=""><span>AI中台管理系统</span><span class="close">×</span></div>
+        <button data-file="c-ai-spark.svg" data-label="C · AI 星芒">预览 C 的真实标签页</button>
+      </article>
+    </section>
+    <p id="status" aria-live="polite">正式方案：A · Agent 枢纽。这里的按钮只切换本预览页图标。</p>
+    <footer>管理端标签页已采用 A · Agent 枢纽，包含 SVG/PNG/ICO 资源；消费端 Think Land 继续使用独立品牌。</footer>
+  </main>
+  <script>
+    document.querySelectorAll('button[data-file]').forEach(button => {
+      button.addEventListener('click', () => {
+        document.getElementById('preview-icon').href = button.dataset.file;
+        document.getElementById('status').textContent = `当前预览：${button.dataset.label}。平台正式方案为 A · Agent 枢纽。`;
+      });
+    });
+  </script>
+</body>
+</html>

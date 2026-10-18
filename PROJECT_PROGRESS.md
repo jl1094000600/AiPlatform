@@ -1,5 +1,21 @@
 # AI Platform 项目进度
 
+## 最新节点校正（2026-10-18，并行增量复核）
+
+**工作流已提前进入 W2/W3 功能收口与真实联调阶段，W1 目标环境门禁尚未完全关闭；v6 M3 后端已合入主线，M4 界面和 M5 多服务验收仍未完成。** 本节与排期文档末尾的「二次核对」优先于下方同日早期快照，不重复安排已实现能力的开发。
+
+| 工作线 | 最新代码状态 | 剩余工作 / 建议窗口 |
+| --- | --- | --- |
+| W2/W3 工作流 | 工作区已有 DSL/变量绑定、不可变版本/hash绑定、版本 UI、AgentRun 适配器、try-run 后端和节点记录 API，尚未提交 | 10/19–10/26 先收口试运行/Trace/取消界面、明确条件分支、未保存保护与发布权限；Agent 版本冻结、完整资源授权、恢复历史为草稿后再发布等在 11/04 前继续补强 |
+| v6 M3 | 功能提交 206e208/46978d1/94239c9 已入主线，当前核对 HEAD 为 f0e1e7c | 改为已实现待真实模型/MySQL/Runtime/隐私验收；10/19–10/23 先做合同风险与首轮补证，取消旧 11/30 后重复开发占位 |
+| v6 M4/M5 | 完整四区与多服务闭环仍未完成 | M4 候选前移至 10/27–11/06，须先结束同一 FE 的工作流界面收口；M5 候选 11/30–12/04，与工作流终验共用 QA 串行，日期待容量和环境确认 |
+| 可靠执行与 runner | 节点记录是基础；CAS/租约/重启恢复/工具审批、独立 runner、完整隔离与回收仍未完成 | 保留 W4–W5 实现和 11/23–11/27 四节点 MVP 验收目标，不能因界面或记录表出现而自动提前放行 |
+| P02 平台图标 | 用户已选 A Agent 枢纽；淡蓝 SVG、PNG32、ICO16/32/48 已接入管理端标签页 | 前端生产构建通过；实际浏览器展示验证授权未获批准，保留待验收；三案资产存于 design/brand/favicon-options/ |
+
+最新只读证据：现存 116 份 Surefire 报告合计 **557/0/0/0**，真实 Docker 集成 3 项通过；Docker 服务端探测为 **29.6.2**。本次未重跑后端全量，也未验证新 runtime 镜像和 Linux 双架构原生调用，旧“Docker 不可用”仅代表先前快照。已有真实 MySQL 建表/权限记录不自动覆盖业务并发/事务验收；Redis 仍依约暂缓。
+
+PARALLEL/JOIN、受信部署/训练迁移、强沙箱/云沙箱、Windows 兼容及可选画布增强仍未锁定开发日期，保留详细排期中的评审节点。当前未提交工作区持续有并行开发，本文不覆盖或提交其代码；完整任务状态和最新窗口见 `docs/AGENTSTUDIO-COMPARISON-WORKFLOW-ROADMAP-2026-10-17.md` 文末二次核对。
+
 ## 排期增量（2026-10-18，Asia/Shanghai）
 
 当前节点：**工作流 W1 / 受控画布 PoC 代码收口，目标环境及真实浏览器验收尚未关闭**。工作流 MVP 未完成；v6 M1/M2 已实现待真实验收，**M3 后端代码已合并 master、待真实环境验收**，M4/M5 未完成。W1–W6 与 v6 M1–M5 分开跟踪，不因画布可用而更新为全项目交付完成。2026-10-18 已修复完整回归中的 3 项失败测试，后端全量 452 项恢复为 0 失败、0 错误、3 跳过（Docker 不可用）；W1 的真实环境门禁仍未关闭。
@@ -58,6 +74,44 @@ v6 M3 后端在隔离分支 `codex/v6-m3` 开发，基线 `781274a`；2026-10-18
 - `docs/` 中旧计划仍写 `COORDINATOR`、`PRIVATE_ASK_CONVERSION`、`POST /{projectKey}/task-drafts`；实现以本节的 `SUMMARY/RISK/TASK_SUGGESTION`、`PRIVATE_ASK`、`/private-ask/task-drafts` 为准。
 - `CoordinatorRequest.focus` 当前未转发模型；`ConfirmTaskDraftRequest.idempotencyKey` 只做长度校验，重放由草稿状态/CAS 与 `confirmedRunId` 保证；指定处理人时仍按既有指派权限要求 manage。
 - M4 完整四区工作台与 M5 多服务/Memory Center 回链未开始。
+
+## 排期增量（2026-10-18 W1 收尾 / W2 启动）
+
+| 任务 | 状态 | 证据 |
+| --- | --- | --- |
+| W1 测试修复收口 | 已完成 | 3 项失败测试修复后全量回归 452→536 通过（本轮新增用例后） |
+| W1 权限种子核对 | 已完成 | 真实 MySQL 核对 project-workspace / workflow 权限与菜单；补 `migrate-workflow-permissions.sql`，SQL 引导与运行时种子一致，幂等验证通过 |
+| W2 版本快照 | 已完成 | `ai_workflow_version` 表 + `WorkflowVersionService` 发布/查询/作废接口；`workflow:publish` 权限种子 |
+| W2 Graph DSL v1 | 已完成 | schemaVersion、变量声明与 variables/nodes/inputs 三类引用校验；布局与执行定义分离 |
+| W2 草稿/发布分离 | 已完成 | deploy 冻结不可变快照；执行创建绑定 versionId+definitionHash，启动校验哈希一致，草稿改动不影响在途执行 |
+
+验证：工作流定向 43 项 + 契约 2 项通过；后端全量 **536 项，失败 0、错误 0、跳过 3**（Docker 集成）。真实 MySQL 已建 `ai_workflow_version` 并种入 `workflow:publish`。Redis 仍按约定跳过。
+
+W2 本轮增量（2026-10-18）：
+- `WorkflowVariableResolver`：variables / nodes.outputs / inputs 三类引用解析，必填变量与未知引用失败关闭（9 项测试）
+- `WorkflowAgentRunAdapter`：AGENT 节点接入 AgentRun 管道，`businessId = executionId:nodeId` 幂等，outputsSchema 必填字段校验，终态复用不重复执行（4 项测试）
+- `AgentTaskService.claimRootTask`：按 run 精确领取根任务，避免与全局队列竞争
+- 工作流新增可选 `projectKey` 绑定；有绑定时 AGENT 节点走 AgentRun 适配器，否则保留 A2A 兜底
+- 真实 MySQL 已补 `ai_workflow.project_key`、`ai_workflow_execution.version_id/definition_hash` 列
+
+验证：后端全量 **549 项，失败 0、错误 0、跳过 0**（含 Docker 集成）。
+
+W2 并行增量（2026-10-18）：
+- T19 画布变量绑定：节点输入绑定编辑、工作流变量面板、`{{...}}` 引用快捷插入与前端校验（23 项画布回归）
+- T20 试运行 API：`POST /workflows/{id}/try-run`，草稿/发布快照均可试跑，DRY_* 状态族与生产隔离，AGENT 走 AgentRun 管道
+- T21 节点 Trace：`ai_workflow_node_run` 表（input/output 仅存摘要哈希）+ `GET /executions/{id}/node-runs`
+- T22 发布/版本 UI：发布版本、版本列表/详情/回填画布、布局与执行定义分离（layout 存 versions.layout_json）
+
+验证：后端全量 **557 项，失败 0、错误 0、跳过 0**；前端构建通过、业务测试 18+23 项通过。真实 MySQL 已建 `ai_workflow_node_run`。
+
+W2 用户确认项落地（2026-10-18）：
+- 试运行保持 DRY_* 写库（每次约几 KB，可回查 Trace）；执行列表不过滤，前端筛选
+- 草稿布局落库：`ai_workflow.layout_json`，跨浏览器/清缓存可恢复（localStorage 仅作降级缓存）
+- 版本只读锁定：切换版本进入只读，点「编辑」解锁；保存时可选「覆盖原版本」（PUT versions/{id}）或「另存新版本」（POST versions）
+
+验证：后端全量 **558 项，失败 0、错误 0、跳过 0**；前端构建通过、业务测试 18+23 项通过。
+
+W2 未完成：节点 Trace 前端展示、试运行结果面板 UI。PARALLEL/JOIN 仍禁用。
 
 ## 当前交付状态（2026-10-18，Asia/Shanghai）
 

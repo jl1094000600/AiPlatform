@@ -257,7 +257,7 @@ public class TenantSecuritySchemaInitializer {
                 {"prompt:list", "提示词查看"}, {"prompt:create", "提示词新建"}, {"prompt:update", "提示词编辑"}, {"prompt:evaluate", "提示词评测"}, {"prompt:publish", "提示词发布"},
                 {"tenant:manage", "租户管理"}, {"member:manage", "成员管理"}, {"role:manage", "角色权限管理"}, {"menu:manage", "菜单权限管理"},
                 {"audit:view", "审计查看"}, {"billing:view", "账单查看"}, {"alert:view", "告警查看"}, {"alert:manage", "告警管理"}, {"customer:manage", "客户管理"},
-                {"workflow:manage", "工作流管理"}, {"benchmark:view", "基准测试查看"}, {"benchmark:run", "基准测试执行"},
+                {"workflow:manage", "工作流管理"}, {"workflow:publish", "工作流发布"}, {"benchmark:view", "基准测试查看"}, {"benchmark:run", "基准测试执行"},
                 {"benchmark:manage", "基准测试标准管理"}, {"tts:invoke", "语音合成调用"}, {"tts:manage", "语音配置管理"},
                 {"monitor:view", "监控查看"}, {"graph:manage", "调用图谱管理"}
         };
@@ -339,7 +339,7 @@ public class TenantSecuritySchemaInitializer {
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'developer'
-                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','memory:list','memory:read','memory:write','memory:forget','memory:trace','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','workflow:manage','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
+                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','memory:list','memory:read','memory:write','memory:forget','memory:trace','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','workflow:manage','workflow:publish','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)

@@ -2,12 +2,17 @@ package com.aipal.service;
 
 import cn.hutool.core.util.IdUtil;
 import com.aipal.dto.A2AMessage;
+import com.aipal.common.ErrorCode;
 import com.aipal.dto.WorkflowDefinition;
+import com.aipal.dto.WorkflowTryRunDtos;
+import com.aipal.entity.WorkflowVersion;
 import com.aipal.dto.WorkflowStep;
 import com.aipal.entity.Workflow;
 import com.aipal.entity.WorkflowExecution;
+import com.aipal.entity.WorkflowNodeRun;
 import com.aipal.mapper.WorkflowExecutionMapper;
 import com.aipal.mapper.WorkflowMapper;
+import com.aipal.mapper.WorkflowNodeRunMapper;
 import com.aipal.security.TenantContext;
 import com.aipal.service.memory.MemoryContext;
 import com.aipal.service.memory.MemoryOrchestrator;
@@ -23,13 +28,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -48,7 +57,14 @@ import java.util.concurrent.TimeoutException;
 @Service
 @RequiredArgsConstructor
 public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
-    private static final Set<String> TERMINAL_STATUSES = Set.of("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT");
+    private static final Set<String> TERMINAL_STATUSES = Set.of(
+            "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
+            "DRY_COMPLETED", "DRY_FAILED", "DRY_CANCELLED");
+    private static final String STATUS_DRY_RUN = "DRY_RUN";
+    private static final String STATUS_DRY_RUNNING = "DRY_RUNNING";
+    private static final String STATUS_DRY_COMPLETED = "DRY_COMPLETED";
+    private static final String STATUS_DRY_FAILED = "DRY_FAILED";
+    private static final String STATUS_DRY_CANCELLED = "DRY_CANCELLED";
 
     private final WorkflowExecutionMapper executionMapper;
     private final WorkflowMapper workflowMapper;
@@ -56,7 +72,10 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final A2AMessageService a2aMessageService;
     private final AgentRegistry agentRegistry;
     private final WorkflowDefinitionService definitionService;
+    private final WorkflowVersionService workflowVersionService;
+    private final WorkflowAgentRunAdapter workflowAgentRunAdapter;
     private final MemoryOrchestrator memoryOrchestrator;
+    private final WorkflowNodeRunMapper nodeRunMapper;
 
     private final ExecutorService workflowExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -71,11 +90,19 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     @Transactional
     public String createExecution(Long workflowId, String triggerType, String triggerSource, String startParams) {
         Workflow workflow = requireWorkflow(workflowId);
+        // Bind the immutable published snapshot at creation time; later draft edits
+        // must not change this run's definition.
+        WorkflowVersion version = workflowVersionService.latestActive(workflowId);
+        if (version == null) {
+            throw ErrorCode.WORKFLOW_VERSION_NOT_FOUND.ex();
+        }
         String executionId = IdUtil.fastSimpleUUID();
         WorkflowExecution execution = new WorkflowExecution();
         execution.setTenantId(TenantContext.tenantId());
         execution.setExecutionId(executionId);
         execution.setWorkflowId(workflowId);
+        execution.setVersionId(version.getId());
+        execution.setDefinitionHash(version.getDefinitionHash());
         execution.setWorkflowName(workflow.getWorkflowName());
         execution.setTriggerType(normalizeTriggerType(triggerType));
         execution.setTriggerSource(triggerSource);
@@ -89,12 +116,11 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     @Override
     public void startExecution(String executionId) {
         WorkflowExecution execution = requireExecution(executionId);
-        Workflow workflow = requireWorkflow(execution.getWorkflowId());
-        WorkflowDefinition definition = definitionService.parseAndValidate(workflow.getWorkflowDefinition());
+        WorkflowDefinition definition = loadBoundDefinition(execution);
         TenantContext.Context tenantContext = TenantContext.get();
 
         FutureTask<Void> future = new FutureTask<>(() -> {
-            runWithTenantContext(tenantContext, () -> executeWorkflow(execution, definition));
+            runWithTenantContext(tenantContext, () -> executeWorkflow(execution, definition, false, null));
             return null;
         });
         Future<?> existing = runningTasks.putIfAbsent(executionId, future);
@@ -133,7 +159,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         node.setTimeout(workflowStep.getTimeout());
         node.setRetryCount(workflowStep.getRetryCount());
         Map<String, Object> context = readContext(execution);
-        context.put(node.getId(), invokeAgent(execution, node, context));
+        context.put(node.getId(), invokeAgent(execution, node, context, loadBoundDefinition(execution)).payload());
         persistContext(execution, node.getId(), context);
     }
 
@@ -193,9 +219,200 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         return executions;
     }
 
-    private void executeWorkflow(WorkflowExecution execution, WorkflowDefinition definition) {
+    /**
+     * T20 dry-run. Persists an independent execution with status DRY_* (not production
+     * statuses) so node traces stay queryable and production metrics/lists stay clean.
+     * definitionJson is validated in-memory only and never written to workflow tables.
+     * AGENT nodes go through the same AgentRun/A2A pipeline as production, so tool and
+     * side-effect approval semantics apply unchanged.
+     */
+    @Override
+    public WorkflowTryRunDtos.TryRunResult tryRun(Long workflowId, WorkflowTryRunDtos.TryRunRequest request) {
+        Workflow workflow = requireWorkflow(workflowId);
+        Map<String, Object> inputs = request == null || request.inputs() == null
+                ? Map.of() : request.inputs();
+        String definitionJson = request == null ? null : request.definitionJson();
+
+        WorkflowDefinition definition;
+        Long versionId = null;
+        String definitionHash = null;
+        if (definitionJson != null && !definitionJson.isBlank()) {
+            // Draft try-run: validate only, never persist the definition.
+            definition = definitionService.parseAndValidate(definitionJson);
+            definitionHash = workflowVersionService.canonicalHash(definitionJson);
+        } else {
+            WorkflowVersion version = workflowVersionService.latestActive(workflowId);
+            if (version == null) {
+                throw ErrorCode.WORKFLOW_TRY_RUN_NO_DEFINITION.ex();
+            }
+            definition = definitionService.parseAndValidate(version.getDefinitionJson());
+            versionId = version.getId();
+            definitionHash = version.getDefinitionHash();
+        }
+
+        String executionId = IdUtil.fastSimpleUUID();
+        WorkflowExecution execution = new WorkflowExecution();
+        execution.setTenantId(TenantContext.tenantId());
+        execution.setExecutionId(executionId);
+        execution.setWorkflowId(workflowId);
+        execution.setVersionId(versionId);
+        execution.setDefinitionHash(definitionHash);
+        execution.setWorkflowName(workflow.getWorkflowName());
+        execution.setTriggerType("DRY_RUN");
+        execution.setTriggerSource("TRY_RUN");
+        execution.setStatus(STATUS_DRY_RUN);
+        execution.setStartParams(writeJson(inputs));
+        execution.setCreateTime(LocalDateTime.now());
+        executionMapper.insert(execution);
+
+        List<WorkflowTryRunDtos.NodeResult> nodeResults = new ArrayList<>();
+        long startedAt = System.currentTimeMillis();
+        executeWorkflow(execution, definition, true, nodeResults);
+
+        WorkflowExecution finished = getExecutionEntity(executionId);
+        Map<String, Object> resultMap = Map.of();
+        String errorMessage = null;
+        String status = STATUS_DRY_FAILED;
+        if (finished != null) {
+            status = finished.getStatus();
+            errorMessage = finished.getErrorMessage();
+            if (finished.getResult() != null && !finished.getResult().isBlank()) {
+                try {
+                    resultMap = objectMapper.readValue(finished.getResult(), new TypeReference<>() {});
+                } catch (Exception e) {
+                    log.warn("Cannot parse try-run result for {}: {}", executionId, e.getMessage());
+                }
+            }
+        }
+        return new WorkflowTryRunDtos.TryRunResult(
+                executionId, status, System.currentTimeMillis() - startedAt,
+                nodeResults, resultMap, errorMessage);
+    }
+
+    @Override
+    public List<WorkflowTryRunDtos.NodeRunView> listNodeRuns(String executionId) {
+        requireExecution(executionId);
+        return nodeRunMapper.selectList(new LambdaQueryWrapper<WorkflowNodeRun>()
+                        .eq(WorkflowNodeRun::getExecutionId, executionId)
+                        .orderByAsc(WorkflowNodeRun::getId))
+                .stream()
+                .map(this::toNodeRunView)
+                .toList();
+    }
+
+    private WorkflowTryRunDtos.NodeRunView toNodeRunView(WorkflowNodeRun run) {
+        return new WorkflowTryRunDtos.NodeRunView(
+                run.getId(), run.getExecutionId(), run.getNodeId(), run.getNodeType(),
+                run.getStatus(), run.getAttempt(), run.getInputDigest(), run.getOutputDigest(),
+                run.getDurationMs(), run.getErrorMessage(), run.getCreateTime(), run.getUpdateTime());
+    }
+
+    private void addNodeResult(List<WorkflowTryRunDtos.NodeResult> collector,
+                               WorkflowDefinition.Node node, String status,
+                               Map<String, Object> outputs, long startedAt, String error, int attempt) {
+        if (collector == null) return;
+        collector.add(new WorkflowTryRunDtos.NodeResult(
+                node.getId(), node.getType(), status, outputs,
+                System.currentTimeMillis() - startedAt, error, attempt));
+    }
+
+    private WorkflowNodeRun recordNodeStart(WorkflowExecution execution, WorkflowDefinition.Node node,
+                                            Map<String, Object> context) {
+        WorkflowNodeRun run = new WorkflowNodeRun();
+        run.setTenantId(TenantContext.tenantId());
+        run.setExecutionId(execution.getExecutionId());
+        run.setNodeId(node.getId());
+        run.setNodeType(node.getType());
+        run.setStatus("RUNNING");
+        run.setAttempt(1);
+        run.setInputDigest(digestSnapshot(inputSnapshot(node, context)));
+        run.setCreateTime(LocalDateTime.now());
+        run.setUpdateTime(run.getCreateTime());
+        run.setIsDeleted(0);
+        nodeRunMapper.insert(run);
+        return run;
+    }
+
+    private void completeNodeRun(WorkflowNodeRun run, Object outputs, long startedAt, int attempt) {
+        run.setStatus("COMPLETED");
+        run.setAttempt(attempt);
+        run.setOutputDigest(digestSnapshot(outputs));
+        run.setDurationMs(System.currentTimeMillis() - startedAt);
+        run.setUpdateTime(LocalDateTime.now());
+        nodeRunMapper.updateById(run);
+    }
+
+    private void failNodeRun(WorkflowNodeRun run, Throwable error, long startedAt, int attempt) {
+        run.setStatus("FAILED");
+        run.setAttempt(attempt);
+        run.setDurationMs(System.currentTimeMillis() - startedAt);
+        String message = error == null ? null : error.getMessage();
+        if (message != null && message.length() > 2000) {
+            message = message.substring(0, 2000);
+        }
+        run.setErrorMessage(message);
+        run.setUpdateTime(LocalDateTime.now());
+        nodeRunMapper.updateById(run);
+    }
+
+    /**
+     * Non-sensitive structural snapshot of what a node consumes. Raw values are never
+     * persisted — only {@link #digestSnapshot(Object)} of this structure is stored.
+     */
+    private Map<String, Object> inputSnapshot(WorkflowDefinition.Node node, Map<String, Object> context) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("nodeType", node.getType());
+        if (node.getParams() != null) snapshot.put("params", node.getParams());
+        if (node.getInputs() != null) snapshot.put("inputs", node.getInputs());
+        if ("CONDITION".equals(node.getType())) {
+            snapshot.put("conditionField", node.getConditionField());
+            snapshot.put("operator", node.getOperator());
+            snapshot.put("conditionValue", node.getConditionValue());
+            snapshot.put("condition", node.getCondition());
+        }
+        if ("START".equals(node.getType()) && context != null) {
+            // Start params are run inputs; keep only a type/shape fingerprint.
+            snapshot.put("contextKeys", new java.util.TreeSet<>(context.keySet()));
+        }
+        return snapshot;
+    }
+
+    /** SHA-256 hex digest of a canonicalized JSON snapshot; empty input yields null. */
+    private String digestSnapshot(Object value) {
+        if (value == null) return null;
         try {
-            execution.setStatus("RUNNING");
+            Object canonical = canonicalize(objectMapper.valueToTree(value));
+            byte[] bytes = objectMapper.writeValueAsBytes(canonical);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (Exception e) {
+            log.warn("Failed to digest node snapshot: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Object canonicalize(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        if (node.isObject()) {
+            Map<String, Object> sorted = new TreeMap<>();
+            node.fields().forEachRemaining(entry -> sorted.put(entry.getKey(), canonicalize(entry.getValue())));
+            return sorted;
+        }
+        if (node.isArray()) {
+            List<Object> items = new ArrayList<>();
+            node.forEach(item -> items.add(canonicalize(item)));
+            return items;
+        }
+        if (node.isTextual()) return node.asText();
+        if (node.isBoolean()) return node.asBoolean();
+        if (node.isNumber()) return node.numberValue();
+        return node.toString();
+    }
+
+    private void executeWorkflow(WorkflowExecution execution, WorkflowDefinition definition,
+                                 boolean dryRun, List<WorkflowTryRunDtos.NodeResult> collector) {
+        try {
+            execution.setStatus(dryRun ? STATUS_DRY_RUNNING : "RUNNING");
             execution.setStartTime(LocalDateTime.now());
             executionMapper.updateById(execution);
 
@@ -211,24 +428,26 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                     .orElseThrow()
                     .getId();
             Map<String, Object> context = new ConcurrentHashMap<>(readStartParams(execution));
-            executeNode(execution, startId, nodes, outgoing, context);
+            executeNode(execution, startId, nodes, outgoing, context, definition, collector);
             ensureActive(execution.getExecutionId());
-            finish(execution, "COMPLETED", writeJson(context), null);
+            finish(execution, dryRun ? STATUS_DRY_COMPLETED : "COMPLETED", writeJson(context), null);
         } catch (CancellationException e) {
             WorkflowExecution current = getExecutionEntity(execution.getExecutionId());
             if (current != null && !TERMINAL_STATUSES.contains(current.getStatus())) {
-                finish(current, "CANCELLED", null, "Execution cancelled");
+                finish(current, dryRun ? STATUS_DRY_CANCELLED : "CANCELLED", null, "Execution cancelled");
             }
         } catch (Exception e) {
             Throwable cause = unwrap(e);
             WorkflowExecution current = getExecutionEntity(execution.getExecutionId());
             if (current != null && !TERMINAL_STATUSES.contains(current.getStatus())) {
-                finish(current, "FAILED", null, cause.getMessage());
+                finish(current, dryRun ? STATUS_DRY_FAILED : "FAILED", null, cause.getMessage());
             }
             log.error("Workflow execution failed: {}", execution.getExecutionId(), cause);
         } finally {
-            runningTasks.remove(execution.getExecutionId());
-            cancelTimeout(execution.getExecutionId());
+            if (!dryRun) {
+                runningTasks.remove(execution.getExecutionId());
+                cancelTimeout(execution.getExecutionId());
+            }
         }
     }
 
@@ -236,25 +455,78 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                              String nodeId,
                              Map<String, WorkflowDefinition.Node> nodes,
                              Map<String, List<WorkflowDefinition.Edge>> outgoing,
-                             Map<String, Object> context) {
+                             Map<String, Object> context,
+                             WorkflowDefinition definition,
+                             List<WorkflowTryRunDtos.NodeResult> collector) {
         ensureActive(execution.getExecutionId());
         WorkflowDefinition.Node node = nodes.get(nodeId);
         if (node == null) throw new IllegalStateException("Workflow node not found: " + nodeId);
         persistContext(execution, nodeId, context);
 
-        switch (node.getType()) {
-            case "START" -> executeNode(execution, onlyTarget(nodeId, outgoing), nodes, outgoing, context);
-            case "AGENT" -> {
-                context.put(nodeId, invokeAgent(execution, node, context));
-                persistContext(execution, nodeId, context);
-                executeNode(execution, onlyTarget(nodeId, outgoing), nodes, outgoing, context);
+        long startedAt = System.currentTimeMillis();
+        WorkflowNodeRun nodeRun = recordNodeStart(execution, node, context);
+        try {
+            switch (node.getType()) {
+                case "START" -> {
+                    Map<String, Object> outputs = Map.of("started", true);
+                    completeNodeRun(nodeRun, outputs, startedAt, 1);
+                    addNodeResult(collector, node, "COMPLETED", outputs, startedAt, null, 1);
+                    executeNode(execution, onlyTarget(nodeId, outgoing), nodes, outgoing, context, definition, collector);
+                }
+                case "AGENT" -> {
+                    AgentInvokeResult invoked = invokeAgent(execution, node, context, definition);
+                    Object result = invoked.payload();
+                    context.put(nodeId, result);
+                    // Record outputs under nodeOutputs so {{nodes.<id>.outputs.<field>}} resolves.
+                    @SuppressWarnings("unchecked")
+                    Map<String, Map<String, Object>> nodeOutputs =
+                            (Map<String, Map<String, Object>>) context.computeIfAbsent("nodeOutputs",
+                                    key -> new HashMap<String, Map<String, Object>>());
+                    if (result instanceof Map<?, ?> map) {
+                        Map<String, Object> typed = new HashMap<>();
+                        map.forEach((k, v) -> typed.put(String.valueOf(k), v));
+                        nodeOutputs.put(nodeId, typed);
+                    } else if (result != null) {
+                        nodeOutputs.put(nodeId, Map.of("output", result));
+                    } else {
+                        nodeOutputs.put(nodeId, Map.of());
+                    }
+                    persistContext(execution, nodeId, context);
+                    Map<String, Object> outputs = nodeOutputs.get(nodeId);
+                    completeNodeRun(nodeRun, outputs, startedAt, invoked.attempts());
+                    addNodeResult(collector, node, "COMPLETED", outputs, startedAt, null, invoked.attempts());
+                    executeNode(execution, onlyTarget(nodeId, outgoing), nodes, outgoing, context, definition, collector);
+                }
+                case "CONDITION" -> {
+                    String target = conditionTarget(node, outgoing.getOrDefault(nodeId, List.of()), context);
+                    Map<String, Object> outputs = Map.of("target", target);
+                    completeNodeRun(nodeRun, outputs, startedAt, 1);
+                    addNodeResult(collector, node, "COMPLETED", outputs, startedAt, null, 1);
+                    executeNode(execution, target, nodes, outgoing, context, definition, collector);
+                }
+                case "PARALLEL" -> {
+                    executeParallel(execution, nodeId, nodes, outgoing, context, definition, collector);
+                    Map<String, Object> outputs = Map.of("branches", String.valueOf(context.get(nodeId)));
+                    completeNodeRun(nodeRun, outputs, startedAt, 1);
+                    addNodeResult(collector, node, "COMPLETED", outputs, startedAt, null, 1);
+                }
+                case "END" -> {
+                    context.put("completedNode", nodeId);
+                    Map<String, Object> outputs = Map.of("completedNode", nodeId);
+                    completeNodeRun(nodeRun, outputs, startedAt, 1);
+                    addNodeResult(collector, node, "COMPLETED", outputs, startedAt, null, 1);
+                }
+                default -> throw new IllegalStateException("Unsupported workflow node type: " + node.getType());
             }
-            case "CONDITION" -> executeNode(execution,
-                    conditionTarget(node, outgoing.getOrDefault(nodeId, List.of()), context),
-                    nodes, outgoing, context);
-            case "PARALLEL" -> executeParallel(execution, nodeId, nodes, outgoing, context);
-            case "END" -> context.put("completedNode", nodeId);
-            default -> throw new IllegalStateException("Unsupported workflow node type: " + node.getType());
+        } catch (RuntimeException | Error e) {
+            // Only stamp failure when this node itself failed; downstream failures
+            // leave the already-completed node_run untouched and just propagate.
+            if (!"COMPLETED".equals(nodeRun.getStatus())) {
+                int attempt = nodeRun.getAttempt() == null ? 1 : nodeRun.getAttempt();
+                failNodeRun(nodeRun, e, startedAt, attempt);
+                addNodeResult(collector, node, "FAILED", null, startedAt, e.getMessage(), attempt);
+            }
+            throw e;
         }
     }
 
@@ -262,14 +534,16 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
                                  String nodeId,
                                  Map<String, WorkflowDefinition.Node> nodes,
                                  Map<String, List<WorkflowDefinition.Edge>> outgoing,
-                                 Map<String, Object> context) {
+                                 Map<String, Object> context,
+                                 WorkflowDefinition definition,
+                                 List<WorkflowTryRunDtos.NodeResult> collector) {
         TenantContext.Context tenantContext = TenantContext.get();
         List<CompletableFuture<Map.Entry<String, Map<String, Object>>>> branches = outgoing
                 .getOrDefault(nodeId, List.of()).stream()
                 .map(edge -> CompletableFuture.supplyAsync(() -> {
                     Map<String, Object> branchContext = new HashMap<>(context);
                     runWithTenantContext(tenantContext,
-                            () -> executeNode(execution, edge.getTarget(), nodes, outgoing, branchContext));
+                            () -> executeNode(execution, edge.getTarget(), nodes, outgoing, branchContext, definition, collector));
                     return Map.entry(edge.getTarget(), branchContext);
                 }, workflowExecutor))
                 .toList();
@@ -283,8 +557,23 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         persistContext(execution, nodeId, context);
     }
 
-    private Object invokeAgent(WorkflowExecution execution, WorkflowDefinition.Node node,
-                               Map<String, Object> context) {
+    private record AgentInvokeResult(Object payload, int attempts) {
+    }
+
+    private AgentInvokeResult invokeAgent(WorkflowExecution execution, WorkflowDefinition.Node node,
+                                          Map<String, Object> context, WorkflowDefinition definition) {
+        // Prefer the AgentRun adapter when the workflow is bound to a project:
+        // it freezes resolved inputs, reuses runs by executionId:nodeId, and checks outputsSchema.
+        Workflow boundWorkflow = workflowMapper.selectById(execution.getWorkflowId());
+        if (boundWorkflow != null && boundWorkflow.getProjectKey() != null
+                && !boundWorkflow.getProjectKey().isBlank() && node.getAgentId() != null) {
+            Map<String, Map<String, Object>> nodeOutputs = extractNodeOutputs(context);
+            Map<String, Object> runInputs = extractRunInputs(execution);
+            Map<String, Object> outputs = workflowAgentRunAdapter.invoke(
+                    executionContext(execution, boundWorkflow), node,
+                    definitionVariables(definition), runInputs, nodeOutputs);
+            return new AgentInvokeResult(outputs, 1);
+        }
         AgentRegistry.AgentContext agent = resolveAgent(node);
         Map<String, Object> payload = new HashMap<>();
         if (node.getParams() != null) payload.putAll(node.getParams());
@@ -307,7 +596,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             try {
                 A2AMessage response = call.get(timeoutSeconds, TimeUnit.SECONDS);
                 if (response == null) throw new IllegalStateException("Agent returned no response");
-                return response.getPayload();
+                return new AgentInvokeResult(response.getPayload(), attempt);
             } catch (InterruptedException e) {
                 call.cancel(true);
                 Thread.currentThread().interrupt();
@@ -426,9 +715,13 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
             throw new CancellationException("Workflow execution interrupted");
         }
         WorkflowExecution current = getExecutionEntity(executionId);
-        if (current == null || "CANCELLED".equals(current.getStatus()) || "TIMEOUT".equals(current.getStatus())) {
+        if (current == null || isStopStatus(current.getStatus())) {
             throw new CancellationException("Workflow execution is no longer active");
         }
+    }
+
+    private boolean isStopStatus(String status) {
+        return "CANCELLED".equals(status) || "TIMEOUT".equals(status) || STATUS_DRY_CANCELLED.equals(status);
     }
 
     private void timeoutExecution(String executionId) {
@@ -483,6 +776,71 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         }
     }
 
+    private WorkflowAgentRunAdapter.WorkflowExecutionContext executionContext(
+            WorkflowExecution execution, Workflow workflow) {
+        return new WorkflowAgentRunAdapter.WorkflowExecutionContext() {
+            @Override public String getExecutionId() { return execution.getExecutionId(); }
+            @Override public String getProjectKey() { return workflow.getProjectKey(); }
+            @Override public Long getWorkflowId() { return execution.getWorkflowId(); }
+            @Override public Long getVersionId() { return execution.getVersionId(); }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractRunInputs(WorkflowExecution execution) {
+        if (execution.getStartParams() == null || execution.getStartParams().isBlank()) return Map.of();
+        try {
+            Object parsed = objectMapper.readValue(execution.getStartParams(), Object.class);
+            if (parsed instanceof Map<?, ?> map) {
+                Map<String, Object> typed = new HashMap<>();
+                map.forEach((k, v) -> typed.put(String.valueOf(k), v));
+                return typed;
+            }
+        } catch (Exception e) {
+            log.warn("Cannot parse start params for execution {}: {}", execution.getExecutionId(), e.getMessage());
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Map<String, Object>> extractNodeOutputs(Map<String, Object> context) {
+        Map<String, Map<String, Object>> outputs = new HashMap<>();
+        Object raw = context.get("nodeOutputs");
+        if (raw instanceof Map<?, ?> map) {
+            map.forEach((nodeId, value) -> {
+                if (value instanceof Map<?, ?> nested) {
+                    Map<String, Object> typed = new HashMap<>();
+                    nested.forEach((k, v) -> typed.put(String.valueOf(k), v));
+                    outputs.put(String.valueOf(nodeId), typed);
+                }
+            });
+        }
+        return outputs;
+    }
+
+    private List<WorkflowDefinition.Variable> definitionVariables(WorkflowDefinition definition) {
+        return definition.getVariables() == null ? List.of() : definition.getVariables();
+    }
+
+    /**
+     * Load the definition from the immutable snapshot this execution bound at creation.
+     * Falls back to an in-memory freeze of the current draft only when no snapshot exists
+     * (legacy rows created before version binding).
+     */
+    private WorkflowDefinition loadBoundDefinition(WorkflowExecution execution) {
+        if (execution.getVersionId() != null) {
+            WorkflowVersion version = workflowVersionService.requireActiveVersion(
+                    execution.getWorkflowId(), execution.getVersionId());
+            if (execution.getDefinitionHash() != null
+                    && !execution.getDefinitionHash().equals(version.getDefinitionHash())) {
+                throw ErrorCode.WORKFLOW_VERSION_NOT_ACTIVE.ex();
+            }
+            return definitionService.parseAndValidate(version.getDefinitionJson());
+        }
+        Workflow workflow = requireWorkflow(execution.getWorkflowId());
+        return definitionService.parseAndValidate(workflow.getWorkflowDefinition());
+    }
+
     private Workflow requireWorkflow(Long workflowId) {
         Workflow workflow = workflowMapper.selectById(workflowId);
         if (workflow == null) throw new IllegalArgumentException("Workflow not found: " + workflowId);
@@ -491,7 +849,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
 
     private WorkflowExecution requireExecution(String executionId) {
         WorkflowExecution execution = getExecutionEntity(executionId);
-        if (execution == null) throw new IllegalArgumentException("Workflow execution not found: " + executionId);
+        if (execution == null) throw ErrorCode.WORKFLOW_EXECUTION_NOT_FOUND.ex();
         return execution;
     }
 

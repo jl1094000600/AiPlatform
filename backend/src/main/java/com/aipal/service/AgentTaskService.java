@@ -169,6 +169,69 @@ public class AgentTaskService {
         }
     }
 
+    /**
+     * Claim the root RUN task of a specific run. Used by the workflow AgentRun adapter
+     * so a workflow node can execute its own run without racing the global queue.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentTask claimRootTask(Long runId, String workerId, int leaseSeconds) {
+        if (runId == null || workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("runId and workerId are required");
+        }
+        if (leaseSeconds < 5 || leaseSeconds > 600) {
+            throw new IllegalArgumentException("leaseSeconds must be between 5 and 600");
+        }
+        Long tenantId = TenantContext.tenantId();
+        AgentTask task = taskMapper.selectOne(new LambdaQueryWrapper<AgentTask>()
+                .eq(AgentTask::getTenantId, tenantId)
+                .eq(AgentTask::getRunId, runId)
+                .eq(AgentTask::getTaskType, "RUN")
+                .isNull(AgentTask::getParentTaskId)
+                .eq(AgentTask::getStatus, AgentTaskStatus.QUEUED.name())
+                .last("LIMIT 1"));
+        if (task == null) return null;
+
+        AgentRun run = runMapper.selectById(runId);
+        if (run == null || !tenantId.equals(run.getTenantId()) || isTerminal(run.getStatus())) {
+            return null;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        AgentTask update = new AgentTask();
+        update.setStatus(AgentTaskStatus.RUNNING.name());
+        update.setLeaseOwner(workerId.trim());
+        update.setLeaseUntil(now.plusSeconds(leaseSeconds));
+        update.setAttemptCount(task.getAttemptCount() + 1);
+        update.setStartTime(now);
+        update.setUpdateTime(now);
+        int claimed = taskMapper.update(update, new LambdaUpdateWrapper<AgentTask>()
+                .eq(AgentTask::getId, task.getId())
+                .eq(AgentTask::getTenantId, tenantId)
+                .eq(AgentTask::getStatus, AgentTaskStatus.QUEUED.name()));
+        if (claimed != 1) return null;
+
+        if (AgentRunStatus.QUEUED.name().equals(run.getStatus())) {
+            AgentRun start = new AgentRun();
+            start.setStatus(AgentRunStatus.RUNNING.name());
+            start.setStartTime(now);
+            start.setUpdateTime(now);
+            int changed = runMapper.update(start, new LambdaUpdateWrapper<AgentRun>()
+                    .eq(AgentRun::getId, run.getId())
+                    .eq(AgentRun::getTenantId, tenantId)
+                    .eq(AgentRun::getStatus, AgentRunStatus.QUEUED.name()));
+            if (changed == 1) {
+                eventService.record(run, AgentRunStatus.QUEUED.name(), AgentRunStatus.RUNNING.name(),
+                        "Workflow node claimed root task");
+            }
+        }
+        task.setStatus(update.getStatus());
+        task.setLeaseOwner(update.getLeaseOwner());
+        task.setLeaseUntil(update.getLeaseUntil());
+        task.setAttemptCount(update.getAttemptCount());
+        task.setStartTime(update.getStartTime());
+        return task;
+    }
+
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public AgentTask claimNext(String workerId, int leaseSeconds) {
         if (workerId == null || workerId.isBlank()) throw new IllegalArgumentException("workerId is required");

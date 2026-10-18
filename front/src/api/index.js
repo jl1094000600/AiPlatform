@@ -428,6 +428,21 @@ export default {
   deployWorkflow(id) {
     return api.post('/workflows/' + id + '/deploy')
   },
+  overwriteWorkflowVersion(id, versionId, data) {
+    return api.put('/workflows/' + id + '/versions/' + versionId, data)
+  },
+  publishWorkflowVersion(id, data) {
+    return api.post('/workflows/' + id + '/versions', data)
+  },
+  getWorkflowVersions(id) {
+    return api.get('/workflows/' + id + '/versions')
+  },
+  getWorkflowVersion(id, versionId) {
+    return api.get('/workflows/' + id + '/versions/' + versionId)
+  },
+  deprecateWorkflowVersion(id, versionId) {
+    return api.post('/workflows/' + id + '/versions/' + versionId + '/deprecate')
+  },
   triggerWorkflow(id, data, triggerType = 'MANUAL') {
     return api.post('/workflows/' + id + '/trigger', data, { params: { triggerType } })
   },
