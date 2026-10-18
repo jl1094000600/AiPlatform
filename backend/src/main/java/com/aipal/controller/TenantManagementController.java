@@ -1,5 +1,7 @@
 package com.aipal.controller;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.Result;
 import com.aipal.common.BizException;
 import com.aipal.entity.SysMenu;
@@ -132,14 +134,14 @@ public class TenantManagementController {
             return currentTenantId;
         }
         if (!TenantContext.platformAdmin()) {
-            throw new BizException(403, "Cross-tenant administration requires platform administrator privileges");
+            throw ErrorCode.CROSS_TENANT_ADMIN_REQUIRED.ex();
         }
         return tenantId;
     }
 
     private void requirePlatformAdmin() {
         if (!TenantContext.platformAdmin()) {
-            throw new BizException(403, "Platform administrator privileges are required");
+            throw ErrorCode.PLATFORM_ADMIN_REQUIRED.ex();
         }
     }
 }

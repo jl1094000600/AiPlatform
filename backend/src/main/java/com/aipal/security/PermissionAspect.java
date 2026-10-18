@@ -1,5 +1,7 @@
 package com.aipal.security;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.entity.SysAuditLog;
 import com.aipal.mapper.SysAuditLogMapper;
@@ -26,7 +28,7 @@ public class PermissionAspect {
         String permissionCode = annotation == null ? null : annotation.value();
         if (!TenantContext.hasPermission(permissionCode)) {
             writeAudit(permissionCode, 0, "无权限访问");
-            throw new BizException(403, "无权限访问：" + permissionCode);
+            throw ErrorCode.PERMISSION_DENIED.ex(permissionCode);
         }
         try {
             Object result = joinPoint.proceed();

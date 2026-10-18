@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.agent.runtime.AgentRunStreamEventType;
 import com.aipal.entity.AgentRunStreamEvent;
@@ -91,7 +93,7 @@ public class AgentRunStreamEventService {
         try {
             return objectMapper.readValue(payloadJson, new TypeReference<>() {});
         } catch (JsonProcessingException e) {
-            throw new BizException(500, "Run stream event payload cannot be read");
+            throw ErrorCode.RUN_STREAM_EVENT_UNREADABLE.ex();
         }
     }
 

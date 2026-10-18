@@ -1,5 +1,7 @@
 package com.aipal.service.memory;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.entity.AiMemoryProject;
 import com.aipal.entity.AiMemoryProjectMember;
@@ -32,14 +34,14 @@ public class MemoryProjectService {
     @Transactional
     public AiMemoryProject create(String projectKey, String projectName, String projectType) {
         if (projectKey == null || projectKey.isBlank() || projectName == null || projectName.isBlank()) {
-            throw new BizException(400, "项目键和项目名称不能为空");
+            throw ErrorCode.PROJECT_KEY_NAME_REQUIRED.ex();
         }
-        if (TenantContext.userId() == null) throw new BizException(403, "系统任务不能创建项目");
+        if (TenantContext.userId() == null) throw ErrorCode.SYSTEM_TASK_CANNOT_CREATE_PROJECT.ex();
         AiMemoryProject existing = projectMapper.selectOne(new LambdaQueryWrapper<AiMemoryProject>()
                 .eq(AiMemoryProject::getTenantId, TenantContext.tenantId())
                 .eq(AiMemoryProject::getProjectKey, projectKey.trim())
                 .last("LIMIT 1"));
-        if (existing != null) throw new BizException(409, "项目键已存在");
+        if (existing != null) throw ErrorCode.PROJECT_KEY_EXISTS.ex();
         AiMemoryProject project = new AiMemoryProject();
         project.setTenantId(TenantContext.tenantId());
         project.setProjectKey(projectKey.trim());
@@ -80,7 +82,7 @@ public class MemoryProjectService {
     @Transactional
     public AiMemoryProject ensureWorkspaceForPipeline(String projectKey, String projectName) {
         if (projectKey == null || projectKey.isBlank() || projectName == null || projectName.isBlank()) {
-            throw new BizException(400, "项目键和项目名称不能为空");
+            throw ErrorCode.PROJECT_KEY_NAME_REQUIRED.ex();
         }
         AiMemoryProject existing = projectMapper.selectOne(activeProjectQuery()
                 .eq(AiMemoryProject::getProjectKey, projectKey.trim())
@@ -94,7 +96,7 @@ public class MemoryProjectService {
     @Transactional
     public AiMemoryProjectMember addMember(String projectKey, Long userId, String role) {
         AiMemoryProject project = requireManageableProject(projectKey);
-        if (userId == null) throw new BizException(400, "成员用户不能为空");
+        if (userId == null) throw ErrorCode.MEMBER_USER_REQUIRED.ex();
         return upsertMember(project, userId, role == null || role.isBlank() ? "MEMBER" : role.trim());
     }
 
@@ -106,13 +108,13 @@ public class MemoryProjectService {
         AiMemoryProject project = requireActiveProject(projectKey);
         if (TenantContext.hasPermission("memory:policy")) return project;
         Long userId = TenantContext.userId();
-        if (userId == null) throw new BizException(403, "无权访问项目记忆");
+        if (userId == null) throw ErrorCode.MEMORY_PROJECT_ACCESS_DENIED.ex();
         Long memberCount = memberMapper.selectCount(new LambdaQueryWrapper<AiMemoryProjectMember>()
                 .eq(AiMemoryProjectMember::getTenantId, TenantContext.tenantId())
                 .eq(AiMemoryProjectMember::getProjectId, project.getId())
                 .eq(AiMemoryProjectMember::getUserId, userId)
                 .eq(AiMemoryProjectMember::getStatus, "ACTIVE"));
-        if (memberCount == null || memberCount == 0) throw new BizException(403, "不是该项目成员");
+        if (memberCount == null || memberCount == 0) throw ErrorCode.PROJECT_MEMBER_REQUIRED.ex();
         return project;
     }
 
@@ -131,7 +133,7 @@ public class MemoryProjectService {
         requireWorkspacePermission("project-workspace:view");
         AiMemoryProject project = requireActiveProject(projectKey);
         if (!isActiveTenantUser(TenantContext.userId()) || activeMember(project, TenantContext.userId()) == null) {
-            throw new BizException(403, "不是该项目的有效成员");
+            throw ErrorCode.PROJECT_ACTIVE_MEMBER_REQUIRED.ex();
         }
         return project;
     }
@@ -149,7 +151,7 @@ public class MemoryProjectService {
         AiMemoryProject project = requireAccessibleWorkspaceProject(projectKey);
         AiMemoryProjectMember member = activeMember(project, userId);
         if (member == null || !isActiveTenantUser(userId)) {
-            throw new BizException(400, "被指派人不是当前项目的有效成员");
+            throw ErrorCode.ASSIGNEE_NOT_ACTIVE_MEMBER.ex();
         }
         SysUser user = userMapper.selectById(userId);
         return new ProjectMemberView(userId, user.getUsername(), user.getRealName(), member.getMemberRole());
@@ -206,7 +208,7 @@ public class MemoryProjectService {
 
     public void requireWorkspacePermission(String permission) {
         if (TenantContext.userId() == null || !TenantContext.hasPermission(permission)) {
-            throw new BizException(403, "无权限访问：" + permission);
+            throw ErrorCode.PERMISSION_DENIED.ex(permission);
         }
     }
 
@@ -224,16 +226,16 @@ public class MemoryProjectService {
     private AiMemoryProject requireManageableProject(String projectKey) {
         AiMemoryProject project = requireAccessibleProject(projectKey);
         if (!canManageProject(projectKey)) {
-            throw new BizException(403, "无权管理项目成员");
+            throw ErrorCode.PROJECT_MANAGE_DENIED.ex();
         }
         return project;
     }
 
     private AiMemoryProject requireActiveProject(String projectKey) {
-        if (projectKey == null || projectKey.isBlank()) throw new BizException(400, "项目键不能为空");
+        if (projectKey == null || projectKey.isBlank()) throw ErrorCode.PROJECT_KEY_REQUIRED.ex();
         AiMemoryProject project = projectMapper.selectOne(activeProjectQuery()
                 .eq(AiMemoryProject::getProjectKey, projectKey.trim()).last("LIMIT 1"));
-        if (project == null) throw new BizException(404, "项目不存在或已停用");
+        if (project == null) throw ErrorCode.PROJECT_NOT_FOUND.ex();
         return project;
     }
 

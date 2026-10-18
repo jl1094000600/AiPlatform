@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.agent.runtime.workspace.WorkspaceFactory;
 import com.aipal.agent.runtime.workspace.WorkspaceManager;
@@ -85,13 +87,13 @@ public class AgentRunService {
         try (var ignored = memoryProjectService.openAccessibleProject(command.projectKey())) {
             AiAgent agent = agentMapper.selectById(command.agentId());
             if (agent == null || agent.getStatus() == null || agent.getStatus() != 1) {
-                throw new BizException(400, "Agent不存在或未上线");
+                throw ErrorCode.AGENT_NOT_AVAILABLE.ex();
             }
             AiAgentVersion version = agentVersionService.getLatestVersion(agent.getId());
-            if (version == null) throw new BizException(400, "Agent没有已发布版本");
+            if (version == null) throw ErrorCode.AGENT_NO_PUBLISHED_VERSION.ex();
             AiAgentRuntimeConfig runtime = runtimeConfigService.getOrDefaultByAgentId(agent.getId());
             String inputJson = canonicalJson(command.input() == null ? Map.of() : command.input());
-            if (inputJson.length() > 64 * 1024) throw new BizException(400, "Agent input exceeds 64KB limit");
+            if (inputJson.length() > 64 * 1024) throw ErrorCode.AGENT_INPUT_TOO_LARGE.ex();
             String idempotencyKey = sha256(TenantContext.tenantId() + "|" + command.projectKey() + "|"
                     + command.businessType() + "|" + command.businessId() + "|" + version.getId() + "|" + inputJson);
             AgentRun existing = runMapper.selectOne(new LambdaQueryWrapper<AgentRun>()
@@ -150,17 +152,17 @@ public class AgentRunService {
     }
 
     public Page<AgentRun> list(int pageNum, int pageSize, String status) {
-        if (pageNum < 1 || pageSize < 1 || pageSize > 100) throw new BizException(400, "Invalid page range");
+        if (pageNum < 1 || pageSize < 1 || pageSize > 100) throw ErrorCode.INVALID_PAGE_RANGE.ex();
         if (status != null && !status.isBlank()) {
             try { AgentRunStatus.valueOf(status); }
-            catch (IllegalArgumentException ex) { throw new BizException(400, "Invalid run status"); }
+            catch (IllegalArgumentException ex) { throw ErrorCode.INVALID_RUN_STATUS.ex(); }
         }
         LambdaQueryWrapper<AgentRun> query = new LambdaQueryWrapper<AgentRun>()
                 .eq(AgentRun::getTenantId, TenantContext.tenantId())
                 .eq(status != null && !status.isBlank(), AgentRun::getStatus, status)
                 .orderByDesc(AgentRun::getCreateTime);
         if (!TenantContext.hasPermission("memory:policy") && !TenantContext.hasPermission("agent:manage")) {
-            if (TenantContext.userId() == null) throw new BizException(403, "User context is required");
+            if (TenantContext.userId() == null) throw ErrorCode.USER_CONTEXT_REQUIRED.ex();
             List<String> projectKeys = memoryProjectService.listAccessible().stream()
                     .map(AiMemoryProject::getProjectKey).toList();
             query.and(access -> {
@@ -287,7 +289,7 @@ public class AgentRunService {
     public AgentRun approve(Long runId, String reason) {
         AgentRun run = get(runId);
         assertApprover(run);
-        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw new BizException(409, "Run is not waiting for approval");
+        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw ErrorCode.RUN_NOT_WAITING_APPROVAL.ex();
         LocalDateTime now = LocalDateTime.now();
         AgentRun update = new AgentRun();
         update.setStatus(AgentRunStatus.SUCCEEDED.name());
@@ -316,7 +318,7 @@ public class AgentRunService {
     public AgentRun reject(Long runId, String reason) {
         AgentRun run = get(runId);
         assertApprover(run);
-        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw new BizException(409, "Run is not waiting for approval");
+        if (!AgentRunStatus.WAITING_APPROVAL.name().equals(run.getStatus())) throw ErrorCode.RUN_NOT_WAITING_APPROVAL.ex();
         LocalDateTime now = LocalDateTime.now();
         String rejectReason = reason == null || reason.isBlank() ? "Rejected by authorized user" : reason.trim();
         AgentRun update = new AgentRun();
@@ -439,21 +441,21 @@ public class AgentRunService {
         AgentRun run = runMapper.selectOne(new LambdaQueryWrapper<AgentRun>()
                 .eq(AgentRun::getTenantId, TenantContext.tenantId())
                 .eq(AgentRun::getIdempotencyKey, idempotencyKey).last("LIMIT 1"));
-        if (run == null) throw new BizException(409, "并发创建Run冲突，请重试");
+        if (run == null) throw ErrorCode.RUN_CREATE_CONFLICT.ex();
         return run;
     }
 
     private void validate(CreateRunCommand command) {
         if (command == null || command.agentId() == null || blank(command.projectKey())
                 || blank(command.businessType()) || blank(command.businessId())) {
-            throw new BizException(400, "agentId、projectKey、businessType、businessId不能为空");
+            throw ErrorCode.RUN_CREATE_FIELDS_REQUIRED.ex();
         }
     }
 
     private void assertReadable(AgentRun run) {
-        if (run == null || !TenantContext.tenantId().equals(run.getTenantId())) throw new BizException(404, "Agent Run不存在");
+        if (run == null || !TenantContext.tenantId().equals(run.getTenantId())) throw ErrorCode.AGENT_RUN_NOT_FOUND.ex();
         if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return;
-        if (TenantContext.userId() == null) throw new BizException(403, "User context is required");
+        if (TenantContext.userId() == null) throw ErrorCode.USER_CONTEXT_REQUIRED.ex();
         if (TenantContext.userId().equals(run.getOwnerUserId())) return;
         try (var ignored = memoryProjectService.openAccessibleProject(run.getProjectKey())) {
             // Project membership is verified by the trusted context service.
@@ -475,21 +477,21 @@ public class AgentRunService {
 
     private void assertCancellable(AgentRun run) {
         if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return;
-        if (TenantContext.userId() == null) throw new BizException(403, "User context is required");
+        if (TenantContext.userId() == null) throw ErrorCode.USER_CONTEXT_REQUIRED.ex();
         if (TenantContext.userId().equals(run.getOwnerUserId()) || memoryProjectService.canManageProject(run.getProjectKey())) return;
-        throw new BizException(403, "Only the run owner or project manager can cancel this run");
+        throw ErrorCode.RUN_CANCEL_DENIED.ex();
     }
 
     private void assertApprover(AgentRun run) {
         if (TenantContext.hasPermission("memory:policy") || TenantContext.hasPermission("agent:manage")) return;
-        if (TenantContext.userId() == null) throw new BizException(403, "User context is required");
+        if (TenantContext.userId() == null) throw ErrorCode.USER_CONTEXT_REQUIRED.ex();
         if (TenantContext.userId().equals(run.getOwnerUserId()) || memoryProjectService.canManageProject(run.getProjectKey())) return;
-        throw new BizException(403, "Only the run owner or project manager can approve this run");
+        throw ErrorCode.RUN_APPROVE_DENIED.ex();
     }
 
     private String json(Object value) {
         try { return objectMapper.writeValueAsString(value); }
-        catch (JsonProcessingException e) { throw new BizException(500, "无法冻结Agent定义快照"); }
+        catch (JsonProcessingException e) { throw ErrorCode.AGENT_SNAPSHOT_FREEZE_FAILED.ex(); }
     }
 
     private String canonicalJson(Object value) {
@@ -499,7 +501,7 @@ public class AgentRunService {
                     .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
                     .writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new BizException(400, "Agent input cannot be serialized");
+            throw ErrorCode.AGENT_INPUT_NOT_SERIALIZABLE.ex();
         }
     }
 

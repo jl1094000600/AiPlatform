@@ -1,5 +1,7 @@
 package com.aipal.service.memory;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.entity.AiMemoryItem;
 import com.aipal.entity.AiMemoryRecallTrace;
@@ -67,11 +69,11 @@ public class MemoryManagementService {
                 .eq(AiMemoryRecallTrace::getTraceId, traceId)
                 .last("LIMIT 1"));
         if (trace == null || !TenantContext.tenantId().equals(trace.getTenantId())) {
-            throw new BizException(404, "记忆调用记录不存在");
+            throw ErrorCode.MEMORY_TRACE_NOT_FOUND.ex();
         }
         if (!TenantContext.hasPermission("memory:policy")
                 && (TenantContext.userId() == null || !TenantContext.userId().equals(trace.getUserId()))) {
-            throw new BizException(403, "无权查看该记忆调用记录");
+            throw ErrorCode.MEMORY_TRACE_ACCESS_DENIED.ex();
         }
         return trace;
     }
@@ -98,19 +100,19 @@ public class MemoryManagementService {
 
     private void assertReadable(AiMemoryItem memory) {
         if (memory == null || !TenantContext.tenantId().equals(memory.getTenantId())) {
-            throw new BizException(404, "记忆不存在");
+            throw ErrorCode.MEMORY_NOT_FOUND.ex();
         }
         if (TenantContext.hasPermission("memory:policy")) return;
         boolean tenantVisible = "TENANT".equals(memory.getScopeType());
         boolean ownedByCurrentUser = "USER".equals(memory.getScopeType())
                 && TenantContext.userId() != null && TenantContext.userId().equals(memory.getOwnerUserId());
-        if (!tenantVisible && !ownedByCurrentUser) throw new BizException(403, "无权访问该记忆");
+        if (!tenantVisible && !ownedByCurrentUser) throw ErrorCode.MEMORY_ACCESS_DENIED.ex();
     }
 
     private void assertWritable(AiMemoryItem memory) {
         if (TenantContext.hasPermission("memory:policy")) return;
         boolean ownedByCurrentUser = "USER".equals(memory.getScopeType())
                 && TenantContext.userId() != null && TenantContext.userId().equals(memory.getOwnerUserId());
-        if (!ownedByCurrentUser) throw new BizException(403, "只能修改自己的记忆");
+        if (!ownedByCurrentUser) throw ErrorCode.MEMORY_MODIFY_DENIED.ex();
     }
 }

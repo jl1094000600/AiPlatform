@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.agent.runtime.AgentTaskStatus;
 import com.aipal.agent.runtime.AskInteractionStatus;
@@ -118,16 +120,16 @@ public class AgentToolResponseService {
      * Idempotent: only the first respond against a PENDING interaction takes effect.
      */
     public RespondResult respondToToolCall(Long runId, String callId, String answer) {
-        if (callId == null || callId.isBlank()) throw new BizException(400, "callId is required");
-        if (answer == null || answer.isBlank()) throw new BizException(400, "answer is required");
+        if (callId == null || callId.isBlank()) throw ErrorCode.CALL_ID_REQUIRED.ex();
+        if (answer == null || answer.isBlank()) throw ErrorCode.ANSWER_REQUIRED.ex();
         AgentToolCall call = toolCallMapper.selectOne(new LambdaQueryWrapper<AgentToolCall>()
                 .eq(AgentToolCall::getRunId, runId)
                 .eq(AgentToolCall::getCallId, callId.trim())
                 .last("LIMIT 1"));
-        if (call == null) throw new BizException(404, "Tool call not found");
+        if (call == null) throw ErrorCode.TOOL_CALL_NOT_FOUND.ex();
         AgentRun run = requireRun(call.getTenantId(), runId);
         if (!"ask_user".equals(call.getToolName())) {
-            throw new BizException(409, "Tool call is not an ask_user call");
+            throw ErrorCode.TOOL_CALL_NOT_ASK_USER.ex();
         }
         String trimmed = answer.trim();
         AgentAskInteraction interaction = findInteraction(call.getTenantId(), runId, call.getCallId());
@@ -135,15 +137,15 @@ public class AgentToolResponseService {
             return new RespondResult(runId, call.getCallId(), "ALREADY_ANSWERED");
         }
         if (interaction != null && AskInteractionStatus.TIMED_OUT.name().equals(interaction.getStatus())) {
-            throw new BizException(409, "ask_user already timed out");
+            throw ErrorCode.ASK_USER_ALREADY_TIMED_OUT.ex();
         }
         if (interaction != null && AskInteractionStatus.CANCELLED.name().equals(interaction.getStatus())) {
-            throw new BizException(409, "ask_user already cancelled");
+            throw ErrorCode.ASK_USER_ALREADY_CANCELLED.ex();
         }
         if (!AgentTaskStatus.RUNNING.name().equals(call.getStatus())
                 && !AgentRunStatus.WAITING_USER_INPUT.name().equals(call.getStatus())
                 && !AgentTaskStatus.SUCCEEDED.name().equals(call.getStatus())) {
-            throw new BizException(409, "Tool call is not waiting for user input");
+            throw ErrorCode.TOOL_CALL_NOT_WAITING_INPUT.ex();
         }
 
         boolean won;
@@ -159,7 +161,7 @@ public class AgentToolResponseService {
                 if (current != null && AskInteractionStatus.ANSWERED.name().equals(current.getStatus())) {
                     return new RespondResult(runId, call.getCallId(), "ALREADY_ANSWERED");
                 }
-                throw new BizException(409, "ask_user is not waiting for user input");
+                throw ErrorCode.ASK_USER_NOT_WAITING_INPUT.ex();
             }
         }
 
@@ -480,7 +482,7 @@ public class AgentToolResponseService {
 
     private AgentRun requireRun(Long tenantId, Long runId) {
         AgentRun run = runMapper.selectById(runId);
-        if (run == null || !tenantId.equals(run.getTenantId())) throw new BizException(404, "Agent Run不存在");
+        if (run == null || !tenantId.equals(run.getTenantId())) throw ErrorCode.AGENT_RUN_NOT_FOUND.ex();
         return run;
     }
 

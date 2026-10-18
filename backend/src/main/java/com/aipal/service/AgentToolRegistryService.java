@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.entity.AgentToolDefinition;
 import com.aipal.mapper.AgentToolDefinitionMapper;
@@ -26,12 +28,12 @@ public class AgentToolRegistryService {
     }
 
     public AgentToolDefinition requireEnabled(String toolName) {
-        if (toolName == null || toolName.isBlank()) throw new BizException(400, "toolName is required");
+        if (toolName == null || toolName.isBlank()) throw ErrorCode.TOOL_NAME_REQUIRED.ex();
         AgentToolDefinition definition = toolDefinitionMapper.selectOne(new LambdaQueryWrapper<AgentToolDefinition>()
                 .eq(AgentToolDefinition::getToolName, toolName.trim())
                 .eq(AgentToolDefinition::getStatus, 1)
                 .last("LIMIT 1"));
-        if (definition == null) throw new BizException(404, "Agent tool not found or disabled");
+        if (definition == null) throw ErrorCode.AGENT_TOOL_NOT_FOUND.ex();
         return definition;
     }
 
@@ -48,7 +50,7 @@ public class AgentToolRegistryService {
             Map<String, Object> schema = objectMapper.readValue(definition.getInputSchema(), new TypeReference<>() {});
             if (!(input instanceof Map<?, ?> payload)) {
                 if (schema.containsKey("required") || "object".equals(schema.get("type"))) {
-                    throw new BizException(400, "Tool input must be an object");
+                    throw ErrorCode.TOOL_INPUT_NOT_OBJECT.ex();
                 }
                 return;
             }
@@ -60,14 +62,14 @@ public class AgentToolRegistryService {
                                 || String.valueOf(payload.get(field)).isBlank())
                         .toList();
                 if (!missing.isEmpty()) {
-                    throw new BizException(400, "Missing required tool input: " + String.join(",", missing));
+                    throw ErrorCode.TOOL_INPUT_MISSING_FIELD.ex(String.join(",", missing));
                 }
             }
             validateProperties(schema, payload);
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw new BizException(500, "Tool input schema is invalid");
+            throw ErrorCode.TOOL_INPUT_SCHEMA_INVALID.ex();
         }
     }
 
@@ -81,22 +83,22 @@ public class AgentToolRegistryService {
             Object value = payload.get(field);
             String type = constraints.get("type") == null ? null : String.valueOf(constraints.get("type"));
             if ("string".equals(type) && !(value instanceof String)) {
-                throw new BizException(400, "Tool input field must be string: " + field);
+                throw ErrorCode.TOOL_INPUT_FIELD_MUST_BE_STRING.ex(field);
             }
             if ("integer".equals(type)) {
                 int parsed = parseInteger(field, value);
                 if (constraints.get("minimum") instanceof Number min && parsed < min.intValue()) {
-                    throw new BizException(400, "Tool input field below minimum: " + field);
+                    throw ErrorCode.TOOL_INPUT_FIELD_BELOW_MIN.ex(field);
                 }
                 if (constraints.get("maximum") instanceof Number max && parsed > max.intValue()) {
-                    throw new BizException(400, "Tool input field above maximum: " + field);
+                    throw ErrorCode.TOOL_INPUT_FIELD_ABOVE_MAX.ex(field);
                 }
             }
             if ("object".equals(type) && !(value instanceof Map<?, ?>)) {
-                throw new BizException(400, "Tool input field must be object: " + field);
+                throw ErrorCode.TOOL_INPUT_FIELD_MUST_BE_OBJECT.ex(field);
             }
             if ("array".equals(type) && !(value instanceof List<?>)) {
-                throw new BizException(400, "Tool input field must be array: " + field);
+                throw ErrorCode.TOOL_INPUT_FIELD_MUST_BE_ARRAY.ex(field);
             }
         }
     }
@@ -107,7 +109,7 @@ public class AgentToolRegistryService {
             int parsed = number.intValue();
             if (Double.compare(raw, parsed) == 0) return parsed;
         }
-        throw new BizException(400, "Tool input field must be integer: " + field);
+        throw ErrorCode.TOOL_INPUT_FIELD_MUST_BE_INTEGER.ex(field);
     }
 
     public record ToolDryRunResult(String toolName, String riskLevel, Boolean accepted, String message) {

@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.common.BizException;
 import com.aipal.dto.ProjectWarRoomDtos;
@@ -95,7 +97,7 @@ public class ProjectWarRoomService {
     public ProjectWarRoomDtos.TeamAgentQueueRunView createTeamAgentRun(String projectKey,
                                                                         ProjectWarRoomDtos.TeamAgentRunRequest request) {
         if (request == null || request.agentId() == null || blank(request.businessType()) || blank(request.businessId())) {
-            throw new BizException(400, "agentId, businessType and businessId are required");
+            throw ErrorCode.TEAM_RUN_FIELDS_REQUIRED.ex();
         }
         memoryProjectService.requireWorkspacePermission("project-workspace:execute");
         AiMemoryProject project = memoryProjectService.requireAccessibleWorkspaceProject(projectKey);

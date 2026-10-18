@@ -1,5 +1,7 @@
 package com.aipal.controller;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.Result;
 import com.aipal.common.BizException;
 import com.aipal.config.JwtConfig;
@@ -91,7 +93,7 @@ public class UserMemoryController {
                 requestedUserId == null ? identity.userId() : requestedUserId,
                 requestedUsername == null || requestedUsername.isBlank() ? identity.username() : requestedUsername);
         if (!TenantContext.hasPermission("memory:policy") && !currentUserKey.equals(requested)) {
-            throw new BizException(403, "只能访问当前用户的记忆");
+            throw ErrorCode.MEMORY_OWNER_ONLY.ex();
         }
         return requested;
     }

@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.agent.runtime.AgentTaskStatus;
 import com.aipal.agent.runtime.budget.RunBudgetGuard;
@@ -55,10 +57,10 @@ public class AgentTaskService {
         AgentTask root = rootTask(runId, tenantId);
         long existing = countChildTasks(runId, tenantId);
         runBudgetGuard.checkChildTaskCount(run, existing).ifPresent(violation -> {
-            throw new BizException(409, violation.reason());
+            throw ErrorCode.TASK_VIOLATION.ex(violation.reason());
         });
         String normalizedType = taskType == null || taskType.isBlank() ? "MODEL_TASK" : taskType.trim();
-        if (normalizedType.length() > 64) throw new BizException(400, "taskType too long");
+        if (normalizedType.length() > 64) throw ErrorCode.TASK_TYPE_TOO_LONG.ex();
         AgentTask task = new AgentTask();
         task.setTenantId(tenantId);
         task.setRunId(runId);
@@ -85,7 +87,7 @@ public class AgentTaskService {
                 .orderByAsc(AgentTask::getId);
         if (status != null && !status.isBlank()) {
             String normalized = status.trim().toUpperCase();
-            if (!MODEL_TASK_STATUSES.contains(normalized)) throw new BizException(400, "Invalid task status");
+            if (!MODEL_TASK_STATUSES.contains(normalized)) throw ErrorCode.INVALID_TASK_STATUS.ex();
             query.eq(AgentTask::getStatus, normalized);
         }
         return taskMapper.selectList(query);
@@ -95,7 +97,7 @@ public class AgentTaskService {
         requireRun(tenantId, runId);
         AgentTask task = taskMapper.selectById(taskId);
         if (task == null || !tenantId.equals(task.getTenantId()) || !runId.equals(task.getRunId())) {
-            throw new BizException(404, "Task not found");
+            throw ErrorCode.TASK_NOT_FOUND.ex();
         }
         return task;
     }
@@ -106,11 +108,11 @@ public class AgentTaskService {
         AgentTask task = getModelTask(tenantId, runId, taskId);
         String normalized = status == null || status.isBlank() ? null : status.trim().toUpperCase();
         if (normalized == null || !MODEL_TASK_STATUSES.contains(normalized)) {
-            throw new BizException(400, "Invalid task status");
+            throw ErrorCode.INVALID_TASK_STATUS.ex();
         }
         if (task.getStatus() != null && isClosedTaskStatus(task.getStatus())
                 && !task.getStatus().equals(normalized)) {
-            throw new BizException(409, "Task is already closed");
+            throw ErrorCode.TASK_ALREADY_CLOSED.ex();
         }
         LocalDateTime now = LocalDateTime.now();
         AgentTask update = new AgentTask();
@@ -149,7 +151,7 @@ public class AgentTaskService {
 
     private AgentRun requireRun(Long tenantId, Long runId) {
         AgentRun run = runMapper.selectById(runId);
-        if (run == null || !tenantId.equals(run.getTenantId())) throw new BizException(404, "Agent Run不存在");
+        if (run == null || !tenantId.equals(run.getTenantId())) throw ErrorCode.AGENT_RUN_NOT_FOUND.ex();
         return run;
     }
 
@@ -163,7 +165,7 @@ public class AgentTaskService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
-            throw new BizException(400, "Task payload cannot be serialized");
+            throw ErrorCode.TASK_PAYLOAD_NOT_SERIALIZABLE.ex();
         }
     }
 

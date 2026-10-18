@@ -1,5 +1,7 @@
 package com.aipal.service;
 
+import com.aipal.common.ErrorCode;
+
 import com.aipal.common.BizException;
 import com.aipal.dto.ProjectCollaborationDtos;
 import com.aipal.entity.AgentRun;
@@ -51,7 +53,7 @@ public class ProjectAssignmentService {
     public ProjectCollaborationDtos.AssignmentView assign(String projectKey, ProjectCollaborationDtos.AssignRequest request) {
         if (request == null || !TARGET_TYPES.contains(request.targetType() == null ? "" : request.targetType())
                 || request.targetId() == null || request.targetId() <= 0) {
-            throw new BizException(400, "指派目标类型或编号无效");
+            throw ErrorCode.ASSIGN_TARGET_INVALID.ex();
         }
         String reason = checkedReason(request.reason());
         AiMemoryProject project = validateAssignableMember(projectKey, request.assigneeUserId());
@@ -76,7 +78,7 @@ public class ProjectAssignmentService {
         } catch (DuplicateKeyException duplicate) {
             // A locking read sees the concurrently committed winner even under repeatable read.
             ProjectAssignment winner = findTarget(project.getProjectKey(), request.targetType(), request.targetId(), true);
-            if (winner == null) throw new BizException(409, "指派目标已变更，请刷新后重试");
+            if (winner == null) throw ErrorCode.ASSIGN_TARGET_CHANGED.ex();
             return reusedView(winner, request.assigneeUserId());
         }
         appendEvent(assignment, "ASSIGNED", null, null, reason);
@@ -93,12 +95,12 @@ public class ProjectAssignmentService {
     @Transactional
     public ProjectCollaborationDtos.AssignmentView reassign(String projectKey, Long assignmentId,
                                                            ProjectCollaborationDtos.ReassignRequest request) {
-        if (request == null) throw new BizException(400, "改派请求不能为空");
+        if (request == null) throw ErrorCode.REASSIGN_REQUEST_REQUIRED.ex();
         String reason = checkedReason(request.reason());
         AiMemoryProject project = validateAssignableMember(projectKey, request.assigneeUserId());
         ProjectAssignment assignment = requireAssignment(project.getProjectKey(), assignmentId);
         checkVersion(assignment, request.expectedVersion());
-        if (!ACTIVE_STATUSES.contains(assignment.getStatus())) throw new BizException(409, "已结束的指派不能改派");
+        if (!ACTIVE_STATUSES.contains(assignment.getStatus())) throw ErrorCode.ASSIGNMENT_ENDED.ex();
         requireTarget(project.getProjectKey(), assignment.getTargetType(), assignment.getTargetId());
         if (Objects.equals(assignment.getAssigneeUserId(), request.assigneeUserId())) return view(assignment, true);
         return change(assignment, request.assigneeUserId(), "ASSIGNED", "REASSIGNED", request.expectedVersion(), reason, true);
@@ -143,16 +145,16 @@ public class ProjectAssignmentService {
                                                        ProjectCollaborationDtos.AssignmentActionRequest request,
                                                        String fromStatus, String toStatus) {
         requirePermission("project-workspace:execute");
-        if (request == null) throw new BizException(400, "指派操作请求不能为空");
+        if (request == null) throw ErrorCode.ASSIGN_ACTION_REQUEST_REQUIRED.ex();
         String reason = checkedReason(request.reason());
         AiMemoryProject project = memoryProjectService.requireAccessibleWorkspaceProject(projectKey);
         ProjectAssignment assignment = requireAssignment(project.getProjectKey(), assignmentId);
         if (!Objects.equals(TenantContext.userId(), assignment.getAssigneeUserId())) {
-            throw new BizException(403, "只有被指派人可以接受或完成指派");
+            throw ErrorCode.ASSIGN_ASSIGNEE_ONLY.ex();
         }
         memoryProjectService.requireActiveMember(project.getProjectKey(), TenantContext.userId());
         checkVersion(assignment, request.expectedVersion());
-        if (!fromStatus.equals(assignment.getStatus())) throw new BizException(409, "指派状态已变更，请刷新后重试");
+        if (!fromStatus.equals(assignment.getStatus())) throw ErrorCode.ASSIGN_STATUS_CHANGED.ex();
         requireTarget(project.getProjectKey(), assignment.getTargetType(), assignment.getTargetId());
         return change(assignment, assignment.getAssigneeUserId(), toStatus, toStatus,
                 request.expectedVersion(), reason, memoryProjectService.canManageWorkspaceProject(project.getProjectKey()));
@@ -174,7 +176,7 @@ public class ProjectAssignmentService {
                 .set(ProjectAssignment::getStatus, status)
                 .set(ProjectAssignment::getUpdateTime, now)
                 .setSql("version = version + 1"));
-        if (updated != 1) throw new BizException(409, "指派版本已过期，请刷新后重试");
+        if (updated != 1) throw ErrorCode.ASSIGN_VERSION_EXPIRED.ex();
         assignment.setAssigneeUserId(assigneeUserId);
         assignment.setStatus(status);
         assignment.setVersion(expectedVersion + 1);
@@ -187,18 +189,18 @@ public class ProjectAssignmentService {
         requirePermission("project-workspace:view");
         AiMemoryProject project = memoryProjectService.requireAccessibleWorkspaceProject(projectKey);
         if (!memoryProjectService.canManageWorkspaceProject(project.getProjectKey())) {
-            throw new BizException(403, "只有项目负责人、项目管理员或具备项目管理权限的用户可以指派");
+            throw ErrorCode.ASSIGN_MANAGER_REQUIRED.ex();
         }
         return project;
     }
 
     private ProjectAssignment requireAssignment(String projectKey, Long id) {
-        if (id == null || id <= 0) throw new BizException(400, "指派编号无效");
+        if (id == null || id <= 0) throw ErrorCode.ASSIGNMENT_ID_INVALID.ex();
         ProjectAssignment assignment = assignmentMapper.selectOne(new LambdaQueryWrapper<ProjectAssignment>()
                 .eq(ProjectAssignment::getTenantId, TenantContext.tenantId())
                 .eq(ProjectAssignment::getProjectKey, projectKey)
                 .eq(ProjectAssignment::getId, id).last("LIMIT 1"));
-        if (assignment == null) throw new BizException(404, "指派不存在");
+        if (assignment == null) throw ErrorCode.ASSIGNMENT_NOT_FOUND.ex();
         return assignment;
     }
 
@@ -237,7 +239,7 @@ public class ProjectAssignmentService {
             }
             default -> false;
         };
-        if (!matches) throw new BizException(400, "指派目标不属于当前租户和项目");
+        if (!matches) throw ErrorCode.ASSIGN_TARGET_SCOPE_MISMATCH.ex();
     }
 
     private ProjectCollaborationDtos.AssignmentView view(ProjectAssignment assignment, boolean manager) {
@@ -263,7 +265,7 @@ public class ProjectAssignmentService {
 
     private ProjectCollaborationDtos.AssignmentView reusedView(ProjectAssignment assignment, Long assigneeUserId) {
         if (!Objects.equals(assignment.getAssigneeUserId(), assigneeUserId)) {
-            throw new BizException(409, "该目标已有其他处理人，请刷新后使用改派操作");
+            throw ErrorCode.ASSIGN_HAS_OTHER_ASSIGNEE.ex();
         }
         return view(assignment, true);
     }
@@ -310,13 +312,13 @@ public class ProjectAssignmentService {
     }
 
     private void checkVersion(ProjectAssignment assignment, Integer expectedVersion) {
-        if (expectedVersion == null || expectedVersion < 0) throw new BizException(400, "expectedVersion 必须为非负整数");
-        if (!Objects.equals(expectedVersion, assignment.getVersion())) throw new BizException(409, "指派版本已过期，请刷新后重试");
+        if (expectedVersion == null || expectedVersion < 0) throw ErrorCode.EXPECTED_VERSION_REQUIRED.ex();
+        if (!Objects.equals(expectedVersion, assignment.getVersion())) throw ErrorCode.ASSIGN_VERSION_EXPIRED.ex();
     }
 
     public String checkedReason(String reason) {
         String value = reason == null ? null : reason.trim();
-        if (value != null && value.length() > 500) throw new BizException(400, "指派原因不能超过 500 字符");
+        if (value != null && value.length() > 500) throw ErrorCode.ASSIGN_REASON_TOO_LONG.ex();
         return value;
     }
 
