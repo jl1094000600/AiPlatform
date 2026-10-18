@@ -3,7 +3,6 @@
     <header class="page-head">
       <div>
         <h2>菜单权限</h2>
-        <p>维护侧边栏菜单、路由和菜单绑定的权限码。</p>
       </div>
       <el-button type="primary" @click="openDialog()">新建菜单</el-button>
     </header>

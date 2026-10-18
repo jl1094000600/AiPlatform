@@ -3,7 +3,6 @@
     <header class="page-head">
       <div>
         <h2>成员管理</h2>
-        <p>查看当前租户成员，并为成员分配租户角色。</p>
       </div>
       <el-button type="primary" @click="openDialog">添加成员</el-button>
     </header>

@@ -3,7 +3,6 @@
     <div class="page-header">
       <div>
         <h2>{{ t('rag.title') }}</h2>
-        <p>{{ t('rag.subtitle') }}</p>
       </div>
       <el-button :loading="loading" @click="loadPageData">{{ t('common.refresh') }}</el-button>
     </div>

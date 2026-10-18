@@ -4,9 +4,6 @@
       <div>
         <p class="eyebrow">AI Output Governance</p>
         <h1>AI 产出治理</h1>
-        <p class="subtitle">
-          追踪流水线中由模型生成的 PRD、代码和质量评估结果，沉淀模型、风险、门禁和产物审计线索。
-        </p>
       </div>
       <div class="hero-metrics">
         <div class="metric-card">
@@ -91,7 +88,6 @@
       <div class="section-header">
         <div>
           <h2>策略模板</h2>
-          <p>用于把 AI 产物风险转成统一 Gate，例如敏感信息、越权工具调用、未测代码和高风险输出。</p>
         </div>
         <el-button type="primary" @click="openPolicyDialog()">新增策略</el-button>
       </div>

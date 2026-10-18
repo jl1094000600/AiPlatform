@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h2>部署配置</h2>
-        <p>配置代码生成后的 Docker 或 Jenkins 自动部署方式。</p>
       </div>
       <div class="head-actions">
         <el-button :loading="loading" @click="loadProfiles">刷新</el-button>

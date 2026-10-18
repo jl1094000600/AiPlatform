@@ -3,7 +3,6 @@
     <div class="page-header">
       <div>
         <h2>{{ t('model.title') }}</h2>
-        <p>{{ t('model.subtitle') }}</p>
       </div>
       <el-button type="primary" @click="openDialog()">
         <Plus class="btn-icon" /> {{ t('model.add') }}

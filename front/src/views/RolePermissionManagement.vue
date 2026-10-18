@@ -3,7 +3,6 @@
     <header class="page-head">
       <div>
         <h2>角色权限</h2>
-        <p>为租户角色配置可访问的菜单和接口权限。</p>
       </div>
     </header>
 

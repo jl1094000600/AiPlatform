@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h2>代码质量标准</h2>
-        <p>维护生成代码的评估标准、规则和质量门禁，供自动化流水线选择使用。</p>
       </div>
       <div class="head-actions">
         <el-button :loading="loading" @click="loadStandards">刷新</el-button>

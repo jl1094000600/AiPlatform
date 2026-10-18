@@ -3,7 +3,6 @@
     <div class="quality-header">
       <div>
         <h2>{{ t('quality.title') }}</h2>
-        <span class="muted">{{ t('quality.subtitle') }}</span>
       </div>
       <el-button type="primary" @click="loadAll">{{ t('common.refresh') }}</el-button>
     </div>

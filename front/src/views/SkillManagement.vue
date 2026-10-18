@@ -3,7 +3,6 @@
     <div class="page-header">
       <div>
         <h2>Skill 管理</h2>
-        <p>维护可复用的生成约束、提示词和 Java 可读取的函数元数据。</p>
       </div>
       <div class="header-actions">
         <el-button @click="openAiDialog">

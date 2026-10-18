@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h2>{{ t('training.title') }}</h2>
-        <p>{{ t('training.subtitle') }}</p>
       </div>
       <el-button @click="refreshAll">
         <Refresh class="btn-icon" /> {{ t('training.refresh') }}

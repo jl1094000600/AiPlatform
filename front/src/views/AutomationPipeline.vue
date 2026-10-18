@@ -3,7 +3,6 @@
     <div class="page-head">
       <div>
         <h2>{{ t('automation.title') }}</h2>
-        <p>{{ t('automation.subtitle') }}</p>
       </div>
       <div class="head-actions">
         <el-button @click="openTemplateEditor">{{ t('automation.templateManage') }}</el-button>

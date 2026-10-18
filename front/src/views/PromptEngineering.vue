@@ -3,7 +3,6 @@
     <header class="page-head">
       <div>
         <h2>提示词工程</h2>
-        <p>把提示词绑定到 Agent 和项目上下文，进行版本优化、样例评测和发布。</p>
       </div>
       <div class="head-actions">
         <el-button :loading="loading" @click="loadAll">刷新</el-button>
@@ -128,7 +127,6 @@
         <div class="section-title compact">
           <div>
             <h3>测试样例</h3>
-            <p>内置样例用于评测当前提示词版本。</p>
           </div>
           <el-button type="primary" @click="openCaseDialog()">新增样例</el-button>
         </div>
@@ -153,7 +151,6 @@
         <div class="section-title compact">
           <div>
             <h3>评测明细</h3>
-            <p>点击右侧评测运行查看逐样例反馈。</p>
           </div>
         </div>
         <el-table :data="evalResults" stripe>

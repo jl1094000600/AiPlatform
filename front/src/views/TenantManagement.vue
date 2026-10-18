@@ -3,7 +3,6 @@
     <header class="page-head">
       <div>
         <h2>租户管理</h2>
-        <p>管理平台中的企业、团队和默认租户空间。</p>
       </div>
       <el-button type="primary" @click="openDialog()">新建租户</el-button>
     </header>

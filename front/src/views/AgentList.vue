@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>Agent 管理</h2>
-        <p>共 {{ total }} 个 Agent，可绑定已配置模型。</p>
+        <p>共 {{ total }} 个 Agent</p>
       </div>
       <el-button type="primary" @click="openDialog()">
         <Plus class="btn-icon" /> 新增 Agent

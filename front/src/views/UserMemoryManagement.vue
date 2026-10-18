@@ -4,7 +4,6 @@
       <div>
         <p class="eyebrow">企业记忆中心</p>
         <h2>让助手记住正确的事</h2>
-        <p class="subtitle">查看、确认和遗忘助手在当前授权范围内使用的信息。每一条记忆都可追溯来源，并且可以随时更正。</p>
       </div>
       <div class="header-actions">
         <el-button @click="loadAll">刷新</el-button>
@@ -96,7 +95,6 @@
         <section class="policy-panel" v-loading="policyLoading">
           <div class="policy-intro">
             <h3>使用边界</h3>
-            <p>策略决定助手是否参考记忆、保留多久，以及每次调用可使用多少上下文。建议先以“仅审计”观察效果，再逐步启用。</p>
           </div>
           <el-form label-position="top" class="policy-form">
             <el-form-item label="启用记忆">
@@ -125,7 +123,6 @@
         <section class="trace-panel" v-loading="traceLoading">
           <div class="policy-intro">
             <h3>助手为何参考这些信息</h3>
-            <p>每次调用会记录授权范围、候选记忆、最终注入内容和 Token 占用。仅展示你有权查看的调用轨迹。</p>
           </div>
           <el-empty v-if="traces.length === 0" description="暂无调用轨迹。完成一次助手、工作流或交付流水线调用后会显示在这里。" />
           <el-table v-else :data="traces" size="small">

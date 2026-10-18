@@ -3,7 +3,6 @@
     <section class="page-header">
       <div>
         <h2>运行控制台</h2>
-        <p>查看项目 Agent 的执行状态、引用约定与交付物。敏感输入、Prompt 和内部日志不会在此展示。</p>
       </div>
       <el-button :loading="loading" type="primary" @click="loadRuns">刷新</el-button>
     </section>
