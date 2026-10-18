@@ -14,14 +14,15 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
-# Runtime stage
-FROM eclipse-temurin:21-jre-alpine
+# Runtime stage: JNA's bundled Linux dispatcher targets glibc. Keep a named
+# Ubuntu release instead of relying on an unverified musl compatibility layer.
+FROM eclipse-temurin:21-jre-noble
 
 WORKDIR /app
 
 # Add non-root user for security
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --create-home --shell /usr/sbin/nologin appuser
 
 # Create apps directory for Spring Boot
 RUN mkdir -p /app/data/datasets

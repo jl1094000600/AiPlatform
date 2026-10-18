@@ -18,8 +18,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class WorkflowDefinitionService {
     private static final Set<String> SUPPORTED_TYPES = Set.of(
-            "START", "AGENT", "CONDITION", "PARALLEL", "END"
+            "START", "AGENT", "CONDITION", "END"
     );
+    private static final Set<String> DEFERRED_TYPES = Set.of("PARALLEL", "JOIN");
 
     private final ObjectMapper objectMapper;
 
@@ -64,6 +65,10 @@ public class WorkflowDefinitionService {
             }
             String type = normalizeType(node.getType());
             node.setType(type);
+            if (DEFERRED_TYPES.contains(type)) {
+                throw new IllegalArgumentException(type + " nodes are disabled in the PoC until JOIN barrier "
+                        + "and deduplication tests pass: " + node.getId());
+            }
             if (!SUPPORTED_TYPES.contains(type)) {
                 throw new IllegalArgumentException("Unsupported workflow node type: " + type);
             }
@@ -105,7 +110,7 @@ public class WorkflowDefinitionService {
             if (("START".equals(node.getType()) || "AGENT".equals(node.getType())) && count != 1) {
                 throw new IllegalArgumentException(node.getType() + " node must have exactly one outgoing edge: " + node.getId());
             }
-            if (("CONDITION".equals(node.getType()) || "PARALLEL".equals(node.getType())) && count < 2) {
+            if ("CONDITION".equals(node.getType()) && count < 2) {
                 throw new IllegalArgumentException(node.getType() + " node must have at least two outgoing edges: " + node.getId());
             }
         }

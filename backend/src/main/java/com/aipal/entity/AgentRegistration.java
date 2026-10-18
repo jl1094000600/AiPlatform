@@ -14,6 +14,9 @@ public class AgentRegistration {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 租户ID */
+    private Long tenantId;
+
     /** Agent唯一编码 */
     private String agentCode;
 

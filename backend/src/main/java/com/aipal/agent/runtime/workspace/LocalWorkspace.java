@@ -3,6 +3,7 @@ package com.aipal.agent.runtime.workspace;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,7 @@ public class LocalWorkspace implements Workspace {
 
     private final Path root;
     private final boolean ephemeral;
+    private final PosixWorkspaceFiles files;
     private volatile boolean closed;
 
     public LocalWorkspace(Path root) {
@@ -31,6 +33,11 @@ public class LocalWorkspace implements Workspace {
     private LocalWorkspace(Path root, boolean ephemeral) {
         this.root = root.toAbsolutePath().normalize();
         this.ephemeral = ephemeral;
+        try {
+            this.files = new PosixWorkspaceFiles(this.root);
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot initialize secure workspace", e);
+        }
     }
 
     public static LocalWorkspace createTemp() throws IOException {
@@ -98,21 +105,17 @@ public class LocalWorkspace implements Workspace {
     @Override
     public void putFile(String relPath, String content) throws IOException {
         ensureOpen();
-        Path target = WorkspacePaths.resolveInside(root, relPath);
-        if (target.getParent() != null) {
-            Files.createDirectories(target.getParent());
+        try (PosixWorkspaceFiles.Directory parent = files.openParent(relPath, true)) {
+            parent.write(files.fileName(relPath), content == null ? "" : content);
         }
-        Files.writeString(target, content == null ? "" : content, StandardCharsets.UTF_8);
     }
 
     @Override
     public String getFile(String relPath) throws IOException {
         ensureOpen();
-        Path target = WorkspacePaths.resolveInside(root, relPath);
-        if (!Files.isRegularFile(target)) {
-            throw new IOException("file not found in workspace: " + relPath);
+        try (PosixWorkspaceFiles.Directory parent = files.openParent(relPath, false)) {
+            return parent.read(files.fileName(relPath));
         }
-        return Files.readString(target, StandardCharsets.UTF_8);
     }
 
     @Override

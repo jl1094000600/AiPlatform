@@ -23,6 +23,18 @@ class FsToolsPathSafetyTest {
     Path root;
 
     @Test
+    void firstWriteThroughToolInitializesFreshRunWorkspace() {
+        WorkspaceManager manager = mock(WorkspaceManager.class);
+        when(manager.acquire(any(ToolInvocationContext.class)))
+                .thenReturn(LocalWorkspace.wrap(root.resolve("new/run")));
+        ToolResult result = new FsWriteTool(manager).execute(context(),
+                Map.of("path", "src/new.txt", "content", "first write"));
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) result.output()).get("written"));
+        ToolResult read = new FsReadTool(manager).execute(context(), Map.of("path", "src/new.txt"));
+        assertEquals("first write", ((Map<?, ?>) read.output()).get("content"));
+    }
+
+    @Test
     void fsWriteRejectsParentTraversal() {
         WorkspaceManager manager = mock(WorkspaceManager.class);
         when(manager.acquire(any(ToolInvocationContext.class))).thenReturn(LocalWorkspace.wrap(root));

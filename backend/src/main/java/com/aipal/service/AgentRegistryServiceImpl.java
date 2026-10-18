@@ -5,6 +5,7 @@ import com.aipal.dto.AgentRegisterResponse;
 import com.aipal.entity.AgentRegistration;
 import com.aipal.entity.AiAgent;
 import com.aipal.exception.AgentRegistrationException;
+import com.aipal.security.TenantContext;
 import com.aipal.mapper.AiAgentMapper;
 import com.aipal.mapper.AgentRegistrationMapper;
 import com.aipal.service.A2AMessageService;
@@ -207,12 +208,10 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
         registrationMapper.updateById(registration);
 
         // 移除本地缓存
-        String cacheKey = agentCode + ":" + instanceId;
-        localCache.remove(cacheKey);
+        localCache.remove(cacheKey(agentCode, instanceId));
 
         // 删除Redis心跳key
-        String heartbeatKey = HEARTBEAT_KEY_PREFIX + agentCode + ":" + instanceId;
-        redisTemplate.delete(heartbeatKey);
+        redisTemplate.delete(heartbeatKey(agentCode, instanceId));
 
         // 发布注销事件
         agentEventService.publishUnregisterEvent(registration);
@@ -270,8 +269,7 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
 
     @Override
     public AgentRegistration getRegistration(String agentCode, String instanceId) {
-        String cacheKey = agentCode + ":" + instanceId;
-        AgentRegistration cached = localCache.get(cacheKey);
+        AgentRegistration cached = localCache.get(cacheKey(agentCode, instanceId));
         if (cached != null) {
             return cached;
         }
@@ -297,10 +295,10 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
         log.info("Refreshing agent registrations from database");
         List<AgentRegistration> registrations = getAllRegistrations();
 
-        localCache.clear();
+        String tenantPrefix = TenantContext.tenantId() + ":";
+        localCache.keySet().removeIf(key -> key.startsWith(tenantPrefix));
         for (AgentRegistration registration : registrations) {
-            String cacheKey = registration.getAgentCode() + ":" + registration.getInstanceId();
-            localCache.put(cacheKey, registration);
+            localCache.put(cacheKey(registration.getAgentCode(), registration.getInstanceId()), registration);
 
             // 重新注册A2A Handler
             if (registration.getStatus() == 1) {
@@ -343,8 +341,17 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
     }
 
     private void updateLocalCache(AgentRegistration registration) {
-        String cacheKey = registration.getAgentCode() + ":" + registration.getInstanceId();
-        localCache.put(cacheKey, registration);
+        localCache.put(cacheKey(registration.getAgentCode(), registration.getInstanceId()), registration);
+    }
+
+    /** Cache and Redis keys must be tenant-scoped; DB interceptor cannot fix a cache hit. */
+    private String cacheKey(String agentCode, String instanceId) {
+        return TenantContext.tenantId() + ":" + agentCode + ":" + (instanceId != null ? instanceId : "default");
+    }
+
+    private String heartbeatKey(String agentCode, String instanceId) {
+        return HEARTBEAT_KEY_PREFIX + TenantContext.tenantId() + ":"
+                + agentCode + ":" + (instanceId != null ? instanceId : "default");
     }
 
     private void registerA2AHandler(String agentCode) {
@@ -357,14 +364,14 @@ public class AgentRegistryServiceImpl implements AgentRegistryService {
     }
 
     private void initializeHeartbeat(String agentCode, String instanceId, int intervalSeconds) {
-        String key = HEARTBEAT_KEY_PREFIX + agentCode + ":" + instanceId;
+        String key = heartbeatKey(agentCode, instanceId);
         redisTemplate.opsForHash().put(key, "lastHeartbeat", LocalDateTime.now().toString());
         redisTemplate.opsForHash().put(key, "healthScore", "100");
         redisTemplate.expire(key, intervalSeconds * 4L, TimeUnit.SECONDS);
     }
 
     private void updateRedisHeartbeat(String agentCode, String instanceId) {
-        String key = HEARTBEAT_KEY_PREFIX + agentCode + ":" + instanceId;
+        String key = heartbeatKey(agentCode, instanceId);
         redisTemplate.opsForHash().put(key, "lastHeartbeat", LocalDateTime.now().toString());
     }
 }

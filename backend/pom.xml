@@ -29,6 +29,12 @@
     </properties>
 
     <dependencies>
+        <!-- Directory-relative, no-follow file I/O on Linux and macOS (openat/mkdirat). -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+        </dependency>
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

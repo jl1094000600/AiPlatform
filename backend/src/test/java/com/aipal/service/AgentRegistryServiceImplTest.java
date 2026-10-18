@@ -5,6 +5,8 @@ import com.aipal.entity.AgentRegistration;
 import com.aipal.entity.AiAgent;
 import com.aipal.mapper.AgentRegistrationMapper;
 import com.aipal.mapper.AiAgentMapper;
+import com.aipal.security.TenantContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -14,6 +16,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,8 +45,15 @@ class AgentRegistryServiceImplTest {
     @InjectMocks
     private AgentRegistryServiceImpl agentRegistryService;
 
+    @AfterEach
+    void clearContext() {
+        TenantContext.clear();
+    }
+
     @Test
     void registerCreatesVisibleAgentAndRegistration() {
+        TenantContext.set(new TenantContext.Context(7L, "tester", 1L, "tenant-1",
+                false, Set.of(), Set.of()));
         when(registrationMapper.selectOne(any())).thenReturn(null);
         when(agentMapper.selectOne(any())).thenReturn(null);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);

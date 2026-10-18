@@ -43,4 +43,34 @@ class WorkspacePathsTest {
     void rejectsDotSegment() {
         assertThrows(IllegalArgumentException.class, () -> WorkspacePaths.resolveInside(root, "./../x"));
     }
+
+    @Test
+    void rejectsSymlinkPointingOutsideRoot(@TempDir Path outside) throws Exception {
+        Path secret = outside.resolve("secret.txt");
+        java.nio.file.Files.writeString(secret, "classified");
+        Path link = root.resolve("leak.txt");
+        java.nio.file.Files.createSymbolicLink(link, secret);
+
+        assertThrows(IllegalArgumentException.class, () -> WorkspacePaths.resolveInside(root, "leak.txt"));
+    }
+
+    @Test
+    void rejectsNestedSymlinkPointingOutsideRoot(@TempDir Path outside) throws Exception {
+        Path secretDir = outside.resolve("secrets");
+        java.nio.file.Files.createDirectories(secretDir);
+        Path linkDir = root.resolve("vendor");
+        java.nio.file.Files.createSymbolicLink(linkDir, secretDir);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkspacePaths.resolveInside(root, "vendor/keys.pem"));
+    }
+
+    @Test
+    void allowsRealFileInsideRoot() throws Exception {
+        Path file = root.resolve("src/App.java");
+        java.nio.file.Files.createDirectories(file.getParent());
+        java.nio.file.Files.writeString(file, "class App {}");
+        assertEquals(file.toAbsolutePath().normalize(),
+                WorkspacePaths.resolveInside(root, "src/App.java"));
+    }
 }

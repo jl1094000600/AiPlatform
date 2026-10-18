@@ -3,9 +3,12 @@ package com.aipal.service;
 import com.aipal.dto.WorkflowDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkflowDefinitionServiceTest {
 
@@ -22,6 +25,47 @@ class WorkflowDefinitionServiceTest {
 
         assertEquals(2, definition.getNodes().size());
         assertEquals(60, definition.getTimeoutSeconds());
+    }
+
+    @Test
+    void acceptsGraphContainingAllFourPocNodeTypes() {
+        WorkflowDefinition definition = service.parseAndValidate("""
+                {"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"check","type":"CONDITION","conditionField":"approved","operator":"EQ","conditionValue":true},
+                  {"id":"agent","type":"AGENT","targetAgent":"writer"},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"check"},
+                  {"source":"check","target":"agent","condition":"true"},
+                  {"source":"check","target":"end","condition":"false"},
+                  {"source":"agent","target":"end"}
+                ]}
+                """);
+
+        assertEquals(4, definition.getNodes().size());
+        assertEquals(1800, definition.getTimeoutSeconds());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PARALLEL", "JOIN", " parallel ", " join "})
+    void rejectsDeferredParallelTypesWithActionableMessage(String type) {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.parseAndValidate("""
+                        {"nodes":[
+                          {"id":"start","type":"START"},
+                          {"id":"blocked","type":"%s"},
+                          {"id":"end","type":"END"}
+                        ],"edges":[
+                          {"source":"start","target":"blocked"},
+                          {"source":"blocked","target":"end"}
+                        ]}
+                        """.formatted(type)));
+
+        assertTrue(error.getMessage().contains(type.trim().toUpperCase()));
+        assertTrue(error.getMessage().contains("JOIN barrier"));
+        assertTrue(error.getMessage().contains("deduplication tests"));
+        assertTrue(error.getMessage().contains("blocked"));
     }
 
     @Test

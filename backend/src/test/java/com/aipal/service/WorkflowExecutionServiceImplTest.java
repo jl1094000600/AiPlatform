@@ -12,14 +12,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class WorkflowExecutionServiceImplTest {
@@ -55,6 +63,85 @@ class WorkflowExecutionServiceImplTest {
         assertEquals(executionId, completed.getExecutionId());
         assertNotNull(completed.getResult());
         assertNotNull(completed.getEndTime());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void runsFourNodePocWorkflowWithCondition(boolean approved) throws Exception {
+        AtomicReference<WorkflowExecution> stored = new AtomicReference<>();
+        Workflow workflow = workflow("""
+                {"timeoutSeconds":5,"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"check","type":"CONDITION","conditionField":"approved","operator":"EQ","conditionValue":true},
+                  {"id":"agent","type":"AGENT","targetAgent":"writer"},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"check"},
+                  {"source":"check","target":"agent","condition":"true"},
+                  {"source":"check","target":"end","condition":"false"},
+                  {"source":"agent","target":"end"}
+                ]}
+                """);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentRegistry.AgentContext context = new AgentRegistry.AgentContext();
+        AiAgent agent = new AiAgent();
+        agent.setId(3L);
+        agent.setAgentCode("writer");
+        context.setAgent(agent);
+        context.setHandler(message -> A2AMessage.builder().payload(Map.of("draft", "done")).build());
+        when(registry.getAgent("writer")).thenReturn(context);
+        service = createService(workflow, stored, registry);
+
+        service.triggerWorkflow(1L, "MANUAL", Map.of("approved", approved));
+        WorkflowExecution completed = awaitStatus(stored, "COMPLETED", 2000);
+
+        var result = new ObjectMapper().readTree(completed.getResult());
+        assertEquals("end", result.path("completedNode").asText());
+        if (approved) {
+            assertEquals("done", result.path("agent").path("draft").asText());
+            verify(registry).getAgent("writer");
+        } else {
+            assertTrue(result.path("agent").isMissingNode());
+            verify(registry, never()).getAgent("writer");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PARALLEL", "JOIN"})
+    void triggerRejectsLegacyParallelWorkflowBeforeCreatingExecution(String type) {
+        AtomicReference<WorkflowExecution> stored = new AtomicReference<>();
+        Workflow workflow = workflow(deferredDefinition(type));
+        AgentRegistry registry = mock(AgentRegistry.class);
+        service = createService(workflow, stored, registry);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.triggerWorkflow(1L, "MANUAL", Map.of()));
+
+        assertTrue(error.getMessage().contains("JOIN barrier"));
+        assertNull(stored.get());
+        assertNull(workflow.getLastTriggerTime());
+        assertEquals(0, workflow.getTriggerCount());
+        verifyNoInteractions(registry);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PARALLEL", "JOIN"})
+    void startRejectsPreviouslyCreatedLegacyParallelExecution(String type) {
+        WorkflowExecution pending = new WorkflowExecution();
+        pending.setExecutionId("legacy-execution");
+        pending.setWorkflowId(1L);
+        pending.setStatus("PENDING");
+        AtomicReference<WorkflowExecution> stored = new AtomicReference<>(pending);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        service = createService(workflow(deferredDefinition(type)), stored, registry);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.startExecution("legacy-execution"));
+
+        assertTrue(error.getMessage().contains("JOIN barrier"));
+        assertEquals("PENDING", stored.get().getStatus());
+        assertNull(stored.get().getStartTime());
+        verifyNoInteractions(registry);
     }
 
     @Test
@@ -132,13 +219,27 @@ class WorkflowExecutionServiceImplTest {
         return workflow;
     }
 
+    private String deferredDefinition(String type) {
+        return """
+                {"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"blocked","type":"%s"},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"blocked"},
+                  {"source":"blocked","target":"end"}
+                ]}
+                """.formatted(type);
+    }
+
     private WorkflowExecution awaitStatus(AtomicReference<WorkflowExecution> stored,
                                           String status,
                                           long timeoutMs) throws Exception {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             WorkflowExecution current = stored.get();
-            if (current != null && status.equals(current.getStatus())) return current;
+            if (current != null && status.equals(current.getStatus())
+                    && ("RUNNING".equals(status) || current.getEndTime() != null)) return current;
             Thread.sleep(10);
         }
         WorkflowExecution current = stored.get();

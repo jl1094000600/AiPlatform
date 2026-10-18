@@ -90,6 +90,7 @@
       class="workflow-editor-dialog"
       :close-on-click-modal="false"
     >
+      <el-alert v-if="workflowSupportMessage" :title="workflowSupportMessage" type="warning" :closable="false" show-icon class="workflow-support-warning" />
       <div class="editor-container">
         <!-- Left: Node Palette -->
         <div class="node-palette glass-card">
@@ -189,46 +190,20 @@
                 <el-option label="事件触发" value="EVENT" />
               </el-select>
               <el-button size="small" :disabled="!canManageWorkflow" @click="clearCanvas">清空画布</el-button>
-              <el-button size="small" type="primary" :disabled="!canManageWorkflow" @click="saveWorkflow">保存</el-button>
+              <el-button size="small" type="primary" :disabled="!canManageWorkflow || !!workflowSupportMessage" @click="saveWorkflow">保存</el-button>
             </div>
           </div>
 
-          <div class="canvas-content" @drop="onCanvasDrop" @dragover.prevent>
-            <div class="workflow-nodes">
-              <div
-                v-for="node in workflowNodes"
-                :key="node.id"
-                class="workflow-node"
-                :class="[node.type.toLowerCase(), { selected: selectedNode?.id === node.id, connecting: connectionSourceId === node.id }]"
-                :style="{ left: node.x + 'px', top: node.y + 'px' }"
-                @click.stop="selectNode(node)"
-                @dblclick.stop="openNodeConfig(node)"
-              >
-                <span class="node-icon">{{ getNodeIcon(node.type) }}</span>
-                <span class="node-name">{{ node.label }}</span>
-                <span class="node-type-badge">{{ node.type }}</span>
-              </div>
-            </div>
-
-            <svg class="edges-svg">
-              <defs>
-                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                  <polygon points="0 0, 10 3.5, 0 7" fill="#00f0ff" />
-                </marker>
-              </defs>
-              <line
-                v-for="(edge, index) in workflowEdges"
-                :key="index"
-                :x1="edgeCoordinates(edge).x1"
-                :y1="edgeCoordinates(edge).y1"
-                :x2="edgeCoordinates(edge).x2"
-                :y2="edgeCoordinates(edge).y2"
-                class="workflow-edge"
-                :class="{ selected: selectedEdge === edge }"
-                marker-end="url(#arrowhead)"
-                @click.stop="selectEdge(edge)"
-              />
-            </svg>
+          <div class="canvas-content">
+            <WorkflowCanvas
+              :nodes="workflowNodes"
+              :edges="workflowEdges"
+              @update:nodes="onCanvasNodesUpdate"
+              @update:edges="onCanvasEdgesUpdate"
+              @select-node="selectNode"
+              @select-edge="selectEdge"
+              @clear-selection="clearSelection"
+            />
             <el-button v-if="selectedEdge" class="delete-edge-btn" size="small" type="danger" @click="deleteSelectedEdge">删除连线</el-button>
           </div>
         </div>
@@ -285,6 +260,8 @@ import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { hasPermission } from '../utils/permissions'
+import WorkflowCanvas from '../components/WorkflowCanvas.vue'
+import { WORKFLOW_NODE_TYPES, workflowSupportError } from '../utils/workflowCanvas.js'
 
 const canvasRef = ref(null)
 
@@ -302,15 +279,10 @@ const connectionSourceId = ref(null)
 const agents = ref([])
 const executions = ref([])
 const canManageWorkflow = computed(() => hasPermission('workflow:manage'))
+const workflowSupportMessage = computed(() => workflowSupportError({ nodes: workflowNodes.value }))
 
 // Node type definitions
-const nodeTypes = [
-  { type: 'START', label: '开始', icon: '\u25B6' },
-  { type: 'AGENT', label: 'Agent节点', icon: '\u2699' },
-  { type: 'CONDITION', label: '条件分支', icon: '\u2716' },
-  { type: 'PARALLEL', label: '并行执行', icon: '\u25CE' },
-  { type: 'END', label: '结束', icon: '\u25A0' }
-]
+const nodeTypes = WORKFLOW_NODE_TYPES
 const conditionOperators = ['EQ', 'NE', 'GT', 'GTE', 'LT', 'LTE', 'CONTAINS', 'EXISTS']
 
 // Drag state
@@ -447,12 +419,20 @@ const triggerWorkflow = async (row) => {
     return
   }
   try {
+    const detail = await api.getWorkflow(row.id)
+    if (detail.data.code !== 200 || !detail.data.data) throw new Error('加载编排详情失败')
+    const workflow = detail.data.data
+    const supportError = workflowSupportError(workflow.workflowDefinition)
+    if (supportError) {
+      ElMessage.warning(supportError)
+      return
+    }
     await ElMessageBox.confirm('确定要触发该编排吗？', '触发确认', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    if (row.status !== 1) await api.deployWorkflow(row.id)
+    if (workflow.status !== 1) await api.deployWorkflow(row.id)
     const res = await api.triggerWorkflow(row.id, {}, 'MANUAL')
     if (res.data.code === 200) {
       ElMessage.success('编排触发成功')
@@ -474,34 +454,40 @@ const viewExecutions = async (row) => {
 // Drag and Drop
 const onDragStart = (event, nodeType) => {
   draggedNodeType = nodeType
+  const payload = {
+    id: String(nodeIdCounter++),
+    type: nodeType.type,
+    label: nodeType.label
+  }
+  event.dataTransfer.setData('application/workflow-node', JSON.stringify(payload))
+  event.dataTransfer.effectAllowed = 'move'
 }
 
-const onCanvasDrop = async (event) => {
-  event.preventDefault()
-  if (!draggedNodeType || !canvasRef.value) return
-
-  const rect = canvasRef.value.getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const y = event.clientY - rect.top
-
-  const newNode = {
-    id: String(nodeIdCounter++),
-    type: draggedNodeType.type,
-    label: draggedNodeType.label,
-    x: x - 50,
-    y: y - 20,
-    agentId: null,
-    params: '{}',
-    paramsText: '{}',
-    conditionField: '',
-    operator: 'EQ',
-    conditionValue: '',
-    timeout: 30,
-    retryCount: 0
+const onCanvasNodesUpdate = (nodes) => {
+  workflowNodes.value = nodes.map(node => ({
+    ...node,
+    paramsText: node.paramsText ?? JSON.stringify(node.params || {}, null, 2),
+    conditionField: node.conditionField ?? node.condition?.field ?? '',
+    operator: node.operator || node.condition?.operator || 'EQ',
+    conditionValue: node.conditionValue ?? node.condition?.value ?? ''
+  }))
+  if (selectedNode.value) {
+    selectedNode.value = workflowNodes.value.find(item => item.id === selectedNode.value.id) || null
   }
+}
 
-  workflowNodes.value.push(newNode)
-  draggedNodeType = null
+const onCanvasEdgesUpdate = (edges) => {
+  workflowEdges.value = edges
+  if (selectedEdge.value) {
+    selectedEdge.value = workflowEdges.value.find(item =>
+      item.source === selectedEdge.value.source && item.target === selectedEdge.value.target) || null
+  }
+}
+
+const clearSelection = () => {
+  selectedNode.value = null
+  selectedEdge.value = null
+  connectionSourceId.value = null
 }
 
 const selectNode = (node) => {
@@ -562,6 +548,10 @@ const clearCanvas = () => {
 const saveWorkflow = async () => {
   if (!canManageWorkflow.value) {
     ElMessage.warning('当前账号无工作流管理权限')
+    return
+  }
+  if (workflowSupportMessage.value) {
+    ElMessage.warning(workflowSupportMessage.value)
     return
   }
   if (!currentWorkflow.value.workflowName) {
@@ -757,6 +747,10 @@ onMounted(() => {
 }
 
 /* Editor Dialog */
+.workflow-support-warning {
+  margin-bottom: 12px;
+}
+
 .editor-container {
   display: flex;
   gap: 16px;

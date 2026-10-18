@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import './ProjectAssignments.test.js'
 import './ModelCapabilities.test.js'
+import './WorkflowCanvas.test.js'
 import { readFileSync } from 'node:fs'
 import { locale, setLocale, t } from '../i18n/index.js'
 import { filterNavByPermissions, hasPermission, isPlatformAdmin } from '../utils/permissions.js'

@@ -283,6 +283,7 @@ public class TenantSecuritySchemaInitializer {
                 {"dashboard", "首页概况", "/dashboard", "DataAnalysis", "dashboard:view", 10, "group-workbench"},
                 {"automation", "自动化流水线", "/automation", "Promotion", "automation:list", 10, "group-automation"},
                 {"project-workspaces", "项目工作台", "/project-workspaces", "OfficeBuilding", "project-workspace:view", 15, "group-automation"},
+                {"workflows", "工作流编排", "/workflows", "Connection", "workflow:manage", 18, "group-automation"},
                 {"code-quality", "代码质量标准", "/code-quality", "Finished", "code-quality:list", 20, "group-automation"},
                 {"ai-output-governance", "AI产出治理", "/ai-output-governance", "Connection", "governance:list", 30, "group-automation"},
                 {"prompt-engineering", "提示词工程", "/prompt-engineering", "MagicStick", "prompt:list", 40, "group-automation"},
@@ -310,9 +311,9 @@ public class TenantSecuritySchemaInitializer {
         for (Object[] menu : menus) {
             statement.executeUpdate("INSERT IGNORE INTO sys_menu (menu_code, menu_name, path, icon, permission_code, sort_order) VALUES ('"
                     + menu[0] + "', '" + menu[1] + "', '" + menu[2] + "', '" + menu[3] + "', '" + menu[4] + "', " + menu[5] + ")");
-            statement.executeUpdate("UPDATE sys_menu child JOIN sys_menu parent ON parent.menu_code = '" + menu[6]
-                    + "' SET child.parent_id = parent.id, child.sort_order = " + menu[5]
-                    + " WHERE child.menu_code = '" + menu[0] + "'");
+            // Derived-table form runs on both MySQL and H2; plain UPDATE JOIN is MySQL-only.
+            statement.executeUpdate("UPDATE sys_menu SET parent_id = (SELECT id FROM (SELECT id FROM sys_menu WHERE menu_code = '" + menu[6] + "') parent), sort_order = " + menu[5]
+                    + " WHERE menu_code = '" + menu[0] + "'");
         }
         statement.executeUpdate("UPDATE sys_menu SET permission_code = 'project-workspace:view' WHERE menu_code = 'project-workspaces'");
     }
@@ -338,7 +339,7 @@ public class TenantSecuritySchemaInitializer {
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
                 SELECT 1, r.id, p.id FROM sys_role r JOIN sys_permission p
                 WHERE r.tenant_id = 1 AND r.role_code = 'developer'
-                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','memory:list','memory:read','memory:write','memory:forget','memory:trace','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
+                  AND p.permission_code IN ('dashboard:view','agent:list','agent:create','agent:update','agent:invoke','skill:list','skill:create','skill:update','memory:list','memory:read','memory:write','memory:forget','memory:trace','rag:list','rag:create','rag:update','model:list','automation:list','automation:create','automation:run','code-quality:list','governance:list','prompt:list','prompt:create','prompt:update','prompt:evaluate','workflow:manage','graph:manage','monitor:view','benchmark:view','benchmark:run','tts:invoke')
                 """);
         statement.executeUpdate("""
                 INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
@@ -362,6 +363,13 @@ public class TenantSecuritySchemaInitializer {
                     OR (r.role_code = 'developer'
                         AND p.permission_code IN ('project-workspace:view', 'project-workspace:execute'))
                     OR (r.role_code IN ('reviewer', 'readonly') AND p.permission_code = 'project-workspace:view'))
+                """);
+        // Workflow canvas is a developer capability; existing tenants already have their own role IDs.
+        statement.executeUpdate("""
+                INSERT IGNORE INTO sys_role_permission (tenant_id, role_id, permission_id)
+                SELECT r.tenant_id, r.id, p.id FROM sys_role r JOIN sys_permission p
+                WHERE r.is_deleted = 0 AND r.role_code = 'developer'
+                  AND p.permission_code = 'workflow:manage'
                 """);
     }
 
