@@ -104,8 +104,12 @@ public enum ErrorCode {
     TASK_DRAFT_STATUS_CHANGED(409, "任务草稿状态已变更，请刷新后重试"),
     TASK_DRAFT_VERSION_EXPIRED(409, "任务草稿版本已过期，请刷新后重试"),
     TASK_DRAFT_CONFIRM_CONFLICT(409, "任务草稿确认冲突，请刷新后重试"),
+    TASK_DRAFT_IDEMPOTENCY_CONFLICT(409, "相同幂等键的任务草稿内容不一致"),
+    IDEMPOTENCY_KEY_TOO_LONG(400, "idempotencyKey 不能超过 128 字符"),
+    PRIVATE_ASK_QUESTION_TOO_LONG(400, "私密问答内容不能超过 4000 字"),
     MODEL_NOT_CONFIGURED(503, "当前租户未配置可用的默认 CHAT 模型"),
     MODEL_RESPONSE_INVALID(502, "模型返回内容不符合约定"),
+    MODEL_CALL_FAILED(502, "模型调用失败，请稍后重试"),
 
     // ---------- 500 Internal ----------
     AGENT_SNAPSHOT_FREEZE_FAILED(500, "无法冻结Agent定义快照"),
