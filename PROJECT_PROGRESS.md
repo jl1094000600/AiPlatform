@@ -2,7 +2,7 @@
 
 ## 排期增量（2026-10-18，Asia/Shanghai）
 
-当前节点：**工作流 W1 / 受控画布 PoC 代码收口，目标环境及真实浏览器验收尚未关闭**。工作流 MVP 未完成；v6 M1/M2 已实现待真实验收，**M3 后端代码已在隔离分支完成、待真实环境验收**，M4/M5 未完成。W1–W6 与 v6 M1–M5 分开跟踪，不因画布可用而更新为全项目交付完成。2026-10-18 已修复完整回归中的 3 项失败测试，后端全量 452 项恢复为 0 失败、0 错误、3 跳过（Docker 不可用）；W1 的真实环境门禁仍未关闭。
+当前节点：**工作流 W1 / 受控画布 PoC 代码收口，目标环境及真实浏览器验收尚未关闭**。工作流 MVP 未完成；v6 M1/M2 已实现待真实验收，**M3 后端代码已合并 master、待真实环境验收**，M4/M5 未完成。W1–W6 与 v6 M1–M5 分开跟踪，不因画布可用而更新为全项目交付完成。2026-10-18 已修复完整回归中的 3 项失败测试，后端全量 452 项恢复为 0 失败、0 错误、3 跳过（Docker 不可用）；W1 的真实环境门禁仍未关闭。
 
 已增量更新 `docs/AGENTSTUDIO-COMPARISON-WORKFLOW-ROADMAP-2026-10-17.md` 文末「2026-10-18 增量排期与未完成任务」，保留原分析与六周基线。新增任务 ID、角色责任、依赖、验收口径及未排期事项的评审日期。本增量排期优先于下方同日及历史快照中冲突的下一步日期与范围。
 
@@ -21,7 +21,7 @@
 
 ## v6 M3 开发进展（2026-10-18，Asia/Shanghai）
 
-v6 M3 后端在隔离分支 `codex/v6-m3` 开发，基线 `781274a`，避免与主工作区并行 CLI 冲突。当前分支提交：
+v6 M3 后端在隔离分支 `codex/v6-m3` 开发，基线 `781274a`；2026-10-18 已快进合并到 `master`（`eed086c`），合并前完成 PM/产品两轮评审。当前 M3 提交：
 
 | 提交 | 内容 |
 | --- | --- |
@@ -49,12 +49,12 @@ v6 M3 后端在隔离分支 `codex/v6-m3` 开发，基线 `781274a`，避免与�
 - 安全上下文只投影白名单字段；敏感值（路径、apiKey/password/token、Prompt/工具载荷、堆栈）整体过滤；Coordinator 摘要 JSON 超过 60KB 时拒绝，避免 TEXT 列溢出。
 - 复用 M1/M2 四张表，无 DDL 变更；`sourceType` 统一使用 `PRIVATE_ASK`，不使用旧计划中的 `PRIVATE_ASK_CONVERSION`。
 
-验证证据：M3 定向测试 **71 项，失败 0、错误 0、跳过 0**；分支完整后端 `mvn -o -B test` 为 **521 项，失败 0、错误 0、跳过 4**（3 项 Docker 集成 + 1 项 MySQL 条件用例），`mvn -o -B -DskipTests package` 通过。
+验证证据：M3 定向测试在主工作区复跑 **71 项，失败 0、错误 0、跳过 0**；合并前分支完整后端 `mvn -o -B test` 为 **521 项，失败 0、错误 0、跳过 4**（3 项 Docker 集成 + 1 项 MySQL 条件用例），`mvn -o -B -DskipTests package` 通过。合并后主工作区完整测试受并行 CLI 未提交的 Workflow 版本改动影响，为 527 项、1 失败、3 跳过；失败项 `WorkflowControllerContractTest` 与 M3 无关，需由对应工作流改动收口。
 
 未完成/风险：
 
 - 真实 MySQL 迁移/事务回滚/并发、真实 CHAT 模型、真实 Runtime、浏览器/UAT 尚未执行；H2+Mockito 不能替代生产放行证据。
-- 分支尚未合并到 `master`、尚未推送；主工作区存在其他 CLI 的 `ErrorCode`/Workflow 版本改动，合并时需人工对账，不能直接覆盖。
+- M3 已快进合并到 `master`，尚未推送；主工作区仍有其他 CLI 未提交的 `ErrorCode`/Workflow 版本改动，本次合并保留了这些改动，未提交、未覆盖。
 - `docs/` 中旧计划仍写 `COORDINATOR`、`PRIVATE_ASK_CONVERSION`、`POST /{projectKey}/task-drafts`；实现以本节的 `SUMMARY/RISK/TASK_SUGGESTION`、`PRIVATE_ASK`、`/private-ask/task-drafts` 为准。
 - `CoordinatorRequest.focus` 当前未转发模型；`ConfirmTaskDraftRequest.idempotencyKey` 只做长度校验，重放由草稿状态/CAS 与 `confirmedRunId` 保证；指定处理人时仍按既有指派权限要求 manage。
 - M4 完整四区工作台与 M5 多服务/Memory Center 回链未开始。
