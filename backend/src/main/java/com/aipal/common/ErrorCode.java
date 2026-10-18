@@ -88,6 +88,25 @@ public enum ErrorCode {
     ASK_USER_NOT_WAITING_INPUT(409, "ask_user is not waiting for user input"),
     TASK_ALREADY_CLOSED(409, "Task is already closed"),
 
+    // ---------- 400/409/502/503 Collaboration M3 ----------
+    DISCUSSION_CONTENT_REQUIRED(400, "讨论内容不能为空"),
+    DISCUSSION_CONTENT_TOO_LONG(400, "讨论内容不能超过 4000 字"),
+    DISCUSSION_LIMIT_INVALID(400, "讨论数量限制必须在 1-50 之间"),
+    DISCUSSION_IDEMPOTENCY_CONFLICT(409, "相同幂等键的讨论内容不一致"),
+    PRIVATE_ASK_QUESTION_REQUIRED(400, "私密问答内容不能为空"),
+    PRIVATE_ASK_HISTORY_INVALID(400, "私密问答历史最多 20 轮，每条 1-4000 字"),
+    TASK_DRAFT_TITLE_REQUIRED(400, "任务草稿标题不能为空"),
+    TASK_DRAFT_TITLE_TOO_LONG(400, "任务草稿标题不能超过 255 字"),
+    TASK_DRAFT_DESCRIPTION_TOO_LONG(400, "任务草稿描述不能超过 4000 字"),
+    TASK_DRAFT_SOURCE_INVALID(400, "任务草稿来源类型无效"),
+    TASK_DRAFT_AGENT_REQUIRED(400, "确认任务草稿必须选择 Agent"),
+    TASK_DRAFT_NOT_FOUND(404, "任务草稿不存在"),
+    TASK_DRAFT_STATUS_CHANGED(409, "任务草稿状态已变更，请刷新后重试"),
+    TASK_DRAFT_VERSION_EXPIRED(409, "任务草稿版本已过期，请刷新后重试"),
+    TASK_DRAFT_CONFIRM_CONFLICT(409, "任务草稿确认冲突，请刷新后重试"),
+    MODEL_NOT_CONFIGURED(503, "当前租户未配置可用的默认 CHAT 模型"),
+    MODEL_RESPONSE_INVALID(502, "模型返回内容不符合约定"),
+
     // ---------- 500 Internal ----------
     AGENT_SNAPSHOT_FREEZE_FAILED(500, "无法冻结Agent定义快照"),
     TOOL_INPUT_SCHEMA_INVALID(500, "Tool input schema is invalid"),
