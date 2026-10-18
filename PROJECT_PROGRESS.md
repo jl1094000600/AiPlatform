@@ -2,7 +2,7 @@
 
 ## 排期增量（2026-10-18，Asia/Shanghai）
 
-当前节点：**工作流 W1 / 受控画布 PoC 代码收口，目标环境及真实浏览器验收尚未关闭**。工作流 MVP 未完成；v6 为 M1/M2 已实现待真实验收，M3–M5 未完成。W1–W6 与 v6 M1–M5 分开跟踪，不因画布可用而更新为全项目交付完成。2026-10-18 已修复完整回归中的 3 项失败测试，后端全量 452 项恢复为 0 失败、0 错误、3 跳过（Docker 不可用）；W1 的真实环境门禁仍未关闭。
+当前节点：**工作流 W1 / 受控画布 PoC 代码收口，目标环境及真实浏览器验收尚未关闭**。工作流 MVP 未完成；v6 M1/M2 已实现待真实验收，**M3 后端代码已在隔离分支完成、待真实环境验收**，M4/M5 未完成。W1–W6 与 v6 M1–M5 分开跟踪，不因画布可用而更新为全项目交付完成。2026-10-18 已修复完整回归中的 3 项失败测试，后端全量 452 项恢复为 0 失败、0 错误、3 跳过（Docker 不可用）；W1 的真实环境门禁仍未关闭。
 
 已增量更新 `docs/AGENTSTUDIO-COMPARISON-WORKFLOW-ROADMAP-2026-10-17.md` 文末「2026-10-18 增量排期与未完成任务」，保留原分析与六周基线。新增任务 ID、角色责任、依赖、验收口径及未排期事项的评审日期。本增量排期优先于下方同日及历史快照中冲突的下一步日期与范围。
 
@@ -13,11 +13,51 @@
 | runner 基础 | 独立 runner、强制执行模式、build/test/质量扫描接入、最小容器加固；未迁移的宿主部署/训练入口需生产阻断 | W1 冻结合同/入口清单，10/26–11/06 实现首版 |
 | W4–W5 可靠执行 | 持久节点/事件、CAS/租约、恢复/幂等/取消、审批 WAITING、节点 Trace、A2A 租户会话键、限额与回收 | 11/09–11/20；11/06 复核 BE2 容量，不足则顺延后续目标 |
 | W6 四节点 MVP | 真实数据库/Runtime/容器、双租户、浏览器/故障/UAT及灰度回滚 | 11/23–11/27，必需门禁不通过则保持受控预览或顺延 |
-| v6 M3–M5 | 安全上下文→讨论/Coordinator与Private Ask→草稿确认→完整四区→多服务/Memory Center 回链/UAT | 新增候选 11/30–12/25；11/20 复核资源，11/27 根据工作流验收确认启动，未锁定人员 |
+| v6 M3–M5 | M3-A/B/C/D 后端代码完成，待真实 MySQL/Runtime/模型/浏览器 UAT；M4 完整四区与 M5 多服务/Memory Center 回链未完成 | 新增候选 11/30–12/25；11/20 复核资源，11/27 根据工作流验收确认启动，未锁定人员 |
 
 仍未锁定开发日期：PARALLEL/JOIN、独立受信部署 runner、训练迁移、撤销/布局/视图增强、导入导出/模板/SSE、Code/Browser/循环/子流程等扩展、强沙箱/云沙箱、Windows 文件兼容、旧分支升级（仅在确认已部署时）。详细文档为上述事项补了 10/23、11/06、11/20 或 11/27 评审节点；评审日期不等于开发承诺。真实 Redis 依既有约定暂缓，环境就绪且暂缓解除后补日期，不能以 mock 关闭生产门禁。
 
-资源沿用 1 FE / 2 BE / 1 QA、产品/PM/运维兼职的假设；同一团队默认先工作流 MVP、再 v6，原 W7–W8 可选增强不与 v6 重复占用人员。本轮以 `f1aa167` 为基线；并行开发期间其他 CLI 已提交 `bb0b205`（前端文案清理），本地 `master` 继续领先 `origin/master`。本轮测试修复与进度更新随后提交，尚未推送。`docs/` 按仓库现有策略为本地忽略文档，本根进度保留排期摘要；本次不改 Git 忽略策略。旧台账与旧 PRD 的过期日期保留为历史，待 10/23 对账后再确认有效遗留项。
+资源沿用 1 FE / 2 BE / 1 QA、产品/PM/运维兼职的假设；同一团队默认先工作流 MVP、再 v6，原 W7–W8 可选增强不与 v6 重复占用人员。本轮以 `f1aa167` 为基线；并行开发期间其他 CLI 已提交 `bb0b205`（前端文案清理），本地 `master` 继续领先 `origin/master`。测试修复与进度更新已提交 `781274a`，尚未推送。`docs/` 按仓库现有策略为本地忽略文档，本根进度保留排期摘要；本次不改 Git 忽略策略。旧台账与旧 PRD 的过期日期保留为历史，待 10/23 对账后再确认有效遗留项。
+
+## v6 M3 开发进展（2026-10-18，Asia/Shanghai）
+
+v6 M3 后端在隔离分支 `codex/v6-m3` 开发，基线 `781274a`，避免与主工作区并行 CLI 冲突。当前分支提交：
+
+| 提交 | 内容 |
+| --- | --- |
+| `206e208` | 冻结 M3 DTO 契约（安全上下文、Coordinator、Private Ask、任务草稿）与错误码 |
+| `46978d1` | M3-A 安全上下文/严格模型网关；M3-D 草稿生命周期、确认 Run、双指派 |
+| `94239c9` | M3-B 共享讨论/Coordinator；M3-C Private Ask；权限与脱敏修复 |
+
+已实现接口（均位于 `/api/v1/project-workspaces`）：
+
+| 能力 | 接口 | 权限 |
+| --- | --- | --- |
+| 共享讨论 | `GET/POST /{projectKey}/discussions` | view |
+| Coordinator | `POST /{projectKey}/discussion-coordinator` | execute |
+| Private Ask | `POST /{projectKey}/private-ask` | view |
+| 私聊转草稿 | `POST /{projectKey}/private-ask/task-drafts` | execute |
+| 草稿列表/创建 | `GET/POST /{projectKey}/task-drafts` | view / execute |
+| 草稿确认/取消 | `POST /{projectKey}/task-drafts/{id}/confirm`、`/cancel` | execute |
+
+关键边界：
+
+- Coordinator 与 Private Ask 只读，不创建 Run、不改流水线/审批/任务状态；模型调用在写事务外。
+- 只有草稿 `confirm` 才通过现有 `AgentRunService.createOrReuse` 创建/复用 Run（`businessType=PROJECT_TASK_DRAFT`），并在同一事务内完成草稿 CAS、`TASK_DRAFT` 与 `AGENT_RUN` 指派。
+- Private Ask 默认零持久化：不写讨论、草稿、记忆、项目事件或审计正文；只有用户显式提交摘要才落 `PRIVATE_ASK` 草稿。
+- 讨论消息类型使用 `SUMMARY` / `RISK` / `TASK_SUGGESTION`，不写 `COORDINATOR`；`senderType` 由 `sender_user_id` 派生，不新增表列。
+- 安全上下文只投影白名单字段；敏感值（路径、apiKey/password/token、Prompt/工具载荷、堆栈）整体过滤；Coordinator 摘要 JSON 超过 60KB 时拒绝，避免 TEXT 列溢出。
+- 复用 M1/M2 四张表，无 DDL 变更；`sourceType` 统一使用 `PRIVATE_ASK`，不使用旧计划中的 `PRIVATE_ASK_CONVERSION`。
+
+验证证据：M3 定向测试 **71 项，失败 0、错误 0、跳过 0**；分支完整后端 `mvn -o -B test` 为 **521 项，失败 0、错误 0、跳过 4**（3 项 Docker 集成 + 1 项 MySQL 条件用例），`mvn -o -B -DskipTests package` 通过。
+
+未完成/风险：
+
+- 真实 MySQL 迁移/事务回滚/并发、真实 CHAT 模型、真实 Runtime、浏览器/UAT 尚未执行；H2+Mockito 不能替代生产放行证据。
+- 分支尚未合并到 `master`、尚未推送；主工作区存在其他 CLI 的 `ErrorCode`/Workflow 版本改动，合并时需人工对账，不能直接覆盖。
+- `docs/` 中旧计划仍写 `COORDINATOR`、`PRIVATE_ASK_CONVERSION`、`POST /{projectKey}/task-drafts`；实现以本节的 `SUMMARY/RISK/TASK_SUGGESTION`、`PRIVATE_ASK`、`/private-ask/task-drafts` 为准。
+- `CoordinatorRequest.focus` 当前未转发模型；`ConfirmTaskDraftRequest.idempotencyKey` 只做长度校验，重放由草稿状态/CAS 与 `confirmedRunId` 保证；指定处理人时仍按既有指派权限要求 manage。
+- M4 完整四区工作台与 M5 多服务/Memory Center 回链未开始。
 
 ## 当前交付状态（2026-10-18，Asia/Shanghai）
 
@@ -41,7 +81,7 @@
 | `AutomationBuildTestExecutionServiceTest.pathOutsideWorkspaceIsBlockedNotPlatformRoot` | 用例使用 Windows 路径 `C:\Windows\System32`；在 macOS/Linux 上该路径会被当作相对路径，解析到项目内而不是越界 | 改用项目根目录之外的跨平台真实路径，验证越界路径确实被拒绝 |
 | `AutomationBuildTestExecutionServiceTest.parseFailureOnTestPathIsBlocked` | 同上，路径未越界导致测试命令仍被执行 | 同上 |
 
-修复文件：`backend/src/test/java/com/aipal/service/AgentToolExecutorTest.java`、`backend/src/test/java/com/aipal/service/AutomationBuildTestExecutionServiceTest.java`。修复后全量 `mvn -o -B test` 为 **452 项，失败 0、错误 0、跳过 3**；3 个跳过均为 Docker 集成用例。测试改动与本文档更新尚未提交。
+修复文件：`backend/src/test/java/com/aipal/service/AgentToolExecutorTest.java`、`backend/src/test/java/com/aipal/service/AutomationBuildTestExecutionServiceTest.java`。修复后全量 `mvn -o -B test` 为 **452 项，失败 0、错误 0、跳过 3**；3 个跳过均为 Docker 集成用例。测试改动与进度更新已提交 `781274a`，尚未推送。
 
 下一步按既定路线图推进：先提交/评审本轮测试修复，并在 10/19–10/23 完成 W1 补证（新 Linux 镜像与文件 API、真实 MySQL、登录/画布/Runtime、权限种子策略）；随后 W2–W3（10/26–11/06）建设 DSL/schemaVersion、变量、布局分离、发布快照和 AgentRun 适配；W4–W5（11/09–11/20）建设持久节点状态、CAS/恢复/审批与独立 runner；W6（11/23–11/27）执行真实 MySQL、双租户、浏览器及重启/重复事件/UAT。PARALLEL/JOIN 必须等 JOIN 屏障和去重门禁通过才重新开放。独立 runner、质量扫描迁移、容器加固、配额/崩溃回收仍为待办。
 
