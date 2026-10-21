@@ -254,6 +254,33 @@ export default {
   getMyProjectAssignments() {
     return api.get('/project-workspaces/my-assignments')
   },
+  listProjectDiscussions(projectKey, params) {
+    return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/discussions', { params })
+  },
+  postProjectDiscussion(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/discussions', data)
+  },
+  runProjectCoordinator(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/discussion-coordinator', data)
+  },
+  privateAskProject(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/private-ask', data)
+  },
+  convertPrivateAskToDraft(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/private-ask/task-drafts', data)
+  },
+  listProjectTaskDrafts(projectKey) {
+    return api.get('/project-workspaces/' + encodeURIComponent(projectKey) + '/task-drafts')
+  },
+  createProjectTaskDraft(projectKey, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/task-drafts', data)
+  },
+  confirmProjectTaskDraft(projectKey, draftId, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/task-drafts/' + draftId + '/confirm', data)
+  },
+  cancelProjectTaskDraft(projectKey, draftId, data) {
+    return api.post('/project-workspaces/' + encodeURIComponent(projectKey) + '/task-drafts/' + draftId + '/cancel', data)
+  },
   getAgentQualitySummary() {
     return api.get('/agent-quality/summary')
   },

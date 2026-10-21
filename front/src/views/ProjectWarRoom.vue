@@ -41,6 +41,42 @@
       @open-project="openProject"
     />
 
+    <div class="collab-grid" v-if="activeProjectKey">
+      <ProjectDiscussionPanel
+        :project-key="activeProjectKey"
+        :messages="discussionMessages"
+        :loading="loadingDiscussions"
+        :busy="discussionBusy"
+        :coordinating="coordinatorBusy"
+        :error="discussionError"
+        :coordinator="coordinatorResult"
+        @refresh="loadDiscussions"
+        @post="postDiscussion"
+        @coordinate="runCoordinator"
+      />
+      <ProjectPrivateAskPanel
+        ref="privateAskPanelRef"
+        :project-key="activeProjectKey"
+        :busy="privateAskBusy"
+        :converting="privateAskConverting"
+        :error="privateAskError"
+        @ask="handlePrivateAsk"
+        @convert="handlePrivateAskConvert"
+        @clear="privateAskError = ''"
+      />
+      <ProjectTaskDraftPanel
+        :project-key="activeProjectKey"
+        :drafts="taskDrafts"
+        :loading="loadingTaskDrafts"
+        :busy="taskDraftBusy"
+        :error="taskDraftError"
+        @refresh="loadTaskDrafts"
+        @create="createTaskDraft"
+        @confirm="confirmTaskDraft"
+        @cancel="cancelTaskDraft"
+      />
+    </div>
+
     <template v-if="warRoom">
       <section class="summary-band">
         <div v-for="item in summaryCards" :key="item.label" class="metric">
@@ -328,6 +364,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { CircleCheck, Promotion, Refresh, User, VideoPlay, Warning } from '@element-plus/icons-vue'
 import api from '../api'
 import ProjectAssignmentPanel from '../components/ProjectAssignmentPanel.vue'
+import ProjectDiscussionPanel from '../components/ProjectDiscussionPanel.vue'
+import ProjectPrivateAskPanel from '../components/ProjectPrivateAskPanel.vue'
+import ProjectTaskDraftPanel from '../components/ProjectTaskDraftPanel.vue'
 import { hasPermission } from '../utils/permissions'
 import { assigneeLabel, assignmentStatusText, assignmentTargetText, buildTeamRunPayload, createLatestRequestGuard, formatProjectTime, isConfirmationCancelled, projectErrorStatus, projectErrorText, projectResponseData, retainTeamRunBusinessId } from '../utils/projectAssignments'
 
@@ -359,6 +398,21 @@ const refreshGuard = createLatestRequestGuard()
 const agentsGuard = createLatestRequestGuard()
 let contextRevision = 0
 const assignmentDialog = reactive({ visible: false, assignmentId: null, projectKey: '', targetType: '', targetId: null, targetLabel: '', fromName: '', assigneeUserId: null, expectedVersion: null, reason: '', error: '' })
+// M4 collaboration zones
+const discussionMessages = ref([])
+const loadingDiscussions = ref(false)
+const discussionBusy = ref(false)
+const coordinatorBusy = ref(false)
+const discussionError = ref('')
+const coordinatorResult = ref(null)
+const privateAskBusy = ref(false)
+const privateAskConverting = ref(false)
+const privateAskError = ref('')
+const privateAskPanelRef = ref(null)
+const taskDrafts = ref([])
+const loadingTaskDrafts = ref(false)
+const taskDraftBusy = ref(false)
+const taskDraftError = ref('')
 const canExecute = computed(() => hasPermission('project-workspace:execute'))
 const canApproveAutomation = computed(() => hasPermission('automation:approve'))
 const canManageAssignments = computed(() => warRoom.value?.canManageAssignments === true || warRoom.value?.project?.canManageAssignments === true)
@@ -535,6 +589,7 @@ const loadAll = async () => {
       return
     }
     await loadWarRoom(routeProjectKey)
+    await loadCollaborationZones()
   } catch (error) {
     if (!listGuard.isCurrent(request)) return
     workspaces.value = []
@@ -979,8 +1034,173 @@ const pendingApprovalCount = (pipeline) => (pipeline.approvals || [])
 const formatShortDate = (value) => value ? new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '-'
 watch(() => route.params.projectKey, async (projectKey) => {
   resetProjectContext()
-  await Promise.all([loadWarRoom(String(projectKey || '')), loadMyAssignments()])
+  await Promise.all([loadWarRoom(String(projectKey || '')), loadMyAssignments(), loadCollaborationZones()])
 })
+
+const loadDiscussions = async () => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey) return
+  loadingDiscussions.value = true
+  discussionError.value = ''
+  try {
+    const res = await api.listProjectDiscussions(projectKey, { limit: 100 })
+    discussionMessages.value = res?.data?.data || res?.data || []
+    if (!Array.isArray(discussionMessages.value)) discussionMessages.value = []
+  } catch (e) {
+    discussionError.value = e?.response?.data?.message || e?.message || '加载讨论失败'
+  } finally {
+    loadingDiscussions.value = false
+  }
+}
+
+const postDiscussion = async (content) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey || !content) return
+  discussionBusy.value = true
+  discussionError.value = ''
+  try {
+    await api.postProjectDiscussion(projectKey, {
+      content,
+      idempotencyKey: 'disc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+    })
+    await loadDiscussions()
+  } catch (e) {
+    discussionError.value = e?.response?.data?.message || e?.message || '发送失败'
+  } finally {
+    discussionBusy.value = false
+  }
+}
+
+const runCoordinator = async () => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey) return
+  coordinatorBusy.value = true
+  discussionError.value = ''
+  try {
+    const res = await api.runProjectCoordinator(projectKey, {
+      focus: warRoom.value?.project?.projectName || '',
+      idempotencyKey: 'coord-' + Date.now()
+    })
+    coordinatorResult.value = res?.data?.data || res?.data || null
+  } catch (e) {
+    discussionError.value = e?.response?.data?.message || e?.message || '协调摘要失败'
+  } finally {
+    coordinatorBusy.value = false
+  }
+}
+
+const handlePrivateAsk = async ({ question, history }) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey || !question) return
+  privateAskBusy.value = true
+  privateAskError.value = ''
+  try {
+    const res = await api.privateAskProject(projectKey, {
+      question,
+      history: (history || []).filter((h) => h && h.role).map((h) => ({ role: h.role, content: h.content }))
+    })
+    const answer = res?.data?.data?.answer || res?.data?.answer || ''
+    privateAskPanelRef.value?.pushAnswer(answer || '(无回答)')
+  } catch (e) {
+    privateAskError.value = e?.response?.data?.message || e?.message || '私密问答失败'
+  } finally {
+    privateAskBusy.value = false
+  }
+}
+
+const handlePrivateAskConvert = async ({ answer }) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey) return
+  privateAskConverting.value = true
+  privateAskError.value = ''
+  try {
+    await api.convertPrivateAskToDraft(projectKey, {
+      title: (answer || '私密问答任务').slice(0, 60),
+      description: answer || '',
+      idempotencyKey: 'pask-' + Date.now()
+    })
+    await loadTaskDrafts()
+  } catch (e) {
+    privateAskError.value = e?.response?.data?.message || e?.message || '转草稿失败'
+  } finally {
+    privateAskConverting.value = false
+  }
+}
+
+const loadTaskDrafts = async () => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey) return
+  loadingTaskDrafts.value = true
+  taskDraftError.value = ''
+  try {
+    const res = await api.listProjectTaskDrafts(projectKey)
+    const list = res?.data?.data || res?.data || []
+    taskDrafts.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    taskDraftError.value = e?.response?.data?.message || e?.message || '加载草稿失败'
+  } finally {
+    loadingTaskDrafts.value = false
+  }
+}
+
+const createTaskDraft = async (payload) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey) return
+  taskDraftBusy.value = true
+  taskDraftError.value = ''
+  try {
+    await api.createProjectTaskDraft(projectKey, {
+      ...payload,
+      idempotencyKey: 'draft-' + Date.now()
+    })
+    await loadTaskDrafts()
+  } catch (e) {
+    taskDraftError.value = e?.response?.data?.message || e?.message || '创建草稿失败'
+  } finally {
+    taskDraftBusy.value = false
+  }
+}
+
+const confirmTaskDraft = async (row) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey || !row?.id) return
+  taskDraftBusy.value = true
+  taskDraftError.value = ''
+  try {
+    await api.confirmProjectTaskDraft(projectKey, row.id, {
+      expectedVersion: row.version,
+      idempotencyKey: 'confirm-' + row.id + '-' + Date.now()
+    })
+    await loadTaskDrafts()
+    await refreshAssignments()
+  } catch (e) {
+    taskDraftError.value = e?.response?.data?.message || e?.message || '确认失败'
+  } finally {
+    taskDraftBusy.value = false
+  }
+}
+
+const cancelTaskDraft = async (row) => {
+  const projectKey = activeProjectKey.value
+  if (!projectKey || !row?.id) return
+  taskDraftBusy.value = true
+  taskDraftError.value = ''
+  try {
+    await api.cancelProjectTaskDraft(projectKey, row.id, {
+      expectedVersion: row.version,
+      reason: '用户取消'
+    })
+    await loadTaskDrafts()
+  } catch (e) {
+    taskDraftError.value = e?.response?.data?.message || e?.message || '取消失败'
+  } finally {
+    taskDraftBusy.value = false
+  }
+}
+
+const loadCollaborationZones = async () => {
+  await Promise.all([loadDiscussions(), loadTaskDrafts()])
+}
 
 onMounted(loadAll)
 onUnmounted(() => {
@@ -1073,6 +1293,18 @@ onUnmounted(() => {
 .risk-item span, .compact-row span, .memory-row span, .memory-row small { color: var(--text-muted); font-size: 12px; margin-top: 5px; word-break: break-word; }
 .memory-row + .memory-row { margin-top: 8px; }
 .member-tag { margin: 0 8px 8px 0; max-width: 100%; }
+.collab-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 14px 0 18px;
+}
+@media (max-width: 1500px) {
+  .collab-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 960px) {
+  .collab-grid { grid-template-columns: 1fr; }
+}
 :deep(.el-form-item__label) { font-weight: 700; }
 @media (max-width: 1500px) { .war-room-grid { grid-template-columns: 1fr 1fr; grid-template-areas: "pipeline side" "agent side" "progress progress"; } .action-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 960px) { .war-room-grid, .summary-band, .form-grid, .action-picker, .review-facts { grid-template-columns: 1fr; grid-template-areas: none; } .project-panel, .pipeline-panel, .agent-panel, .side-stack { grid-area: auto; } .page-head, .queue-item { flex-direction: column; } }
