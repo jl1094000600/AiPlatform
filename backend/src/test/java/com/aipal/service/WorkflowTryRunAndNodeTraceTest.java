@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -195,6 +196,80 @@ class WorkflowTryRunAndNodeTraceTest {
         assertNotNull(captured.get(), "agent must receive resolved payload");
         assertEquals("hello-hi", captured.get().get("prompt"),
                 "configured inputs must resolve run input + variable default into agent payload");
+    }
+
+    @Test
+    void upstreamNodeOutputsFlowIntoDownstreamAgentInputs() {
+        String definition = """
+                {"timeoutSeconds":5,"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"n1","type":"AGENT","targetAgent":"writer"},
+                  {"id":"n2","type":"AGENT","targetAgent":"writer",
+                   "inputs":{"summary":"{{nodes.n1.outputs.draft}}","topic":"{{inputs.topic}}"}},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"n1"},
+                  {"source":"n1","target":"n2"},
+                  {"source":"n2","target":"end"}
+                ]}
+                """;
+        when(versionService.canonicalHash(any())).thenReturn("hash-chain");
+        when(versionService.latestActive(1L)).thenReturn(snapshot(definition, "hash-chain"));
+        java.util.List<Map<String, Object>> payloads = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        AgentRegistry.AgentContext capturing = new AgentRegistry.AgentContext();
+        AiAgent writer = new AiAgent();
+        writer.setId(3L);
+        writer.setAgentCode("writer");
+        capturing.setAgent(writer);
+        capturing.setHandler(message -> {
+            payloads.add(message.getPayload());
+            return A2AMessage.builder().payload(Map.of("draft", "plan-from-n1")).build();
+        });
+        when(agentRegistry.getAgent("writer")).thenReturn(capturing);
+
+        WorkflowTryRunDtos.TryRunResult result = service.tryRun(1L,
+                new WorkflowTryRunDtos.TryRunRequest(Map.of("topic", "chain"), definition));
+
+        assertEquals("DRY_COMPLETED", result.status());
+        assertEquals(2, payloads.size(), "both agent nodes must run");
+        assertEquals("plan-from-n1", payloads.get(1).get("summary"),
+                "n2 must receive n1 outputs via {{nodes.n1.outputs.draft}}");
+        assertEquals("chain", payloads.get(1).get("topic"),
+                "n2 must receive run input topic");
+    }
+
+    @Test
+    void missingUpstreamOutputFailsClosedBeforeAgentCall() {
+        String definition = """
+                {"timeoutSeconds":5,"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"n2","type":"AGENT","targetAgent":"writer",
+                   "inputs":{"summary":"{{nodes.n1.outputs.draft}}"}},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"n2"},
+                  {"source":"n2","target":"end"}
+                ]}
+                """;
+        when(versionService.canonicalHash(any())).thenReturn("hash-miss");
+        when(versionService.latestActive(1L)).thenReturn(snapshot(definition, "hash-miss"));
+        java.util.concurrent.atomic.AtomicBoolean invoked = new java.util.concurrent.atomic.AtomicBoolean(false);
+        AgentRegistry.AgentContext capturing = new AgentRegistry.AgentContext();
+        AiAgent writer = new AiAgent();
+        writer.setId(3L);
+        writer.setAgentCode("writer");
+        capturing.setAgent(writer);
+        capturing.setHandler(message -> {
+            invoked.set(true);
+            return A2AMessage.builder().payload(Map.of("draft", "x")).build();
+        });
+        when(agentRegistry.getAgent("writer")).thenReturn(capturing);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.tryRun(1L, new WorkflowTryRunDtos.TryRunRequest(Map.of(), definition)));
+        assertTrue(error.getMessage().contains("Unknown node reference") || error.getMessage().contains("n1"),
+                error.getMessage());
+        assertFalse(invoked.get(), "agent must not run when upstream output reference is unresolvable");
     }
 
     @Test

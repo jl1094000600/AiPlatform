@@ -271,6 +271,58 @@ await check('input bindings convert to definition inputs map and back', () => {
   assert.deepEqual(bindingsToInputs(undefined), {})
 })
 
+await check('multi-node I/O chain survives definition round-trip for execution', () => {
+  const nodes = [
+    { id: 'n1', type: 'START', label: 'start', x: 0, y: 0, paramsText: '{}', inputBindings: [] },
+    {
+      id: 'n2', type: 'AGENT', label: 'produce', x: 100, y: 0, agentId: 3,
+      params: {}, paramsText: '{}',
+      inputBindings: [{ key: 'topic', value: '{{inputs.topic}}' }],
+      timeout: 30, retryCount: 0
+    },
+    {
+      id: 'n3', type: 'AGENT', label: 'consume', x: 200, y: 0, agentId: 4,
+      params: {}, paramsText: '{}',
+      inputBindings: [
+        { key: 'summary', value: '{{nodes.n2.outputs.draft}}' },
+        { key: 'topic', value: '{{inputs.topic}}' }
+      ],
+      timeout: 30, retryCount: 0
+    }
+  ]
+  const definition = buildWorkflowDefinition({
+    nodes,
+    edges: [
+      { source: 'n1', target: 'n2' },
+      { source: 'n2', target: 'n3' }
+    ],
+    variables: [{ name: 'topic', type: 'string', required: true, defaultValue: 'demo' }]
+  })
+  assert.equal(definition.nodes[2].inputs.summary, '{{nodes.n2.outputs.draft}}')
+  assert.equal(definition.nodes[2].inputs.topic, '{{inputs.topic}}')
+  assert.equal(definition.nodes[1].inputs.topic, '{{inputs.topic}}')
+
+  const parsed = parseWorkflowDefinition(JSON.stringify(definition))
+  assert.equal(parsed.nodes.find((n) => n.id === 'n3').inputs.summary, '{{nodes.n2.outputs.draft}}')
+
+  const roundTrip = buildWorkflowDefinition({
+    nodes: parsed.nodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      label: n.label || n.id,
+      x: 0,
+      y: 0,
+      agentId: n.agentId,
+      params: n.params || {},
+      paramsText: JSON.stringify(n.params || {}),
+      inputBindings: inputsToBindings(n.inputs || {})
+    })),
+    edges: parsed.edges,
+    variables: parsed.variables
+  })
+  assert.deepEqual(roundTrip.nodes.find((n) => n.id === 'n3').inputs, definition.nodes[2].inputs)
+})
+
 await check('variables normalize with type coercion and duplicate name dropping', () => {
   const normalized = normalizeVariables([
     { name: 'topic', type: 'string', required: true, defaultValueText: 'hello' },
