@@ -50,6 +50,11 @@ public class WorkflowExecution {
     /** 错误信息 */
     private String errorMessage;
 
+    private String owner;
+    private LocalDateTime leaseUntil;
+    private Integer cancelRequested;
+    private Integer recoverCount;
+
     /** 开始时间 */
     private LocalDateTime startTime;
 

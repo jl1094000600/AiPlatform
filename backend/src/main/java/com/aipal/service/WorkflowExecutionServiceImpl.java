@@ -78,6 +78,9 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final WorkflowNodeRunMapper nodeRunMapper;
     private final WorkflowVariableResolver workflowVariableResolver = new WorkflowVariableResolver();
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private WorkflowReliabilityService workflowReliabilityService;
+
     private final ExecutorService workflowExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "workflow-timeout");
@@ -179,7 +182,12 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     public void cancelExecution(String executionId) {
         WorkflowExecution execution = requireExecution(executionId);
         if (TERMINAL_STATUSES.contains(execution.getStatus())) return;
-        finish(execution, "CANCELLED", null, "Execution cancelled");
+        if (workflowReliabilityService != null) {
+            workflowReliabilityService.cancelCas(execution.getExecutionId(), "Execution cancelled");
+            execution.setStatus("CANCELLED");
+        } else {
+            finish(execution, "CANCELLED", null, "Execution cancelled");
+        }
         Future<?> future = runningTasks.remove(executionId);
         if (future != null) future.cancel(true);
         cancelTimeout(executionId);
@@ -335,6 +343,9 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     }
 
     private void completeNodeRun(WorkflowNodeRun run, Object outputs, long startedAt, int attempt) {
+        if (workflowReliabilityService != null) {
+            workflowReliabilityService.recordEvent(run.getExecutionId(), "NODE_COMPLETED", run.getNodeId(), "attempt=" + attempt);
+        }
         run.setStatus("COMPLETED");
         run.setAttempt(attempt);
         run.setOutputDigest(digestSnapshot(outputs));
@@ -344,6 +355,9 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     }
 
     private void failNodeRun(WorkflowNodeRun run, Throwable error, long startedAt, int attempt) {
+        if (workflowReliabilityService != null) {
+            workflowReliabilityService.recordEvent(run.getExecutionId(), "NODE_FAILED", run.getNodeId(), error.getMessage());
+        }
         run.setStatus("FAILED");
         run.setAttempt(attempt);
         run.setDurationMs(System.currentTimeMillis() - startedAt);
@@ -744,6 +758,15 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     }
 
     private void finish(WorkflowExecution execution, String status, String result, String errorMessage) {
+        if (workflowReliabilityService != null) {
+            if (workflowReliabilityService.finishCas(execution.getExecutionId(), status, result, errorMessage)) {
+                execution.setStatus(status);
+                execution.setResult(result);
+                execution.setErrorMessage(errorMessage);
+                execution.setEndTime(LocalDateTime.now());
+            }
+            return;
+        }
         WorkflowExecution current = getExecutionEntity(execution.getExecutionId());
         if (current != null && TERMINAL_STATUSES.contains(current.getStatus())) return;
         execution.setStatus(status);
