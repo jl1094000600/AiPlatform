@@ -76,6 +76,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private final WorkflowAgentRunAdapter workflowAgentRunAdapter;
     private final MemoryOrchestrator memoryOrchestrator;
     private final WorkflowNodeRunMapper nodeRunMapper;
+    private final WorkflowVariableResolver workflowVariableResolver = new WorkflowVariableResolver();
 
     private final ExecutorService workflowExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -577,6 +578,15 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         AgentRegistry.AgentContext agent = resolveAgent(node);
         Map<String, Object> payload = new HashMap<>();
         if (node.getParams() != null) payload.putAll(node.getParams());
+        // Resolve canvas-configured inputs ({{variables.*}}/{{inputs.*}}/{{nodes.*.outputs.*}})
+        // and merge into the A2A payload so I/O bindings reach the agent.
+        if (node.getInputs() != null && !node.getInputs().isEmpty()) {
+            Map<String, Map<String, Object>> nodeOutputs = extractNodeOutputs(context);
+            Map<String, Object> runInputs = extractRunInputs(execution);
+            Map<String, Object> resolvedInputs = workflowVariableResolver.resolveInputs(
+                    node.getInputs(), definitionVariables(definition), runInputs, nodeOutputs);
+            payload.putAll(resolvedInputs);
+        }
         payload.put("workflowContext", new HashMap<>(context));
         prepareMemoryContext(execution, node, agent, payload);
         A2AMessage message = A2AMessage.builder()

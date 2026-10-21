@@ -160,6 +160,44 @@ class WorkflowTryRunAndNodeTraceTest {
     }
 
     @Test
+    void configuredInputsResolveIntoAgentPayload() {
+        String definition = """
+                {"timeoutSeconds":5,"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"agent","type":"AGENT","targetAgent":"writer",
+                   "inputs":{"prompt":"{{inputs.topic}}-{{variables.greeting}}"}},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"agent"},
+                  {"source":"agent","target":"end"}
+                ],
+                "variables":[{"name":"greeting","type":"string","defaultValue":"hi"}]}
+                """;
+        when(versionService.canonicalHash(any())).thenReturn("hash-io");
+        when(versionService.latestActive(1L)).thenReturn(snapshot(definition, "hash-io"));
+        java.util.concurrent.atomic.AtomicReference<Map<String, Object>> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        AgentRegistry.AgentContext capturing = new AgentRegistry.AgentContext();
+        AiAgent writer = new AiAgent();
+        writer.setId(3L);
+        writer.setAgentCode("writer");
+        capturing.setAgent(writer);
+        capturing.setHandler(message -> {
+            captured.set(message.getPayload());
+            return A2AMessage.builder().payload(Map.of("draft", "done")).build();
+        });
+        when(agentRegistry.getAgent("writer")).thenReturn(capturing);
+
+        WorkflowTryRunDtos.TryRunResult result = service.tryRun(1L,
+                new WorkflowTryRunDtos.TryRunRequest(Map.of("topic", "hello"), definition));
+
+        assertEquals("DRY_COMPLETED", result.status());
+        assertNotNull(captured.get(), "agent must receive resolved payload");
+        assertEquals("hello-hi", captured.get().get("prompt"),
+                "configured inputs must resolve run input + variable default into agent payload");
+    }
+
+    @Test
     void tryRunAcceptsDraftDefinitionJsonWithoutPersistingIt() {
         String draft = """
                 {"timeoutSeconds":5,"nodes":[
