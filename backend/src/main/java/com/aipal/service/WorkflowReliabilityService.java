@@ -11,10 +11,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * W4: CAS status transitions, leases, cancel idempotency, recovery, and event trail.
+ * W5: terminal cleanup hook (runningTasks/timeout + workspace lease release) and
+ * non-terminal WAITING_APPROVAL / WAITING_TOOL_APPROVAL pause transitions.
  */
 @Service
 @Slf4j
@@ -25,8 +28,24 @@ public class WorkflowReliabilityService {
             List.of("COMPLETED", "FAILED", "CANCELLED", "TIMEOUT",
                     "DRY_COMPLETED", "DRY_FAILED", "DRY_CANCELLED");
 
+    /** Non-terminal pause states introduced by W5 tool-approval waits. */
+    public static final List<String> WAITING_STATUSES =
+            List.of("WAITING_APPROVAL", "WAITING_TOOL_APPROVAL");
+
     private final WorkflowExecutionMapper executionMapper;
     private final WorkflowExecutionEventMapper eventMapper;
+
+    /** Invoked exactly once for the CAS winner of a terminal transition. */
+    @FunctionalInterface
+    public interface TerminalCleanup {
+        void onTerminal(String executionId, String status);
+    }
+
+    private volatile TerminalCleanup terminalCleanup;
+
+    public void setTerminalCleanup(TerminalCleanup terminalCleanup) {
+        this.terminalCleanup = terminalCleanup;
+    }
 
     public void recordEvent(String executionId, String eventType, String nodeId, String message) {
         if (executionId == null || executionId.isBlank()) {
@@ -58,9 +77,57 @@ public class WorkflowReliabilityService {
                 .set(WorkflowExecution::getResult, result)
                 .set(WorkflowExecution::getErrorMessage, errorMessage)
                 .set(WorkflowExecution::getEndTime, now)
-                .set(WorkflowExecution::getLeaseUntil, now));
+                // W5: terminal rows drop the worker lease so recovery scanners skip them.
+                .set(WorkflowExecution::getLeaseUntil, null)
+                .set(WorkflowExecution::getOwner, null));
         if (updated > 0) {
             recordEvent(executionId, "FINISHED", null, status + (errorMessage == null ? "" : (": " + errorMessage)));
+            TerminalCleanup cleanup = terminalCleanup;
+            if (cleanup != null) {
+                try {
+                    cleanup.onTerminal(executionId, status);
+                } catch (RuntimeException e) {
+                    log.warn("Terminal cleanup failed for {}: {}", executionId, e.getMessage());
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * W5: pause a non-terminal execution while a tool call awaits approval.
+     * Returns true when the pause was recorded (RUNNING/PENDING → waiting).
+     */
+    public boolean markWaiting(String executionId, String waitingStatus, String nodeId, String message) {
+        if (executionId == null || waitingStatus == null || !WAITING_STATUSES.contains(waitingStatus)) {
+            return false;
+        }
+        int updated = executionMapper.update(null, new LambdaUpdateWrapper<WorkflowExecution>()
+                .eq(WorkflowExecution::getExecutionId, executionId)
+                .notIn(WorkflowExecution::getStatus, TERMINAL_STATUSES)
+                .notIn(WorkflowExecution::getStatus, WAITING_STATUSES)
+                .set(WorkflowExecution::getStatus, waitingStatus));
+        if (updated > 0) {
+            recordEvent(executionId, "WAITING_APPROVAL", nodeId, message);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * W5: resume after tool approval (WAITING_* → RUNNING). Returns true when resumed.
+     */
+    public boolean resumeRunning(String executionId, String message) {
+        if (executionId == null) {
+            return false;
+        }
+        int updated = executionMapper.update(null, new LambdaUpdateWrapper<WorkflowExecution>()
+                .eq(WorkflowExecution::getExecutionId, executionId)
+                .in(WorkflowExecution::getStatus, WAITING_STATUSES)
+                .set(WorkflowExecution::getStatus, "RUNNING"));
+        if (updated > 0) {
+            recordEvent(executionId, "RESUMED", null, message);
             return true;
         }
         return false;
@@ -115,12 +182,16 @@ public class WorkflowReliabilityService {
     }
 
     /**
-     * Fail-closed recovery: RUNNING executions with expired leases become FAILED.
+     * Fail-closed recovery: RUNNING/WAITING executions with expired leases become FAILED.
+     * WAITING_* rows are included so a crash during a tool-approval pause cannot strand
+     * the execution forever.
      * @return number of recovered rows
      */
     public int recoverExpiredLeases(String reason) {
+        List<String> recoverable = new ArrayList<>(List.of("RUNNING"));
+        recoverable.addAll(WAITING_STATUSES);
         List<WorkflowExecution> expired = executionMapper.selectList(new LambdaQueryWrapper<WorkflowExecution>()
-                .eq(WorkflowExecution::getStatus, "RUNNING")
+                .in(WorkflowExecution::getStatus, recoverable)
                 .isNotNull(WorkflowExecution::getLeaseUntil)
                 .lt(WorkflowExecution::getLeaseUntil, LocalDateTime.now()));
         int recovered = 0;

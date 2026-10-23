@@ -168,6 +168,34 @@ public class WorkflowController {
         return Result.success(true);
     }
 
+    /** W5: tool calls of this execution waiting for approval. */
+    @GetMapping("/executions/{executionId}/tool-approvals")
+    @RequirePermission("workflow:manage")
+    public Result<java.util.List<com.aipal.entity.AgentToolCall>> listWaitingToolCalls(
+            @PathVariable String executionId) {
+        return Result.success(executionService.listWaitingToolCalls(executionId));
+    }
+
+    /** W5: approve a waiting tool call; the paused node continues. */
+    @PostMapping("/executions/{executionId}/tool-approvals/{toolCallId}/approve")
+    @RequirePermission("workflow:manage")
+    public Result<Boolean> approveToolCall(@PathVariable String executionId,
+                                           @PathVariable Long toolCallId,
+                                           @RequestBody(required = false) Map<String, String> body) {
+        String reason = body == null ? null : body.get("reason");
+        return Result.success(executionService.approveToolCall(executionId, toolCallId, reason));
+    }
+
+    /** W5: reject a waiting tool call; the owning node fails. */
+    @PostMapping("/executions/{executionId}/tool-approvals/{toolCallId}/reject")
+    @RequirePermission("workflow:manage")
+    public Result<Boolean> rejectToolCall(@PathVariable String executionId,
+                                          @PathVariable Long toolCallId,
+                                          @RequestBody(required = false) Map<String, String> body) {
+        String reason = body == null ? null : body.get("reason");
+        return Result.success(executionService.rejectToolCall(executionId, toolCallId, reason));
+    }
+
     @PostMapping("/events/{eventType}")
     @RequirePermission("workflow:manage")
     public Result<List<String>> triggerEvent(@PathVariable String eventType,

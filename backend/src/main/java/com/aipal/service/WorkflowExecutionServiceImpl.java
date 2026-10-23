@@ -81,6 +81,13 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private WorkflowReliabilityService workflowReliabilityService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AgentToolApprovalService toolApprovalService;
+
+    /** W5: execution-level concurrency cap (in-process running tasks). */
+    @org.springframework.beans.factory.annotation.Value("${aipal.workflow.max-concurrent-executions:8}")
+    private int maxConcurrentExecutions = 8;
+
     private final ExecutorService workflowExecutor = Executors.newVirtualThreadPerTaskExecutor();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "workflow-timeout");
@@ -122,6 +129,7 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         WorkflowExecution execution = requireExecution(executionId);
         WorkflowDefinition definition = loadBoundDefinition(execution);
         TenantContext.Context tenantContext = TenantContext.get();
+        assertConcurrencyBudget(executionId);
 
         FutureTask<Void> future = new FutureTask<>(() -> {
             runWithTenantContext(tenantContext, () -> executeWorkflow(execution, definition, false, null));
@@ -191,6 +199,8 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         Future<?> future = runningTasks.remove(executionId);
         if (future != null) future.cancel(true);
         cancelTimeout(executionId);
+        abortToolApprovals(executionId, "Execution cancelled");
+        releaseExecutionLease(executionId);
     }
 
     @Override
@@ -755,25 +765,113 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
         Future<?> future = runningTasks.remove(executionId);
         if (future != null) future.cancel(true);
         timeoutTasks.remove(executionId);
+        abortToolApprovals(executionId, "Execution timeout");
+        releaseExecutionLease(executionId);
     }
 
     private void finish(WorkflowExecution execution, String status, String result, String errorMessage) {
+        boolean won = true;
         if (workflowReliabilityService != null) {
-            if (workflowReliabilityService.finishCas(execution.getExecutionId(), status, result, errorMessage)) {
+            won = workflowReliabilityService.finishCas(execution.getExecutionId(), status, result, errorMessage);
+            if (won) {
                 execution.setStatus(status);
                 execution.setResult(result);
                 execution.setErrorMessage(errorMessage);
                 execution.setEndTime(LocalDateTime.now());
             }
+        } else {
+            WorkflowExecution current = getExecutionEntity(execution.getExecutionId());
+            won = current == null || !TERMINAL_STATUSES.contains(current.getStatus());
+            if (won) {
+                execution.setStatus(status);
+                execution.setResult(result);
+                execution.setErrorMessage(errorMessage);
+                execution.setEndTime(LocalDateTime.now());
+                executionMapper.updateById(execution);
+            }
+        }
+        if (won) {
+            // W5: terminal rows drop local running/timeout handles and the worker lease.
+            cleanupExecutionResources(execution.getExecutionId());
+        }
+    }
+
+    /** W5: drop local runningTasks/timeout handles and the workspace/worker lease. */
+    private void cleanupExecutionResources(String executionId) {
+        runningTasks.remove(executionId);
+        cancelTimeout(executionId);
+        releaseExecutionLease(executionId);
+    }
+
+    private void releaseExecutionLease(String executionId) {
+        if (workflowReliabilityService == null) {
             return;
         }
-        WorkflowExecution current = getExecutionEntity(execution.getExecutionId());
-        if (current != null && TERMINAL_STATUSES.contains(current.getStatus())) return;
-        execution.setStatus(status);
-        execution.setResult(result);
-        execution.setErrorMessage(errorMessage);
-        execution.setEndTime(LocalDateTime.now());
-        executionMapper.updateById(execution);
+        try {
+            WorkflowExecution current = getExecutionEntity(executionId);
+            String owner = current == null ? null : current.getOwner();
+            if (owner != null && !owner.isBlank()) {
+                workflowReliabilityService.releaseLease(executionId, owner);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Failed to release workflow lease for {}: {}", executionId, e.getMessage());
+        }
+    }
+
+    private void abortToolApprovals(String executionId, String reason) {
+        if (toolApprovalService == null) {
+            return;
+        }
+        try {
+            // Best-effort: abort waits whose run businessId maps to this execution.
+            toolApprovalService.abortPendingForExecution(executionId, reason);
+        } catch (RuntimeException e) {
+            log.warn("Failed to abort tool approvals for {}: {}", executionId, e.getMessage());
+        }
+    }
+
+    /** W5: configurable execution-level concurrency cap. */
+    private void assertConcurrencyBudget(String executionId) {
+        int limit = Math.max(1, maxConcurrentExecutions);
+        long active = runningTasks.values().stream().filter(task -> !task.isDone()).count();
+        if (active >= limit) {
+            throw new IllegalStateException(
+                    "Workflow execution concurrency limit reached (" + limit + "): " + executionId);
+        }
+    }
+
+    @Override
+    public boolean approveToolCall(String executionId, Long toolCallId, String reason) {
+        requireExecution(executionId);
+        if (toolApprovalService == null) {
+            throw new IllegalStateException("Tool approval service is not available");
+        }
+        return toolApprovalService.approveForExecution(executionId, toolCallId, reason);
+    }
+
+    @Override
+    public boolean rejectToolCall(String executionId, Long toolCallId, String reason) {
+        requireExecution(executionId);
+        if (toolApprovalService == null) {
+            throw new IllegalStateException("Tool approval service is not available");
+        }
+        boolean rejected = toolApprovalService.rejectForExecution(executionId, toolCallId, reason);
+        if (rejected) {
+            if (workflowReliabilityService != null) {
+                workflowReliabilityService.recordEvent(executionId, "TOOL_APPROVAL_REJECTED", null,
+                        reason == null ? "Tool call rejected" : reason);
+            }
+        }
+        return rejected;
+    }
+
+    @Override
+    public List<com.aipal.entity.AgentToolCall> listWaitingToolCalls(String executionId) {
+        requireExecution(executionId);
+        if (toolApprovalService == null) {
+            return List.of();
+        }
+        return toolApprovalService.listWaitingForExecution(executionId);
     }
 
     private synchronized void persistContext(WorkflowExecution execution, String currentNode, Map<String, Object> context) {
@@ -916,6 +1014,14 @@ public class WorkflowExecutionServiceImpl implements WorkflowExecutionService {
     private void cancelTimeout(String executionId) {
         ScheduledFuture<?> timeout = timeoutTasks.remove(executionId);
         if (timeout != null) timeout.cancel(false);
+    }
+
+    @jakarta.annotation.PostConstruct
+    void bindReliabilityHooks() {
+        if (workflowReliabilityService != null) {
+            workflowReliabilityService.setTerminalCleanup((executionId, status) ->
+                    cleanupExecutionResources(executionId));
+        }
     }
 
     @PreDestroy

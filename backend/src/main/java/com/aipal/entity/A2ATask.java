@@ -9,6 +9,9 @@ import java.time.LocalDateTime;
 public class A2ATask {
     @TableId(type = IdType.AUTO)
     private Long id;
+    /** W5: tenant isolation for A2A session/task keys. */
+    @TableField(fill = FieldFill.INSERT)
+    private Long tenantId;
     private String taskId;
     private String sessionId;
     private Long workflowId;

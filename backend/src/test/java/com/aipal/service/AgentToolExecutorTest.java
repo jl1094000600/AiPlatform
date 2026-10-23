@@ -111,6 +111,35 @@ class AgentToolExecutorTest {
         verify(fixtures.permissionEvaluator, never()).evaluate(any(), any());
     }
 
+    @Test
+    void requireApprovalPausesThenExecutesWhenApproved() {
+        Fixtures fixtures = fixtures(AgentToolPermissionDecision.REQUIRE_APPROVAL, true);
+        when(fixtures.approvalService.awaitApproval(any(), any(), any()))
+                .thenReturn(new AgentToolApprovalService.ApprovalOutcome(true, "approved"));
+
+        AgentToolExecutor.ToolExecutionResult result = fixtures.executor.execute(fixtures.run, "call-5",
+                "memory.search", Map.of("query", "demo"));
+
+        assertTrue(result.executed());
+        assertEquals(AgentTaskStatus.SUCCEEDED.name(), result.status());
+        assertTrue(fixtures.toolExecuted.get());
+    }
+
+    @Test
+    void requireApprovalRejectsFailsCallWithoutExecuting() {
+        Fixtures fixtures = fixtures(AgentToolPermissionDecision.REQUIRE_APPROVAL, true);
+        when(fixtures.approvalService.awaitApproval(any(), any(), any()))
+                .thenReturn(new AgentToolApprovalService.ApprovalOutcome(false, "rejected by reviewer"));
+
+        AgentToolExecutor.ToolExecutionResult result = fixtures.executor.execute(fixtures.run, "call-6",
+                "memory.search", Map.of("query", "demo"));
+
+        assertFalse(result.executed());
+        assertEquals("FAILED", result.status());
+        assertEquals("rejected by reviewer", result.errorMessage());
+        assertFalse(fixtures.toolExecuted.get());
+    }
+
     private Fixtures fixtures(AgentToolPermissionDecision decision, boolean includeTool) {
         AgentToolRegistryService registryService = mock(AgentToolRegistryService.class);
         AgentToolPermissionEvaluator evaluator = mock(AgentToolPermissionEvaluator.class);
@@ -125,7 +154,9 @@ class AgentToolExecutorTest {
                         88L, 99L, "call-2", "trace-a", LocalDateTime.now()));
         when(registryService.requireEnabled("memory.search")).thenReturn(definition);
         when(evaluator.evaluate(run, definition)).thenReturn(new AgentToolPermissionEvaluator.ToolPermissionResult(
-                decision, "READ_ONLY", false, decision == AgentToolPermissionDecision.ALLOW ? 9L : null));
+                decision, "READ_ONLY",
+                decision == AgentToolPermissionDecision.REQUIRE_APPROVAL,
+                decision == AgentToolPermissionDecision.DENY ? null : 9L));
         when(stepMapper.selectCount(any())).thenReturn(1L);
         when(stepMapper.insert(any())).thenAnswer(invocation -> {
             AgentStep step = invocation.getArgument(0);
@@ -145,10 +176,14 @@ class AgentToolExecutorTest {
                 return new ToolResult(Map.of("items", List.of()), "empty", 1, 2);
             }
         };
+        AgentToolApprovalService approvalService = mock(AgentToolApprovalService.class);
+        when(approvalService.awaitApproval(any(), any(), any()))
+                .thenReturn(new AgentToolApprovalService.ApprovalOutcome(true, "approved"));
         AgentToolExecutor executor = new AgentToolExecutor(registryService, evaluator, toolCallMapper, stepMapper,
-                streamEventService, runTracer, new ObjectMapper(),
+                streamEventService, runTracer, new ObjectMapper(), approvalService,
                 includeTool ? List.of(tool) : List.of());
-        return new Fixtures(executor, run, evaluator, stepMapper, toolCallMapper, streamEventService, toolExecuted);
+        return new Fixtures(executor, run, evaluator, stepMapper, toolCallMapper, streamEventService, toolExecuted,
+                approvalService);
     }
 
     private AgentRun run() {
@@ -174,6 +209,6 @@ class AgentToolExecutorTest {
     private record Fixtures(AgentToolExecutor executor, AgentRun run, AgentToolPermissionEvaluator permissionEvaluator,
                             AgentStepMapper stepMapper,
                             AgentToolCallMapper toolCallMapper, AgentRunStreamEventService streamEventService,
-                            AtomicBoolean toolExecuted) {
+                            AtomicBoolean toolExecuted, AgentToolApprovalService approvalService) {
     }
 }

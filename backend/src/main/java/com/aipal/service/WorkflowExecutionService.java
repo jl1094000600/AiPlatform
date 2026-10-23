@@ -67,4 +67,18 @@ public interface WorkflowExecutionService {
 
     /** T21 node-level traces for one execution. */
     List<WorkflowTryRunDtos.NodeRunView> listNodeRuns(String executionId);
+
+    /**
+     * W5: approve a WAITING_TOOL_APPROVAL tool call belonging to this execution.
+     * The paused node then continues.
+     */
+    boolean approveToolCall(String executionId, Long toolCallId, String reason);
+
+    /**
+     * W5: reject a WAITING_TOOL_APPROVAL tool call; the owning node fails.
+     */
+    boolean rejectToolCall(String executionId, Long toolCallId, String reason);
+
+    /** W5: tool calls of this execution currently waiting for approval. */
+    List<com.aipal.entity.AgentToolCall> listWaitingToolCalls(String executionId);
 }

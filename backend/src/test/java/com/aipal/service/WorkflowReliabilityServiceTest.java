@@ -100,4 +100,51 @@ class WorkflowReliabilityServiceTest {
         assertEquals(1, events.size());
         assertEquals("STARTED", events.get(0).getEventType());
     }
+
+    @Test
+    void markWaitingPausesNonTerminalExecution() {
+        updateWins.set(1);
+        assertTrue(service.markWaiting("exec-1", "WAITING_APPROVAL", "node-1", "tool approval"));
+        assertTrue(events.stream().anyMatch(e -> "WAITING_APPROVAL".equals(e.getEventType())));
+    }
+
+    @Test
+    void markWaitingIgnoresTerminalStatus() {
+        updateWins.set(0);
+        assertFalse(service.markWaiting("exec-1", "WAITING_APPROVAL", "node-1", "tool approval"));
+    }
+
+    @Test
+    void resumeRunningLeavesWaitingState() {
+        updateWins.set(1);
+        assertTrue(service.resumeRunning("exec-1", "approved"));
+        assertTrue(events.stream().anyMatch(e -> "RESUMED".equals(e.getEventType())));
+    }
+
+    @Test
+    void finishCasInvokesTerminalCleanupAndDropsLease() {
+        List<String> cleaned = new ArrayList<>();
+        service.setTerminalCleanup((id, status) -> cleaned.add(id + ":" + status));
+        updateWins.set(1);
+        assertTrue(service.finishCas("exec-1", "COMPLETED", "{}", null));
+        assertEquals(List.of("exec-1:COMPLETED"), cleaned);
+    }
+
+    @Test
+    void finishCasSkipsCleanupWhenLosingRace() {
+        List<String> cleaned = new ArrayList<>();
+        service.setTerminalCleanup((id, status) -> cleaned.add(id));
+        updateWins.set(0);
+        assertFalse(service.finishCas("exec-1", "COMPLETED", "{}", null));
+        assertTrue(cleaned.isEmpty());
+    }
+
+    @Test
+    void recoverExpiredLeasesAlsoFailsWaitingRows() {
+        WorkflowExecution waiting = row("WAITING_APPROVAL");
+        when(executionMapper.selectList(any())).thenReturn(List.of(waiting));
+        updateWins.set(1);
+        int n = service.recoverExpiredLeases("lease expired");
+        assertEquals(1, n);
+    }
 }

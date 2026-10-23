@@ -271,6 +271,48 @@ class WorkflowExecutionServiceImplTest {
                 """.formatted(type);
     }
 
+    @Test
+    void startRejectsWhenConcurrencyLimitReached() throws Exception {
+        AtomicReference<WorkflowExecution> stored = new AtomicReference<>();
+        Workflow slow = workflow("""
+                {"timeoutSeconds":10,"nodes":[
+                  {"id":"start","type":"START"},
+                  {"id":"agent","type":"AGENT","targetAgent":"writer","timeout":10},
+                  {"id":"end","type":"END"}
+                ],"edges":[
+                  {"source":"start","target":"agent"},
+                  {"source":"agent","target":"end"}
+                ]}
+                """);
+        AgentRegistry registry = mock(AgentRegistry.class);
+        AgentRegistry.AgentContext context = new AgentRegistry.AgentContext();
+        AiAgent agent = new AiAgent();
+        agent.setId(3L);
+        agent.setAgentCode("writer");
+        context.setAgent(agent);
+        context.setHandler(message -> {
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return A2AMessage.builder().payload(Map.of("done", true)).build();
+        });
+        when(registry.getAgent("writer")).thenReturn(context);
+        service = createService(slow, stored, registry);
+        java.lang.reflect.Field limit = WorkflowExecutionServiceImpl.class
+                .getDeclaredField("maxConcurrentExecutions");
+        limit.setAccessible(true);
+        limit.setInt(service, 1);
+
+        service.triggerWorkflow(1L, "MANUAL", Map.of());
+        awaitStatus(stored, "RUNNING", 2000);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.triggerWorkflow(1L, "MANUAL", Map.of()));
+        assertTrue(error.getMessage().contains("concurrency limit"));
+    }
+
     private WorkflowExecution awaitStatus(AtomicReference<WorkflowExecution> stored,
                                           String status,
                                           long timeoutMs) throws Exception {

@@ -40,6 +40,7 @@ public class AgentToolExecutor {
     private final AgentRunStreamEventService streamEventService;
     private final RunTracer runTracer;
     private final ObjectMapper objectMapper;
+    private final AgentToolApprovalService approvalService;
     private final Map<String, AgentTool> tools;
 
     public AgentToolExecutor(AgentToolRegistryService registryService,
@@ -49,6 +50,7 @@ public class AgentToolExecutor {
                              AgentRunStreamEventService streamEventService,
                              RunTracer runTracer,
                              ObjectMapper objectMapper,
+                             AgentToolApprovalService approvalService,
                              List<AgentTool> tools) {
         this.registryService = registryService;
         this.permissionEvaluator = permissionEvaluator;
@@ -57,6 +59,7 @@ public class AgentToolExecutor {
         this.streamEventService = streamEventService;
         this.runTracer = runTracer;
         this.objectMapper = objectMapper;
+        this.approvalService = approvalService;
         this.tools = tools == null ? Map.of() : tools.stream()
                 .collect(Collectors.toUnmodifiableMap(AgentTool::name, Function.identity(), (left, ignored) -> left));
     }
@@ -81,7 +84,10 @@ public class AgentToolExecutor {
         recordEvent(run, step, call, AgentRunStreamEventType.TOOL_REQUESTED, payload(step, call, definition, permission));
         recordEvent(run, step, call, AgentRunStreamEventType.PERMISSION_DECIDED, payload(step, call, definition, permission));
 
-        if (permission.decision() != AgentToolPermissionDecision.ALLOW) {
+        boolean needsApproval = permission.requiresApproval()
+                || permission.decision() == AgentToolPermissionDecision.REQUIRE_APPROVAL;
+        if (permission.decision() == AgentToolPermissionDecision.DENY
+                || (!needsApproval && permission.decision() != AgentToolPermissionDecision.ALLOW)) {
             String reason = allowedByVersion ? "Tool permission " + permission.decision().name()
                     : "Tool is not allowed by Agent Version whitelist";
             markFailed(step, call, reason);
@@ -90,6 +96,24 @@ public class AgentToolExecutor {
                     step.getId(), call.getId(), resolvedCallId, run.getTraceId(), SpanStatus.ERROR, reason,
                     step.getStartTime(), LocalDateTime.now(), 0, 0);
             return new ToolExecutionResult(false, permission.decision().name(), null, reason, call.getId(), step.getId());
+        }
+
+        if (needsApproval) {
+            // W5: pause as WAITING_TOOL_APPROVAL using the AgentTool permission semantics.
+            // Approve → execute; reject/timeout → the call (and thus the node) fails.
+            AgentToolApprovalService.ApprovalOutcome outcome = awaitToolApproval(run, step, call, definition, permission);
+            if (!outcome.approved()) {
+                String reason = outcome.reason() == null ? "Tool call rejected" : outcome.reason();
+                markFailed(step, call, reason);
+                recordEvent(run, step, call, AgentRunStreamEventType.TOOL_FAILED, failurePayload(step, call, reason));
+                runTracer.record(run.getTenantId(), run.getId(), SpanType.TOOL_CALL, definition.getToolName(),
+                        step.getId(), call.getId(), resolvedCallId, run.getTraceId(), SpanStatus.ERROR, reason,
+                        step.getStartTime(), LocalDateTime.now(), 0, 0);
+                return new ToolExecutionResult(false, "FAILED", null, reason, call.getId(), step.getId());
+            }
+            // Approved: re-enter RUNNING before the side effect executes.
+            markApprovedAndRunning(step, call);
+            recordEvent(run, step, call, AgentRunStreamEventType.PERMISSION_DECIDED, payload(step, call, definition, permission));
         }
 
         AgentTool tool = tools.get(definition.getToolName());
@@ -177,6 +201,37 @@ public class AgentToolExecutor {
         call.setIsDeleted(0);
         toolCallMapper.insert(call);
         return call;
+    }
+
+    /**
+     * W5: blocks on the shared AgentTool approval semantics (REQUIRE_APPROVAL →
+     * WAITING_TOOL_APPROVAL). Returns the durable outcome so a restart cannot
+     * silently re-execute a rejected side effect.
+     */
+    private AgentToolApprovalService.ApprovalOutcome awaitToolApproval(
+            AgentRun run, AgentStep step, AgentToolCall call,
+            AgentToolDefinition definition, AgentToolPermissionEvaluator.ToolPermissionResult permission) {
+        step.setStatus(AgentToolApprovalService.STATUS_WAITING);
+        step.setUpdateTime(LocalDateTime.now());
+        stepMapper.updateById(step);
+        Map<String, Object> waiting = payload(step, call, definition, permission);
+        waiting.put("status", AgentToolApprovalService.STATUS_WAITING);
+        recordEvent(run, step, call, AgentRunStreamEventType.APPROVAL_REQUIRED, waiting);
+        runTracer.record(run.getTenantId(), run.getId(), SpanType.APPROVAL_WAIT, definition.getToolName(),
+                step.getId(), call.getId(), call.getCallId(), run.getTraceId(), SpanStatus.WAITING,
+                "Awaiting tool approval: " + definition.getToolName(),
+                LocalDateTime.now(), null, 0, 0);
+        return approvalService.awaitApproval(run, call, null);
+    }
+
+    private void markApprovedAndRunning(AgentStep step, AgentToolCall call) {
+        LocalDateTime now = LocalDateTime.now();
+        step.setStatus(AgentTaskStatus.RUNNING.name());
+        step.setUpdateTime(now);
+        stepMapper.updateById(step);
+        call.setStatus(AgentTaskStatus.RUNNING.name());
+        call.setUpdateTime(now);
+        toolCallMapper.updateById(call);
     }
 
     private void markSucceeded(AgentStep step, AgentToolCall call, ToolResult result) {

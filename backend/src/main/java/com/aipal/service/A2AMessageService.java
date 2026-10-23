@@ -42,6 +42,7 @@ public class A2AMessageService {
     private final ObjectMapper objectMapper;
     private final A2ATaskMapper a2aTaskMapper;
     private final AiAgentMapper aiAgentMapper;
+    /** W5: tenant-scoped correlation keys so two tenants never share a pending response. */
     private final Map<String, CompletableFuture<A2AMessage>> pendingResponses = new ConcurrentHashMap<>();
     private final Map<String, Function<A2AMessage, A2AMessage>> agentHandlers = new ConcurrentHashMap<>();
 
@@ -89,10 +90,11 @@ public class A2AMessageService {
             if (message.getAction() == A2AMessage.Action.invoke
                 && message.getCorrelationId() == null) {
                 CompletableFuture<A2AMessage> future = new CompletableFuture<>();
-                pendingResponses.put(message.getMessageId(), future);
+                String pendingKey = pendingKey(message.getMessageId());
+                pendingResponses.put(pendingKey, future);
 
                 future.orTimeout(MESSAGE_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                    .whenComplete((resp, ex) -> pendingResponses.remove(message.getMessageId()));
+                    .whenComplete((resp, ex) -> pendingResponses.remove(pendingKey));
             }
 
             log.debug("A2A message sent: {} -> {} [{}]",
@@ -107,6 +109,7 @@ public class A2AMessageService {
     private void persistA2ATask(A2AMessage message) {
         try {
             A2ATask task = new A2ATask();
+            task.setTenantId(TenantContext.tenantId());
             task.setTaskId(message.getMessageId());
             task.setSessionId(message.getSessionId());
             task.setTaskType(message.getAction() != null ? message.getAction().name() : null);
@@ -135,7 +138,7 @@ public class A2AMessageService {
     }
 
     public A2AMessage getResponse(String correlationId, long timeoutMs) {
-        CompletableFuture<A2AMessage> future = pendingResponses.get(correlationId);
+        CompletableFuture<A2AMessage> future = pendingResponses.get(pendingKey(correlationId));
         if (future == null) {
             return null;
         }
@@ -195,7 +198,8 @@ public class A2AMessageService {
         log.debug("Processing A2A message: {} -> {} [{}]",
             message.getSourceAgent(), message.getTargetAgent(), message.getAction());
 
-        CompletableFuture<A2AMessage> waitingFuture = pendingResponses.get(message.getCorrelationId());
+        CompletableFuture<A2AMessage> waitingFuture =
+            message.getCorrelationId() == null ? null : pendingResponses.get(pendingKey(message.getCorrelationId()));
         if (waitingFuture != null) {
             waitingFuture.complete(message);
             updateA2ATaskStatus(message.getCorrelationId(), "COMPLETED", null);
@@ -266,11 +270,23 @@ public class A2AMessageService {
         return messages;
     }
 
+    /**
+     * W5: canonical tenant-scoped session key. A session id is never reused across
+     * tenants — every derived Redis/pending/handler key embeds the tenant id.
+     */
+    public static String sessionKey(Long tenantId, String sessionId) {
+        return tenantId + ":" + sessionId;
+    }
+
+    private String pendingKey(String messageId) {
+        return sessionKey(TenantContext.tenantId(), messageId);
+    }
+
     private String streamKey(String sessionId) {
-        return STREAM_KEY_PREFIX + TenantContext.tenantId() + ":" + sessionId;
+        return STREAM_KEY_PREFIX + sessionKey(TenantContext.tenantId(), sessionId);
     }
 
     private String handlerKey(String agentCode) {
-        return TenantContext.tenantId() + ":" + agentCode;
+        return sessionKey(TenantContext.tenantId(), agentCode);
     }
 }
