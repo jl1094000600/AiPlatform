@@ -57,8 +57,6 @@ class HeartbeatManagementServiceImplTest {
     void setTenantContext() {
         TenantContext.set(new TenantContext.Context(
                 1L, "tester", 9L, "tenant-9", false, java.util.Set.of(), java.util.Set.of()));
-        // Mockito constructor injection does not inject this separate Spring @Autowired field.
-        org.springframework.test.util.ReflectionTestUtils.setField(heartbeatManagementService, "tenantTaskRunner", tenantTaskRunner);
     }
 
     private void runDetectionForCurrentTenant() {

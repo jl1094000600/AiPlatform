@@ -12,7 +12,6 @@ import com.aipal.security.TenantTaskRunner;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
@@ -46,9 +45,7 @@ public class HeartbeatManagementServiceImpl implements HeartbeatManagementServic
     private final AgentRegistrationMapper registrationMapper;
     private final AiAgentMapper agentMapper;
     private final AgentEventService agentEventService;
-
-    @Autowired
-    private TenantTaskRunner tenantTaskRunner;
+    private final TenantTaskRunner tenantTaskRunner;
 
     @Override
     public void recordHeartbeat(HeartbeatRequest request) {
