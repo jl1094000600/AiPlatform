@@ -411,7 +411,8 @@ import {
   variablesToEditable,
   validateTemplateReferences,
   insertTemplateReference,
-  buildReferenceSuggestions
+  buildReferenceSuggestions,
+  validateGraphStructure
 } from '../utils/workflowCanvas.js'
 
 const canvasRef = ref(null)
@@ -821,6 +822,12 @@ const saveWorkflow = async () => {
   const refErrors = collectReferenceErrors()
   if (refErrors.length) {
     ElMessage.warning(refErrors[0])
+    return
+  }
+
+  const graphErrors = validateGraphStructure({ nodes: workflowNodes.value, edges: workflowEdges.value })
+  if (graphErrors.length) {
+    ElMessage.warning(graphErrors[0])
     return
   }
 

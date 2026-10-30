@@ -7,7 +7,7 @@ import {
   extractTemplateReferences, validateTemplateReferences, inputsToBindings, bindingsToInputs,
   normalizeVariables, variablesToEditable, buildWorkflowDefinition, buildWorkflowLayout,
   applyWorkflowLayout, extractLayoutFromNodes, parseWorkflowDefinition, insertTemplateReference,
-  buildReferenceSuggestions, WORKFLOW_SCHEMA_VERSION, VARIABLE_TYPES
+  buildReferenceSuggestions, validateGraphStructure, WORKFLOW_SCHEMA_VERSION, VARIABLE_TYPES
 } from '../utils/workflowCanvas.js'
 
 let passed = 0
@@ -29,7 +29,7 @@ const stripImports = (script) => script
 const canvasScript = stripImports(canvasSource.split('<script setup>')[1].split('</script>')[0])
 const setupCanvas = new Function(
   'computed', 'useVueFlow', 'defineProps', 'defineEmits', 'applyWorkflowPositionChanges', 'createDroppedWorkflowNode',
-  `${canvasScript}\nreturn { onDrop, onNodesChange, flowNodes };`
+  `${canvasScript}\nreturn { onDrop, onNodesChange, onConnect, flowNodes };`
 )
 
 const createCanvas = () => {
@@ -66,6 +66,7 @@ const setupEditor = new Function(
   'buildWorkflowDefinition', 'buildWorkflowLayout', 'applyWorkflowLayout', 'extractLayoutFromNodes',
   'parseWorkflowDefinition', 'inputsToBindings', 'bindingsToInputs', 'normalizeVariables',
   'variablesToEditable', 'validateTemplateReferences', 'insertTemplateReference', 'buildReferenceSuggestions',
+  'validateGraphStructure',
   `${editorScript}\nreturn { workflowNodes, workflowEdges, workflowVariables, currentWorkflow, workflowSupportMessage, saveWorkflow, triggerWorkflow, publishVersion, collectReferenceErrors, selectedNode, selectedNodeBindingErrors, addBinding, removeBinding, insertRefIntoBinding, addVariable, removeVariable };`
 )
 const createEditor = (definition) => {
@@ -94,7 +95,8 @@ const createEditor = (definition) => {
   WORKFLOW_NODE_TYPES, VARIABLE_TYPES, workflowSupportError,
   buildWorkflowDefinition, buildWorkflowLayout, applyWorkflowLayout, extractLayoutFromNodes,
   parseWorkflowDefinition, inputsToBindings, bindingsToInputs, normalizeVariables,
-  variablesToEditable, validateTemplateReferences, insertTemplateReference, buildReferenceSuggestions)
+  variablesToEditable, validateTemplateReferences, insertTemplateReference, buildReferenceSuggestions,
+  validateGraphStructure)
   return { editor, calls, warnings }
 }
 
@@ -413,9 +415,10 @@ await check('editor save writes schemaVersion, variables and node inputs without
       id: '2', type: 'AGENT', x: 100, y: 200,
       paramsText: '{"prompt":"hi"}',
       inputBindings: [{ key: 'prompt', value: '{{variables.topic}}' }]
-    }
+    },
+    { id: '3', type: 'END', x: 100, y: 320, inputBindings: [] }
   ]
-  harness.editor.workflowEdges.value = [{ source: '1', target: '2' }]
+  harness.editor.workflowEdges.value = [{ source: '1', target: '2' }, { source: '2', target: '3' }]
   harness.editor.workflowVariables.value = [{ name: 'topic', type: 'string', required: true, defaultValueText: '' }]
   harness.editor.currentWorkflow.value = { id: 5, workflowName: '测试', workflowCode: 'WF1' }
   await harness.editor.saveWorkflow()
@@ -433,12 +436,15 @@ await check('editor save writes schemaVersion, variables and node inputs without
 await check('editor blocks save when a variable reference is undeclared', async () => {
   const harness = createEditor()
   harness.editor.workflowNodes.value = [
+    { id: '1', type: 'START', x: 0, y: 0, inputBindings: [] },
     {
-      id: '1', type: 'AGENT', x: 0, y: 0,
+      id: '2', type: 'AGENT', x: 0, y: 80,
       paramsText: '{}',
       inputBindings: [{ key: 'prompt', value: '{{variables.nope}}' }]
-    }
+    },
+    { id: '3', type: 'END', x: 0, y: 160, inputBindings: [] }
   ]
+  harness.editor.workflowEdges.value = [{ source: '1', target: '2' }, { source: '2', target: '3' }]
   harness.editor.workflowVariables.value = []
   harness.editor.currentWorkflow.value = { id: 5, workflowName: '测试', workflowCode: 'WF1' }
   await harness.editor.saveWorkflow()
@@ -451,11 +457,13 @@ await check('editor blocks save when a node output reference points outside the 
   harness.editor.workflowNodes.value = [
     { id: '1', type: 'START', x: 0, y: 0, inputBindings: [] },
     {
-      id: '2', type: 'AGENT', x: 0, y: 0,
+      id: '2', type: 'AGENT', x: 0, y: 80,
       paramsText: '{}',
       inputBindings: [{ key: 'prompt', value: '{{nodes.ghost.outputs.text}}' }]
-    }
+    },
+    { id: '3', type: 'END', x: 0, y: 160, inputBindings: [] }
   ]
+  harness.editor.workflowEdges.value = [{ source: '1', target: '2' }, { source: '2', target: '3' }]
   harness.editor.currentWorkflow.value = { id: 5, workflowName: '测试', workflowCode: 'WF1' }
   const errors = harness.editor.collectReferenceErrors()
   assert.equal(errors.length, 1)
@@ -505,6 +513,93 @@ await check('binding helpers on the editor node panel add, insert and drop rows'
   assert.equal(harness.editor.selectedNodeBindingErrors.value.length, 1)
   harness.editor.removeBinding(0)
   assert.equal(node.inputBindings.length, 0)
+})
+
+await check('page flow: START-only-outgoing and END-only-incoming handles stay consistent', () => {
+  // Regression for the "Non-END node has no outgoing edge" save failure:
+  // a lone START -> END pair drawn as END -> START must still save.
+  const errors = validateGraphStructure({
+    nodes: [{ id: '1', type: 'START' }, { id: '2', type: 'END' }],
+    edges: []
+  })
+  assert.ok(errors.length >= 1)
+  assert.ok(errors.some(message => /没有出边/.test(message)))
+
+  const ok = validateGraphStructure({
+    nodes: [{ id: '1', type: 'START' }, { id: '2', type: 'END' }],
+    edges: [{ source: '1', target: '2' }]
+  })
+  assert.deepEqual(ok, [])
+})
+
+await check('page flow: backward END->START drag is normalized to START->END', async () => {
+  const harness = createCanvas()
+  harness.props.nodes = [
+    { id: '1', type: 'START', x: 100, y: 400, label: '开始' },
+    { id: '2', type: 'END', x: 100, y: 50, label: '结束' }
+  ]
+  await nextTick()
+  // User drags from END's bottom handle to START's top handle.
+  harness.canvas.onConnect({ source: '2', target: '1' })
+  await nextTick()
+  assert.equal(harness.props.edges.length, 1)
+  assert.equal(harness.props.edges[0].source, '1')
+  assert.equal(harness.props.edges[0].target, '2')
+  assert.deepEqual(validateGraphStructure({ nodes: harness.props.nodes, edges: harness.props.edges }), [])
+  harness.close()
+})
+
+await check('page flow: reverse middle edge flips only when the flipped direction is legal', async () => {
+  const harness = createCanvas()
+  harness.props.nodes = [
+    { id: '1', type: 'START', x: 0, y: 0, label: '开始' },
+    { id: '2', type: 'AGENT', x: 0, y: 120, label: '生成' },
+    { id: '3', type: 'END', x: 0, y: 240, label: '结束' }
+  ]
+  await nextTick()
+  // Dragging AGENT -> START is flipped to the legal START -> AGENT direction.
+  harness.canvas.onConnect({ source: '2', target: '1' })
+  await nextTick()
+  assert.equal(harness.props.edges.length, 1)
+  assert.equal(harness.props.edges[0].source, '1')
+  assert.equal(harness.props.edges[0].target, '2')
+  // END -> AGENT flips to AGENT -> END.
+  harness.canvas.onConnect({ source: '3', target: '2' })
+  await nextTick()
+  assert.equal(harness.props.edges.length, 2)
+  assert.equal(harness.props.edges[1].source, '2')
+  assert.equal(harness.props.edges[1].target, '3')
+  harness.close()
+})
+
+await check('page flow: editor save is blocked with a friendly message when a node has no outgoing edge', async () => {
+  const harness = createEditor()
+  harness.editor.workflowNodes.value = [
+    { id: '1', type: 'START', x: 0, y: 0, inputBindings: [] },
+    { id: '2', type: 'END', x: 0, y: 100, inputBindings: [] }
+  ]
+  harness.editor.workflowEdges.value = []
+  harness.editor.currentWorkflow.value = { id: 5, workflowName: '测试', workflowCode: 'WF1' }
+  await harness.editor.saveWorkflow()
+  assert.deepEqual(harness.calls, [])
+  assert.ok(harness.warnings.length > 0)
+  assert.match(harness.warnings[0], /出边|开始/)
+})
+
+await check('page flow: drop, connect and save a minimal START->END workflow', async () => {
+  const harness = createEditor()
+  harness.editor.workflowNodes.value = [
+    { id: '1', type: 'START', x: 0, y: 0, inputBindings: [] },
+    { id: '2', type: 'END', x: 0, y: 100, inputBindings: [] }
+  ]
+  harness.editor.workflowEdges.value = [{ source: '1', target: '2' }]
+  harness.editor.currentWorkflow.value = { id: 5, workflowName: '测试', workflowCode: 'WF1' }
+  await harness.editor.saveWorkflow()
+  assert.equal(harness.calls.length, 1)
+  const definition = JSON.parse(harness.calls[0][1].workflowDefinition)
+  assert.equal(definition.nodes.length, 2)
+  assert.deepEqual(definition.edges, [{ source: '1', target: '2' }])
+  assert.deepEqual(harness.warnings, [])
 })
 
 console.log(`Workflow canvas regression tests passed (${passed} checks)`)

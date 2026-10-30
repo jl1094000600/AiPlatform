@@ -19,11 +19,13 @@
           class="wf-node"
           :class="[props.data.type?.toLowerCase(), { selected: props.selected }]"
         >
-          <Handle type="target" :position="Position.Top" />
+          <!-- START only sources, END only accepts; both handles would let users
+               draw END-&gt;START edges that the definition validator rejects. -->
+          <Handle v-if="props.data.type !== 'START'" type="target" :position="Position.Top" />
           <div class="wf-node-icon">{{ iconOf(props.data.type) }}</div>
           <div class="wf-node-label">{{ props.data.label }}</div>
           <div class="wf-node-type">{{ props.data.type }}</div>
-          <Handle type="source" :position="Position.Bottom" />
+          <Handle v-if="props.data.type !== 'END'" type="source" :position="Position.Bottom" />
         </div>
       </template>
     </VueFlow>
@@ -92,9 +94,33 @@ const onNodesChange = (changes) => {
 }
 
 const onConnect = (params) => {
-  const source = String(params.source)
-  const target = String(params.target)
+  let source = String(params.source)
+  let target = String(params.target)
   if (!source || !target || source === target) return
+
+  const nodeType = (id) => props.nodes.find(item => String(item.id) === id)?.type
+  const sourceType = nodeType(source)
+  const targetType = nodeType(target)
+
+  // Users often drag from whichever handle is nearest. Normalize so the edge
+  // always flows forward: END can never be a source, START can never be a target.
+  if (sourceType === 'END' && targetType === 'START') {
+    // A lone START-&gt;END pair drawn backwards.
+    const swap = source
+    source = target
+    target = swap
+  } else if (sourceType === 'END' || targetType === 'START') {
+    // END as a source, or START as a target, means the user dragged the wrong way.
+    // Flip only when the flipped direction is legal.
+    if (nodeType(target) !== 'END' && nodeType(source) !== 'START') {
+      const swap = source
+      source = target
+      target = swap
+    } else {
+      return
+    }
+  }
+
   if (props.edges.some(edge => String(edge.source) === source && String(edge.target) === target)) return
   emit('update:edges', [...props.edges, { source, target }])
 }

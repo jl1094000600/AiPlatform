@@ -11,6 +11,70 @@ export const VARIABLE_TYPES = Object.freeze(['string', 'number', 'boolean', 'obj
 
 const supportedTypes = new Set(WORKFLOW_NODE_TYPES.map(node => node.type))
 
+/**
+ * Mirror the backend graph rules so the editor can fail fast with a friendly
+ * message instead of a 400 from the API.
+ */
+export const validateGraphStructure = ({ nodes, edges }) => {
+  const errors = []
+  const list = nodes || []
+  const edgeList = edges || []
+  if (!list.length) {
+    errors.push('画布为空，请先添加节点')
+    return errors
+  }
+  const byId = new Map(list.map(node => [String(node.id), node]))
+  const starts = list.filter(node => node.type === 'START')
+  const ends = list.filter(node => node.type === 'END')
+  if (starts.length !== 1) errors.push('必须有且仅有一个「开始」节点')
+  if (ends.length === 0) errors.push('至少需要一个「结束」节点')
+  if (starts.length !== 1 || ends.length === 0) return errors
+
+  const outgoing = new Map()
+  const incoming = new Map()
+  for (const edge of edgeList) {
+    const source = String(edge.source)
+    const target = String(edge.target)
+    if (!byId.has(source) || !byId.has(target)) {
+      errors.push(`连线引用了不存在的节点：${source} → ${target}`)
+      continue
+    }
+    if (byId.get(source).type === 'END') {
+      errors.push(`「结束」节点不能有出边：${source} → ${target}`)
+      continue
+    }
+    if (byId.get(target).type === 'START') {
+      errors.push(`「开始」节点不能有入边：${source} → ${target}`)
+      continue
+    }
+    outgoing.set(source, (outgoing.get(source) || 0) + 1)
+    incoming.set(target, (incoming.get(target) || 0) + 1)
+  }
+
+  for (const node of list) {
+    const id = String(node.id)
+    const outCount = outgoing.get(id) || 0
+    if (node.type !== 'END' && outCount === 0) {
+      errors.push(node.type === 'START'
+        ? `「开始」节点没有出边，请连向下一个节点（当前节点 ${id}）`
+        : `非结束节点缺少出边：${node.label || id}`)
+    }
+    if (node.type === 'START' && outCount !== 1) {
+      errors.push(`「开始」节点必须只有一条出边（当前 ${outCount} 条）`)
+    }
+    if (node.type === 'AGENT' && outCount !== 1) {
+      errors.push(`Agent 节点必须只有一条出边：${node.label || id}`)
+    }
+    if (node.type === 'CONDITION' && outCount < 2) {
+      errors.push(`条件分支节点至少需要两条出边：${node.label || id}`)
+    }
+    if (node.type !== 'START' && (incoming.get(id) || 0) === 0) {
+      errors.push(`节点没有入边：${node.label || id}`)
+    }
+  }
+  return errors
+}
+
 export const workflowSupportError = (definition) => {
   let graph
   try {
