@@ -2,6 +2,8 @@ package com.aipal.service;
 
 import com.aipal.agent.runtime.AgentRunStatus;
 import com.aipal.entity.AgentRun;
+import com.aipal.agent.runtime.workspace.WorkspaceFactory;
+import com.aipal.agent.runtime.workspace.WorkspaceManager;
 import com.aipal.mapper.AgentRunMapper;
 import com.aipal.security.TenantContext;
 import com.aipal.security.TenantTaskRunner;
@@ -22,6 +24,9 @@ public class AgentRunTimeoutService {
     private final AgentTaskService taskService;
     private final TenantTaskRunner tenantTaskRunner;
     private final AgentRunEventService eventService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private WorkspaceManager workspaceManager;
 
     @Scheduled(fixedDelayString = "${aipal.agent-runtime.timeout-scan-delay-ms:30000}",
             initialDelayString = "${aipal.agent-runtime.timeout-scan-initial-delay-ms:60000}")
@@ -49,10 +54,24 @@ public class AgentRunTimeoutService {
                     .eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
             if (changed == 1) {
                 taskService.cancelTasksForRun(run.getId(), "Execution timed out");
+                releaseWorkspaceSafely(run);
                 eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.TIMEOUT.name(), "Execution timed out");
                 timedOut++;
             }
         }
         return timedOut;
+    }
+
+    /** G1: terminal timeout releases the run workspace idempotently. */
+    private void releaseWorkspaceSafely(AgentRun run) {
+        if (workspaceManager == null || run == null || run.getTenantId() == null || run.getId() == null) {
+            return;
+        }
+        try {
+            workspaceManager.release(new WorkspaceFactory.WorkspaceIdentity(
+                    run.getTenantId(), null, run.getId(), null, null));
+        } catch (Exception ignored) {
+            // best-effort reclaim
+        }
     }
 }

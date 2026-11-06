@@ -309,6 +309,7 @@ public class AgentRunService {
                 .eq(AgentArtifact::getStatus, "PENDING_APPROVAL"));
         run.setStatus(AgentRunStatus.SUCCEEDED.name());
         run.setEndTime(now);
+        releaseWorkspaceSafely(run);
         eventService.record(run, AgentRunStatus.WAITING_APPROVAL.name(), AgentRunStatus.SUCCEEDED.name(),
                 reason == null || reason.isBlank() ? "Approved by authorized user" : reason);
         return get(runId);
@@ -341,6 +342,7 @@ public class AgentRunService {
         run.setStatus(AgentRunStatus.FAILED.name());
         run.setErrorMessage(rejectReason);
         run.setEndTime(now);
+        releaseWorkspaceSafely(run);
         eventService.record(run, AgentRunStatus.WAITING_APPROVAL.name(), AgentRunStatus.FAILED.name(), rejectReason);
         return get(runId);
     }

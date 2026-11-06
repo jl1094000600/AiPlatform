@@ -10,6 +10,8 @@ import com.aipal.agent.runtime.trace.RunTracer;
 import com.aipal.agent.runtime.trace.Span;
 import com.aipal.agent.runtime.trace.SpanStatus;
 import com.aipal.agent.runtime.trace.SpanType;
+import com.aipal.agent.runtime.workspace.WorkspaceFactory;
+import com.aipal.agent.runtime.workspace.WorkspaceManager;
 import com.aipal.entity.AgentArtifact;
 import com.aipal.entity.AgentRun;
 import com.aipal.entity.AgentStep;
@@ -54,6 +56,9 @@ public class AgentRunExecutionService {
     private final RunTracer runTracer;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private WorkspaceManager workspaceManager;
     private final ScheduledExecutorService heartbeatScheduler = Executors.newScheduledThreadPool(1, runnable -> {
         Thread thread = new Thread(runnable, "agent-runtime-heartbeat");
         thread.setDaemon(true);
@@ -136,6 +141,7 @@ public class AgentRunExecutionService {
 
     @Transactional
     protected void finalizeSuccess(AgentRun run, AgentTask task, AgentStep step, String workerId, String resultJson, int totalTokens) {
+        releaseWorkspaceSafely(run);
         if (!completeOwnedTask(task, workerId, AgentTaskStatus.SUCCEEDED, null)) {
             markStepCancelled(step);
             return;
@@ -193,6 +199,7 @@ public class AgentRunExecutionService {
                     .eq(AgentRun::getTenantId, run.getTenantId()).eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
             if (changed == 1) {
                 eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), reason);
+                releaseWorkspaceSafely(run);
                 streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_FAILED,
                         Map.of("status", AgentRunStatus.FAILED.name(), "stepId", step.getId(),
                                 "reason", safeFailureReason(reason)), true);
@@ -226,6 +233,7 @@ public class AgentRunExecutionService {
                 .eq(AgentRun::getTenantId, run.getTenantId()).eq(AgentRun::getStatus, AgentRunStatus.RUNNING.name()));
         if (changed == 1) {
             eventService.record(run, AgentRunStatus.RUNNING.name(), AgentRunStatus.FAILED.name(), budgetReason);
+            releaseWorkspaceSafely(run);
             streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_FAILED,
                     Map.of("status", AgentRunStatus.FAILED.name(), "stepId", step.getId(),
                             "reason", budgetReason, "totalTokens", totalTokens), true);
@@ -236,6 +244,19 @@ public class AgentRunExecutionService {
         streamEventService.record(run.getTenantId(), run.getId(), AgentRunStreamEventType.RUN_STARTED,
                 Map.of("status", AgentRunStatus.RUNNING.name(), "stepId", step.getId(),
                         "loopVersion", run.getLoopVersion() == null ? "v1" : run.getLoopVersion()), true);
+    }
+
+    /** G1: terminal success/failure releases the run workspace idempotently. */
+    private void releaseWorkspaceSafely(AgentRun run) {
+        if (workspaceManager == null || run == null || run.getTenantId() == null || run.getId() == null) {
+            return;
+        }
+        try {
+            workspaceManager.release(new WorkspaceFactory.WorkspaceIdentity(
+                    run.getTenantId(), null, run.getId(), null, null));
+        } catch (Exception ignored) {
+            // best-effort reclaim
+        }
     }
 
     private boolean completeOwnedTask(AgentTask task, String workerId, AgentTaskStatus status, String reason) {
